@@ -4,18 +4,24 @@
 // the link as `#session=<link>`. The ElevenLabs key comes encrypted from the
 // agent, or typed in, and stays in this browser.
 import { Secrets, type Session } from "byoa/client";
-import { Onboard } from "byoa/onboard";
+import { Named, Onboard } from "byoa/onboard";
 import { useSession } from "byoa/react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Voice } from "./voice/voice.ts";
 import { VoiceBar } from "./voice/voice-bar.tsx";
 
-const NAME = "person";
 const KEY = "elevenlabs-key";
 
 export function App() {
-	const { session, alone, problem, leave } = useSession(NAME);
+	return (
+		<Named service="voice.senses.sh">{(name) => <Page name={name} />}</Named>
+	);
+}
+
+/** The page, taking part under the person's `name`. */
+function Page({ name }: { name: string }) {
+	const { session, alone, problem, leave } = useSession(name);
 	const [key, setKey] = useState(() => localStorage.getItem(KEY));
 
 	useEffect(() => {
@@ -79,7 +85,7 @@ function Speech({
 }) {
 	const [voice, setVoice] = useState<Voice | null>(null);
 	useEffect(() => {
-		const voice = new Voice(session, NAME, elevenlabs);
+		const voice = new Voice(session, session.name, elevenlabs);
 		setVoice(voice);
 		return () => voice.close();
 	}, [session, elevenlabs]);

@@ -7,7 +7,7 @@ The session runs on the byoa transport: read its spec first, `curl https://byoa.
 
 If you were given a session token, join with it: its link is `https://byoa.senses.sh/s/<token>`.
 To start one yourself, create a session, join it, and give the person `https://voice.senses.sh/#session=<link>`.
-The page joins as `person`.
+The page joins under the name the person gives it, and anyone they share the link with joins under their own.
 Send your messages as `text/plain` or `text/markdown` entries.
 
 When the page posts a public key, it has no ElevenLabs key: send it the person's key as the secret `elevenlabs`, as the spec shows.
