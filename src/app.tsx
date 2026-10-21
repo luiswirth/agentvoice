@@ -87,7 +87,7 @@ function Talk({ link }: { link: string }) {
 				name="voice.senses.sh"
 				title="Talk with your agent"
 				description="Speak to the agent you already use, and hear its answers, here in your browser."
-				prompt={`Read ${location.origin}/agents.md and join session ${new URL(link).pathname.split("/").pop()}`}
+				prompt={`Read ${location.origin}/agents.md and join with session token ${new URL(link).pathname.split("/").pop()}`}
 				note="The voice runs on ElevenLabs, with your own account."
 			/>
 		);
