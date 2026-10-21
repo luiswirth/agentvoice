@@ -1,8 +1,10 @@
-// A page to try voice on: a session of the byoa transport, its chat
-// messages, and voice's controls. The session link is the page's hash, and
-// the relay the `relay` parameter, by default a local one while developing,
-// else byoa's.
-import { create, LEAVE, Session } from "byoa/client";
+// A page to talk with an agent by voice: a session of the byoa transport, its
+// messages, and voice's controls. The agent sets it up, and gives the person a
+// link with the session and the ElevenLabs key in its hash,
+// `#session=<link>&key=<key>`. A browser sends no hash to any server, and the
+// page moves the key into local storage at once, so it never reaches one.
+import { LEAVE, Session } from "byoa/client";
+import { Onboard } from "byoa/onboard";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
 import { type Entry, spoken } from "./voice/protocol.ts";
@@ -10,69 +12,56 @@ import { Voice } from "./voice/voice.ts";
 import { VoiceBar } from "./voice/voice-bar.tsx";
 
 const NAME = "person";
-const relay =
-	new URLSearchParams(location.search).get("relay") ??
-	(import.meta.env.DEV ? "http://localhost:8790" : "https://relay.senses.sh");
+const KEY = "elevenlabs-key";
 
-export function App() {
-	const [key, setKey] = useState(() => localStorage.getItem("elevenlabs-key"));
-	const link = useSyncExternalStore(
+/** Moves a key in the hash into local storage. Registered before React's
+ * listener, so that the page sees the key with the hash that brought it. */
+function takeKey() {
+	const hash = new URLSearchParams(location.hash.slice(1));
+	const key = hash.get("key");
+	if (!key) return;
+	localStorage.setItem(KEY, key);
+	hash.delete("key");
+	history.replaceState(null, "", `#${hash}`);
+}
+takeKey();
+addEventListener("hashchange", takeKey);
+
+function useSessionLink(): string {
+	return useSyncExternalStore(
 		(changed) => {
 			addEventListener("hashchange", changed);
 			return () => removeEventListener("hashchange", changed);
 		},
-		() => decodeURIComponent(location.hash.slice(1)),
-	);
-	return (
-		<main className="mx-auto flex h-dvh max-w-2xl flex-col gap-4 p-4">
-			{key === null ? (
-				<KeyForm
-					done={(key) => {
-						localStorage.setItem("elevenlabs-key", key);
-						setKey(key);
-					}}
-				/>
-			) : link ? (
-				<Talk key={link} link={link} elevenlabs={key} />
-			) : (
-				<Button
-					className="self-start"
-					onClick={async () => {
-						location.hash = await create(relay);
-					}}
-				>
-					New session
-				</Button>
-			)}
-		</main>
+		() => new URLSearchParams(location.hash.slice(1)).get("session") ?? "",
 	);
 }
 
-function KeyForm({ done }: { done: (key: string) => void }) {
-	const [key, setKey] = useState("");
+export function App() {
+	const link = useSessionLink();
+	const key = localStorage.getItem(KEY);
+	if (!link) {
+		return (
+			<Onboard
+				name="voice.senses.sh"
+				title="Talk with your agent"
+				description="Speak to the agent you already use, and hear its answers, here in your browser."
+				prompt={`Read ${location.origin}/agent.md and start a voice session with me.`}
+				note="The voice runs on ElevenLabs, with your own account. Your agent sets up its key with you."
+			/>
+		);
+	}
 	return (
-		<form
-			className="flex flex-col gap-2"
-			onSubmit={(event) => {
-				event.preventDefault();
-				if (key.trim()) done(key.trim());
-			}}
-		>
-			<label className="text-sm text-muted-foreground" htmlFor="key">
-				Your ElevenLabs API key. It stays in this browser, and goes only to
-				ElevenLabs.
-			</label>
-			<div className="flex gap-2">
-				<input
-					id="key"
-					type="password"
-					className="flex-1 rounded-lg border bg-transparent px-2 text-sm"
-					value={key}
-					onChange={(event) => setKey(event.target.value)}
-				/>
-				<Button type="submit">Save</Button>
-			</div>
-		</form>
+		<main className="mx-auto flex h-dvh max-w-2xl flex-col gap-4 p-4">
+			{key ? (
+				<Talk key={link} link={link} elevenlabs={key} />
+			) : (
+				<p className="m-auto max-w-sm text-center text-sm text-muted-foreground">
+					This browser has no ElevenLabs key yet. Ask your agent for the link
+					with the key in it.
+				</p>
+			)}
+		</main>
 	);
 }
 
@@ -102,20 +91,12 @@ function Talk({ link, elevenlabs }: { link: string; elevenlabs: string }) {
 			session.close();
 		};
 	}, [link, elevenlabs]);
-	const prompt = `Talk with me by voice through this byoa session: ${link}\nHow it works: ${location.origin}/agent.md\nAsk me to allow curl once if your harness asks before each command.`;
 	return (
 		<>
 			<div className="flex items-center gap-2 text-sm text-muted-foreground">
 				<span className="flex-1">
 					The page's link is a secret: whoever holds it can talk to your agent.
 				</span>
-				<Button
-					variant="outline"
-					size="sm"
-					onClick={() => navigator.clipboard.writeText(prompt)}
-				>
-					Onboard your agent
-				</Button>
 				<Button
 					variant="outline"
 					size="sm"

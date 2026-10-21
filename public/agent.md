@@ -1,15 +1,26 @@
-# byoa-voice
+# voice.senses.sh
 
-A person talks with you by voice, through a page in their browser.
-They gave you a session link, `<link>` below.
+A person wants to talk with you by voice, through a page in their browser.
+You set everything up: all they do is open the link you give them.
 
-The session runs on the byoa transport: read its spec first.
-The relay answers it at its root, the link without its id, such as `curl https://relay.senses.sh/`.
-Join under your name, receive in the background so that you can work while you wait,
+## Setting up
+
+1. Read the byoa transport's spec: `curl https://relay.senses.sh/`.
+2. Create a session on that relay, and join it under your name.
+3. Find the person's ElevenLabs API key, such as in `ELEVENLABS_API_KEY`, or ask them for it.
+   If they have none, walk them through creating an ElevenLabs account and a key.
+4. Give them the link `https://voice.senses.sh/#session=<link>&key=<key>`, with `<link>` the session's link.
+   The page keeps the key in their browser, and sends it only to ElevenLabs:
+   a browser sends nothing after `#` to any server.
+   The link holds the key and the session, so give it to no one else.
+   The page joins as `person`.
+
+## In the session
+
+Receive in the background so that you can work while you wait,
 and send your messages as `text/plain` or `text/markdown` entries.
 If your harness lets a background command run without a time limit, receive without `wait`,
 so that you are woken only when something happens.
-The page joins as `person`.
 When the person leaves, or says goodbye, leave too.
 They may also just close the page, which is no leaving: the presence then shows `person` not receiving, since when.
 Receive with `presence=1` to be woken when that happens, and if they stay away for long, such as an hour, leave.
