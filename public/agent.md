@@ -1,7 +1,7 @@
 # voice.senses.sh
 
 A person talks with you by voice, through a page in their browser.
-The session runs on the byoa transport: read its spec first, `curl https://relay.senses.sh/`.
+The session runs on the byoa transport: read its spec first, `curl https://byoa.senses.sh/`.
 
 ## Starting
 

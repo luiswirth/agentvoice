@@ -15,7 +15,7 @@ const NAME = "person";
 const KEY = "elevenlabs-key";
 const relay =
 	new URLSearchParams(location.search).get("relay") ??
-	(import.meta.env.DEV ? "http://localhost:8790" : "https://relay.senses.sh");
+	(import.meta.env.DEV ? "http://localhost:8790" : "https://byoa.senses.sh");
 
 function useLink(): string {
 	return useSyncExternalStore(
