@@ -116,7 +116,7 @@ function Now({ voice, state }: { voice: Voice; state: VoiceState }) {
 function hint({ listener, speaker }: VoiceState): string {
 	if (listener) return "Speak, and your words go to your agent.";
 	if (speaker) return "Your agent's messages are read aloud as they arrive.";
-	return "Your agent's ears on the left, its voice on the right.";
+	return "";
 }
 
 /** The pill: listening on the left, speaking on the right, mirrored. */
