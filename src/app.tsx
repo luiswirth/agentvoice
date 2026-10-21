@@ -1,7 +1,7 @@
 // A page to try voice on: a session of the byoa transport, its chat
 // messages, and voice's controls. The session link is the page's hash, and
 // the relay the `relay` parameter, a local one by default.
-import { Session } from "byoa/client";
+import { create, Session } from "byoa/client";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
 import { type Entry, spoken } from "./voice/protocol.ts";
@@ -10,7 +10,7 @@ import { VoiceBar } from "./voice/voice-bar.tsx";
 
 const NAME = "person";
 const relay =
-	new URLSearchParams(location.search).get("relay") ?? "http://localhost:8787";
+	new URLSearchParams(location.search).get("relay") ?? "http://localhost:8790";
 
 export function App() {
 	const [key, setKey] = useState(() => localStorage.getItem("elevenlabs-key"));
@@ -36,8 +36,7 @@ export function App() {
 				<Button
 					className="self-start"
 					onClick={async () => {
-						const response = await fetch(`${relay}/`, { method: "POST" });
-						location.hash = (await response.text()).trim();
+						location.hash = await create(relay);
 					}}
 				>
 					New session
@@ -76,23 +75,26 @@ function KeyForm({ done }: { done: (key: string) => void }) {
 }
 
 function Talk({ link, elevenlabs }: { link: string; elevenlabs: string }) {
-	const [state, setState] = useState<{ session: Session; voice: Voice } | null>(
-		null,
-	);
+	const [voice, setVoice] = useState<Voice | null>(null);
 	const [entries, setEntries] = useState<Entry[]>([]);
+	const [problem, setProblem] = useState<string | null>(null);
 	useEffect(() => {
 		const session = new Session(link, NAME);
 		const voice = new Voice(session, NAME, elevenlabs);
-		let stop = () => {};
-		void session.join().then(() => {
-			stop = session.subscribe({
-				entry: (entry) => setEntries((entries) => [...entries, entry]),
-			});
-			setState({ session, voice });
+		const stop = session.subscribe({
+			entry: (entry) => setEntries((entries) => [...entries, entry]),
+			// The first presence comes with the log so far, which the speaker
+			// must not read: only then does the voice appear.
+			presence: (presence) => {
+				if (NAME in presence) setVoice(voice);
+			},
+			end: setProblem,
 		});
+		session.join().catch((error: Error) => setProblem(error.message));
 		return () => {
 			stop();
 			voice.close();
+			session.close();
 		};
 	}, [link, elevenlabs]);
 	const prompt = `Talk with me by voice through this byoa session: ${link}\nHow it works: ${location.origin}/agent.md\nAsk me to allow curl once if your harness asks before each command.`;
@@ -125,7 +127,11 @@ function Talk({ link, elevenlabs }: { link: string; elevenlabs: string }) {
 					</li>
 				))}
 			</ol>
-			{state && <VoiceBar voice={state.voice} />}
+			{problem ? (
+				<p className="text-sm text-destructive">{problem}</p>
+			) : (
+				voice && <VoiceBar voice={voice} />
+			)}
 		</>
 	);
 }

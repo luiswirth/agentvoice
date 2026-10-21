@@ -1,27 +1,13 @@
 // Voice's protocol, on chat's, on the byoa transport: two entries of its own,
 // and nothing changed below.
 
-/** An entry of the log, as the transport's client gives it. */
-export type Entry = {
-	n: number;
-	time: string;
-	from: string;
-	type: string;
-	size: number;
-	filename?: string;
-	text?: string;
-};
+import type { Session as Client, Entry } from "byoa/client";
 
-/** What voice needs of the transport's client, `Session` of `byoa/client`. */
-export type Session = {
-	send(
-		body: string | Blob,
-		options?: { type?: string; filename?: string },
-	): Promise<number>;
-	/** Replays the log so far, then goes live. */
-	subscribe(handlers: { entry(entry: Entry): void }): () => void;
-	readonly log: readonly Entry[];
-};
+export type { Entry };
+
+/** What voice needs of a session: the transport's client, or anything
+ * else that sends, subscribes and keeps the log the same way. */
+export type Session = Pick<Client, "send" | "subscribe" | "log">;
 
 /** Which of the person's listener and speaker are on: sent as either changes. */
 export const MODES = "application/vnd.byoa.voice.modes+json";
