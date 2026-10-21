@@ -1,0 +1,131 @@
+// A page to try voice on: a session of the byoa transport, its chat
+// messages, and voice's controls. The session link is the page's hash, and
+// the relay the `relay` parameter, a local one by default.
+import { Session } from "byoa/client";
+import { useEffect, useState, useSyncExternalStore } from "react";
+import { Button } from "@/components/ui/button";
+import { type Entry, spoken } from "./voice/protocol.ts";
+import { Voice } from "./voice/voice.ts";
+import { VoiceBar } from "./voice/voice-bar.tsx";
+
+const NAME = "person";
+const relay =
+	new URLSearchParams(location.search).get("relay") ?? "http://localhost:8787";
+
+export function App() {
+	const [key, setKey] = useState(() => localStorage.getItem("elevenlabs-key"));
+	const link = useSyncExternalStore(
+		(changed) => {
+			addEventListener("hashchange", changed);
+			return () => removeEventListener("hashchange", changed);
+		},
+		() => decodeURIComponent(location.hash.slice(1)),
+	);
+	return (
+		<main className="mx-auto flex h-dvh max-w-2xl flex-col gap-4 p-4">
+			{key === null ? (
+				<KeyForm
+					done={(key) => {
+						localStorage.setItem("elevenlabs-key", key);
+						setKey(key);
+					}}
+				/>
+			) : link ? (
+				<Talk key={link} link={link} elevenlabs={key} />
+			) : (
+				<Button
+					className="self-start"
+					onClick={async () => {
+						const response = await fetch(`${relay}/`, { method: "POST" });
+						location.hash = (await response.text()).trim();
+					}}
+				>
+					New session
+				</Button>
+			)}
+		</main>
+	);
+}
+
+function KeyForm({ done }: { done: (key: string) => void }) {
+	const [key, setKey] = useState("");
+	return (
+		<form
+			className="flex flex-col gap-2"
+			onSubmit={(event) => {
+				event.preventDefault();
+				if (key.trim()) done(key.trim());
+			}}
+		>
+			<label className="text-sm text-muted-foreground" htmlFor="key">
+				Your ElevenLabs API key. It stays in this browser, and goes only to
+				ElevenLabs.
+			</label>
+			<div className="flex gap-2">
+				<input
+					id="key"
+					type="password"
+					className="flex-1 rounded-lg border bg-transparent px-2 text-sm"
+					value={key}
+					onChange={(event) => setKey(event.target.value)}
+				/>
+				<Button type="submit">Save</Button>
+			</div>
+		</form>
+	);
+}
+
+function Talk({ link, elevenlabs }: { link: string; elevenlabs: string }) {
+	const [state, setState] = useState<{ session: Session; voice: Voice } | null>(
+		null,
+	);
+	const [entries, setEntries] = useState<Entry[]>([]);
+	useEffect(() => {
+		const session = new Session(link, NAME);
+		const voice = new Voice(session, NAME, elevenlabs);
+		let stop = () => {};
+		void session.join().then(() => {
+			stop = session.subscribe({
+				entry: (entry) => setEntries((entries) => [...entries, entry]),
+			});
+			setState({ session, voice });
+		});
+		return () => {
+			stop();
+			voice.close();
+		};
+	}, [link, elevenlabs]);
+	const prompt = `Talk with me by voice through this byoa session: ${link}\nHow it works: ${location.origin}/agent.md\nAsk me to allow curl once if your harness asks before each command.`;
+	return (
+		<>
+			<div className="flex items-center gap-2 text-sm text-muted-foreground">
+				<span className="flex-1">
+					The page's link is a secret: whoever holds it can talk to your agent.
+				</span>
+				<Button
+					variant="outline"
+					size="sm"
+					onClick={() => navigator.clipboard.writeText(prompt)}
+				>
+					Onboard your agent
+				</Button>
+			</div>
+			<ol className="flex flex-1 flex-col gap-3 overflow-y-auto">
+				{entries.filter(spoken).map((entry) => (
+					<li
+						key={entry.n}
+						className={`whitespace-pre-wrap rounded-lg px-3 py-2 text-sm ${entry.from === NAME ? "self-end bg-secondary" : "self-start"}`}
+					>
+						{entry.from !== NAME && (
+							<span className="block text-xs text-muted-foreground">
+								{entry.from}
+							</span>
+						)}
+						{entry.text}
+					</li>
+				))}
+			</ol>
+			{state && <VoiceBar voice={state.voice} />}
+		</>
+	);
+}
