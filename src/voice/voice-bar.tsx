@@ -1,7 +1,8 @@
 // Voice as a playback bar: one floating pill whose left end is listening and
 // right end speaking, mirrored, meeting in a track that shows both. Listen
 // alone is transcription, Speak alone reading aloud, both a conversation.
-// Above it, large, what is happening now. The system's media controls work
+// Above it, large, what the person is saying and has not yet sent: the
+// agent's words belong to its harness. The system's media controls work
 // it too, so that it needs no looking at.
 import {
 	Check,
@@ -63,9 +64,7 @@ function doing(state: VoiceState): string {
 
 function now(state: VoiceState): string {
 	const yours = [state.draft, state.hearing].filter(Boolean).join(" ");
-	if (yours) return yours;
-	if (state.speaker && state.message) return state.message;
-	return "";
+	return yours;
 }
 
 /** What is happening now, large: the person's words, or the agent's. */
@@ -92,15 +91,6 @@ function Now({ voice, state }: { voice: Voice; state: VoiceState }) {
 			<p className={base}>
 				{state.draft}{" "}
 				<span className="text-muted-foreground">{state.hearing}</span>
-			</p>
-		);
-	}
-	if (state.speaker && state.message) {
-		return (
-			<p
-				className={`${base} whitespace-pre-wrap ${state.reading === null ? "text-muted-foreground/60" : ""}`}
-			>
-				{state.message}
 			</p>
 		);
 	}
