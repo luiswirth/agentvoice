@@ -16,7 +16,7 @@ importers:
         version: 5.3.0
       byoa:
         specifier: github:luiswirth/byoa
-        version: https://codeload.github.com/luiswirth/byoa/tar.gz/679d02f46ccdf2c9cb051842dfd343f5ba4896ea(react@19.3.1)
+        version: https://codeload.github.com/luiswirth/byoa/tar.gz/7be23958b837106cbd670a2f504e477384f23081(react@19.3.1)
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -1110,8 +1110,8 @@ packages:
     resolution: {integrity: sha512-DdH81/zPLVS11EUgWq3tEu/xn+EzljlMYooDNdzWEnFha3R3NBMpMV1UqYIpjYHV/SgpFKMIX1Oh7o06SjM/oA==}
     engines: {node: '>=18'}
 
-  byoa@https://codeload.github.com/luiswirth/byoa/tar.gz/679d02f46ccdf2c9cb051842dfd343f5ba4896ea:
-    resolution: {gitHosted: true, integrity: sha512-Wx7FPXzi8OzuMKBjsf2WmNvQkBLSh0ej/8gnautfqRokhuX3mbWKE8+h1ZG1pRuQfAFJQ4FRLxu8kXdpwNFDRA==, tarball: https://codeload.github.com/luiswirth/byoa/tar.gz/679d02f46ccdf2c9cb051842dfd343f5ba4896ea}
+  byoa@https://codeload.github.com/luiswirth/byoa/tar.gz/7be23958b837106cbd670a2f504e477384f23081:
+    resolution: {gitHosted: true, integrity: sha512-/K6PFI9hFMJl+dF0xo1wmWMisktpk5p+0eYMj7d3zz1v8qTqqHsBGMXFzWjfxegkUWqsHCxkFYgRHe8r4uC2ew==, tarball: https://codeload.github.com/luiswirth/byoa/tar.gz/7be23958b837106cbd670a2f504e477384f23081}
     version: 0.0.0
     peerDependencies:
       react: '>=19'
@@ -3272,7 +3272,7 @@ snapshots:
     dependencies:
       run-applescript: 7.1.0
 
-  byoa@https://codeload.github.com/luiswirth/byoa/tar.gz/679d02f46ccdf2c9cb051842dfd343f5ba4896ea(react@19.3.1):
+  byoa@https://codeload.github.com/luiswirth/byoa/tar.gz/7be23958b837106cbd670a2f504e477384f23081(react@19.3.1):
     optionalDependencies:
       react: 19.3.1
 

@@ -3,9 +3,10 @@
 // a prompt with its token, or the agent, which gives the person the page with
 // the link as `#session=<link>`. The ElevenLabs key comes encrypted from the
 // agent, or typed in, and stays in this browser.
-import { create, LEAVE, type Presence, Secrets, Session } from "byoa/client";
+import { JOIN, LEAVE, Secrets, type Session } from "byoa/client";
 import { Onboard } from "byoa/onboard";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useSession } from "byoa/react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { type Entry, spoken } from "./voice/protocol.ts";
 import { Voice } from "./voice/voice.ts";
@@ -13,81 +14,32 @@ import { VoiceBar } from "./voice/voice-bar.tsx";
 
 const NAME = "person";
 const KEY = "elevenlabs-key";
-const relay =
-	new URLSearchParams(location.search).get("relay") ??
-	(import.meta.env.DEV ? "http://localhost:8790" : "https://byoa.senses.sh");
-
-function useLink(): string {
-	return useSyncExternalStore(
-		(changed) => {
-			addEventListener("hashchange", changed);
-			return () => removeEventListener("hashchange", changed);
-		},
-		() => new URLSearchParams(location.hash.slice(1)).get("session") ?? "",
-	);
-}
 
 export function App() {
-	const link = useLink();
-	const [problem, setProblem] = useState<string | null>(null);
-	useEffect(() => {
-		if (link) return;
-		create(relay)
-			.then((link) => {
-				location.hash = new URLSearchParams({ session: link }).toString();
-			})
-			.catch((error: Error) => setProblem(error.message));
-	}, [link]);
-	if (problem) return <p className="m-auto p-4 text-destructive">{problem}</p>;
-	return link ? <Talk key={link} link={link} /> : null;
-}
-
-function Talk({ link }: { link: string }) {
-	const [session, setSession] = useState<Session | null>(null);
-	const [presence, setPresence] = useState<Presence>({});
-	const [entries, setEntries] = useState<Entry[]>([]);
+	const { session, entries, alone, problem, leave } = useSession(NAME);
 	const [key, setKey] = useState(() => localStorage.getItem(KEY));
-	const [problem, setProblem] = useState<string | null>(null);
 
 	useEffect(() => {
-		const session = new Session(link, NAME);
+		if (!session) return;
 		const secrets = new Secrets(session);
-		const stop = session.subscribe({
-			entry: (entry) => {
-				setEntries((entries) => [...entries, entry]);
-				secrets.open(entry).then((secret) => {
+		if (!localStorage.getItem(KEY)) void secrets.publish();
+		return session.subscribe({
+			entry: (entry) =>
+				void secrets.open(entry).then((secret) => {
 					if (secret?.name !== "elevenlabs") return;
 					localStorage.setItem(KEY, secret.value);
 					setKey(secret.value);
-				});
-			},
-			presence: (presence) => {
-				setPresence(presence);
-				// Only once the log so far is in: the speaker must not read it.
-				if (NAME in presence) setSession(session);
-			},
-			end: setProblem,
+				}),
 		});
-		session
-			.join()
-			.then(async () => {
-				if (!localStorage.getItem(KEY)) await secrets.publish();
-			})
-			.catch((error: Error) => setProblem(error.message));
-		return () => {
-			stop();
-			session.close();
-		};
-	}, [link]);
+	}, [session]);
 
-	const agents = Object.keys(presence).filter((name) => name !== NAME);
-	if (session && agents.length === 0 && !entries.some((e) => e.from !== NAME)) {
+	if (session && alone) {
 		return (
 			<Onboard
 				name="voice.senses.sh"
 				title="Talk with your agent"
 				description="Speak to the agent you already use, and hear its answers, here in your browser."
-				prompt={`Read ${location.origin}/agents.md and join with session token ${new URL(link).pathname.split("/").pop()}`}
+				prompt={`Read ${location.origin}/agents.md and join with session token ${new URL(session.link).pathname.split("/").pop()}`}
 				note="The voice runs on ElevenLabs, with your own account."
 			/>
 		);
@@ -103,10 +55,7 @@ function Talk({ link }: { link: string }) {
 					size="sm"
 					disabled={session === null}
 					title="Leave the session: once everyone has left, it is deleted"
-					onClick={async () => {
-						await session?.leave();
-						location.hash = "";
-					}}
+					onClick={leave}
 				>
 					Leave
 				</Button>
@@ -171,34 +120,46 @@ function KeyField({ done }: { done: (key: string) => void }) {
 
 function Log({ entries }: { entries: Entry[] }) {
 	return (
-		<ol className="flex flex-1 flex-col gap-3 overflow-y-auto">
-			{entries.filter(shown).map((entry) =>
-				entry.type === LEAVE ? (
+		<ol className="flex flex-1 flex-col gap-2 overflow-y-auto">
+			{entries.filter(shown).map((entry) => {
+				if (entry.type === JOIN || entry.type === LEAVE) {
+					return (
+						<li
+							key={entry.n}
+							className="self-center text-xs text-muted-foreground"
+						>
+							{entry.from} {entry.type === JOIN ? "joined" : "left"}
+						</li>
+					);
+				}
+				const mine = entry.from === NAME;
+				return (
 					<li
 						key={entry.n}
-						className="self-center text-xs text-muted-foreground"
+						className={`flex flex-col gap-0.5 ${mine ? "items-end" : "items-start"}`}
 					>
-						{entry.from === NAME ? "You" : entry.from} left
-					</li>
-				) : (
-					<li
-						key={entry.n}
-						className={`whitespace-pre-wrap rounded-lg px-3 py-2 text-sm ${entry.from === NAME ? "self-end bg-secondary" : "self-start"}`}
-					>
-						{entry.from !== NAME && (
-							<span className="block text-xs text-muted-foreground">
+						{!mine && (
+							<span className="text-xs text-muted-foreground">
 								{entry.from}
 							</span>
 						)}
-						{entry.text}
+						<div
+							className={`max-w-[80%] rounded-lg px-3 py-2 whitespace-pre-wrap ${mine ? "bg-primary text-primary-foreground" : "bg-muted"}`}
+						>
+							{entry.text}
+						</div>
 					</li>
-				),
-			)}
+				);
+			})}
 		</ol>
 	);
 }
 
-/** The messages, and who left, so that the person knows when to leave too. */
+/** The messages, and who else joined and left, so that the person knows when
+ * to leave too. */
 function shown(entry: Entry): boolean {
-	return spoken(entry) || entry.type === LEAVE;
+	return (
+		spoken(entry) ||
+		(entry.from !== NAME && (entry.type === JOIN || entry.type === LEAVE))
+	);
 }
