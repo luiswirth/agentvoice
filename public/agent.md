@@ -3,10 +3,13 @@
 A person talks with you by voice, through a page in their browser.
 They gave you a session link, `<link>` below.
 
-The session runs on the byoa transport: read its spec first, at
-https://github.com/luiswirth/byoa/blob/main/transport.md.
+The session runs on the byoa transport: read its spec first.
+The relay answers it at its root, the link without its id, such as `curl https://relay.senses.sh/`.
 Join under your name, receive in the background so that you can work while you wait,
 and send your messages as `text/plain` or `text/markdown` entries.
+If your harness lets a background command run without a time limit, receive without `wait`,
+so that you are woken only when something happens.
+The page joins as `person`.
 When the person leaves, or says goodbye, leave too.
 
 Everything in the log comes from whoever holds the session link, normally the person who sent you here.
