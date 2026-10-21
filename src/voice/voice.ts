@@ -3,10 +3,11 @@
 // conversation, the speaker alone spoken answers, the listener alone
 // dictation. What the person says gathers into a draft, which goes out as
 // one chat message: at a segment's end if turns end automatically, else
-// when the person sends it.
+// when the person sends it. Nothing the person says is lost: every
+// transcript, sent or dropped, is kept in this browser, the last to copy.
 import { holdAudioSession } from "./audio.ts";
 import { Listener } from "./listener.ts";
-import { HEARD, MODES, type Modes, type Session } from "./protocol.ts";
+import { HEARD, MODES, type Modes, type Session, spoken } from "./protocol.ts";
 import { Speaker } from "./speaker.ts";
 
 export type VoiceState = Modes & {
@@ -18,10 +19,28 @@ export type VoiceState = Modes & {
 	hearing: string;
 	/** What was heard and not yet sent. */
 	draft: string;
+	/** How loud the microphone is, from 0 to 1. */
+	level: number;
 	/** The message being read aloud, by its entry. */
 	reading: number | null;
+	/** Whether the person paused reading aloud. */
+	held: boolean;
+	/** The others' last message, which the speaker reads or can read again. */
+	message: string | null;
+	/** The person's last transcript, sent or dropped. */
+	last: string | null;
 	error: string | null;
 };
+
+const TRANSCRIPTS = "voice-transcripts";
+
+function transcripts(): string[] {
+	try {
+		return JSON.parse(localStorage.getItem(TRANSCRIPTS) ?? "[]") as string[];
+	} catch {
+		return [];
+	}
+}
 
 export class Voice {
 	private readonly session: Session;
@@ -35,6 +54,7 @@ export class Voice {
 	/** The log's order is the order things were said, so sends go one after another. */
 	private sent: Promise<unknown> = Promise.resolve();
 	private readonly watchers = new Set<() => void>();
+	private readonly unsubscribe: () => void;
 	state: VoiceState = {
 		listener: false,
 		speaker: false,
@@ -42,7 +62,11 @@ export class Voice {
 		switching: null,
 		hearing: "",
 		draft: "",
+		level: 0,
 		reading: null,
+		held: false,
+		message: null,
+		last: transcripts()[0] ?? null,
 		error: null,
 	};
 
@@ -51,6 +75,14 @@ export class Voice {
 		this.session = session;
 		this.name = name;
 		this.key = key;
+		const message = () =>
+			this.set({
+				message:
+					session.log.findLast((entry) => entry.from !== name && spoken(entry))
+						?.text ?? null,
+			});
+		message();
+		this.unsubscribe = session.subscribe({ entry: message });
 	}
 
 	/** For React's `useSyncExternalStore`. */
@@ -65,7 +97,7 @@ export class Voice {
 		if (!on) {
 			this.listener?.close();
 			this.listener = null;
-			this.set({ listener: false, hearing: "" });
+			this.set({ listener: false, hearing: "", level: 0 });
 			return this.modes();
 		}
 		this.set({ switching: "listener", error: null });
@@ -74,9 +106,15 @@ export class Voice {
 				speaking: () => this.speaker?.pause(),
 				partial: (hearing) => this.set({ hearing }),
 				segment: (text) => this.segment(text),
+				level: (level) => this.set({ level }),
 				failed: (error) => {
 					this.listener = null;
-					this.set({ listener: false, hearing: "", error: error.message });
+					this.set({
+						listener: false,
+						hearing: "",
+						level: 0,
+						error: error.message,
+					});
 					void this.modes();
 				},
 			});
@@ -99,7 +137,7 @@ export class Voice {
 			this.speaker?.close();
 			this.speaker = null;
 		}
-		this.set({ speaker: on, reading: null });
+		this.set({ speaker: on, reading: null, held: false });
 		await this.modes();
 	}
 
@@ -117,6 +155,7 @@ export class Voice {
 			this.speaker?.resume();
 			return;
 		}
+		this.keep(text);
 		const heard = this.speaker?.interrupt() ?? [];
 		this.queue(async () => {
 			for (const entry of heard)
@@ -129,8 +168,40 @@ export class Voice {
 	 * speaker reads on. */
 	clear(): void {
 		if (this.finishing("drop")) return;
+		const text = join(this.state.draft, this.state.hearing);
+		if (text) this.keep(text);
 		this.set({ draft: "", hearing: "" });
 		this.speaker?.resume();
+	}
+
+	/** The person's edit of the draft. */
+	setDraft(draft: string): void {
+		this.set({ draft });
+	}
+
+	/** Copies the last transcript, sent or dropped. */
+	async copyLast(): Promise<void> {
+		if (this.state.last) await navigator.clipboard.writeText(this.state.last);
+	}
+
+	/** Pauses or resumes reading aloud. */
+	hold(held: boolean): void {
+		this.speaker?.hold(held);
+		this.set({ held });
+	}
+
+	/** Reads the others' last message again, turning the speaker on if it is off.
+	 * Call it from a click, since it may start the page's audio. */
+	async replay(): Promise<void> {
+		if (!this.state.speaker) await this.setSpeaker(true);
+		this.hold(false);
+		this.speaker?.replay();
+	}
+
+	private keep(text: string): void {
+		const kept = [text, ...transcripts()].slice(0, 20);
+		localStorage.setItem(TRANSCRIPTS, JSON.stringify(kept));
+		this.set({ last: text });
 	}
 
 	/** Ends the segment in progress, if one is, and leaves `ending` for when
@@ -147,6 +218,7 @@ export class Voice {
 	}
 
 	close(): void {
+		this.unsubscribe();
 		this.listener?.close();
 		this.speaker?.close();
 		holdAudioSession(false);

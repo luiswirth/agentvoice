@@ -3,12 +3,11 @@
 // a prompt with its token, or the agent, which gives the person the page with
 // the link as `#session=<link>`. The ElevenLabs key comes encrypted from the
 // agent, or typed in, and stays in this browser.
-import { JOIN, LEAVE, Secrets, type Session } from "byoa/client";
+import { Secrets, type Session } from "byoa/client";
 import { Onboard } from "byoa/onboard";
 import { useSession } from "byoa/react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { type Entry, spoken } from "./voice/protocol.ts";
 import { Voice } from "./voice/voice.ts";
 import { VoiceBar } from "./voice/voice-bar.tsx";
 
@@ -16,7 +15,7 @@ const NAME = "person";
 const KEY = "elevenlabs-key";
 
 export function App() {
-	const { session, entries, alone, problem, leave } = useSession(NAME);
+	const { session, alone, problem, leave } = useSession(NAME);
 	const [key, setKey] = useState(() => localStorage.getItem(KEY));
 
 	useEffect(() => {
@@ -60,7 +59,6 @@ export function App() {
 					Leave
 				</Button>
 			</div>
-			<Log entries={entries} />
 			{problem ? (
 				<p className="text-sm text-destructive">{problem}</p>
 			) : key ? (
@@ -115,51 +113,5 @@ function KeyField({ done }: { done: (key: string) => void }) {
 				<Button type="submit">Save</Button>
 			</div>
 		</form>
-	);
-}
-
-function Log({ entries }: { entries: Entry[] }) {
-	return (
-		<ol className="flex flex-1 flex-col gap-2 overflow-y-auto">
-			{entries.filter(shown).map((entry) => {
-				if (entry.type === JOIN || entry.type === LEAVE) {
-					return (
-						<li
-							key={entry.n}
-							className="self-center text-xs text-muted-foreground"
-						>
-							{entry.from} {entry.type === JOIN ? "joined" : "left"}
-						</li>
-					);
-				}
-				const mine = entry.from === NAME;
-				return (
-					<li
-						key={entry.n}
-						className={`flex flex-col gap-0.5 ${mine ? "items-end" : "items-start"}`}
-					>
-						{!mine && (
-							<span className="text-xs text-muted-foreground">
-								{entry.from}
-							</span>
-						)}
-						<div
-							className={`max-w-[80%] rounded-lg px-3 py-2 whitespace-pre-wrap ${mine ? "bg-primary text-primary-foreground" : "bg-muted"}`}
-						>
-							{entry.text}
-						</div>
-					</li>
-				);
-			})}
-		</ol>
-	);
-}
-
-/** The messages, and who else joined and left, so that the person knows when
- * to leave too. */
-function shown(entry: Entry): boolean {
-	return (
-		spoken(entry) ||
-		(entry.from !== NAME && (entry.type === JOIN || entry.type === LEAVE))
 	);
 }

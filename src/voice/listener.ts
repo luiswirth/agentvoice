@@ -11,6 +11,8 @@ export type Hearing = {
 	partial(text: string): void;
 	/** A segment ended, empty if it held no words. */
 	segment(text: string): void;
+	/** How loud the microphone is, from 0 to 1, every 0.1 s. */
+	level(level: number): void;
 	/** The listener stopped on its own. */
 	failed(error: Error): void;
 };
@@ -60,7 +62,10 @@ export class Listener {
 		let microphone: Microphone;
 		try {
 			microphone = await Microphone.open(
-				(pcm) => scribe.hear(pcm),
+				(pcm) => {
+					scribe.hear(pcm);
+					hearing.level(loudness(pcm));
+				},
 				() => fail(new Error("The microphone was cut off.")),
 			);
 		} catch (error) {
@@ -81,4 +86,11 @@ export class Listener {
 		this.microphone.close();
 		this.scribe.close();
 	}
+}
+
+/** The root mean square of a chunk, scaled so that speech reaches about 1. */
+function loudness(pcm: Int16Array): number {
+	let sum = 0;
+	for (const sample of pcm) sum += (sample / 32768) ** 2;
+	return Math.min(1, Math.sqrt(sum / pcm.length) * 8);
 }
