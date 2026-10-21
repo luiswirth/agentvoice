@@ -29,8 +29,9 @@ export class Voice {
 	private readonly key: string;
 	private listener: Listener | null = null;
 	private speaker: Speaker | null = null;
-	/** The draft goes out once the segment in progress ends. */
-	private sending = false;
+	/** What happens to the draft once the segment in progress ends: the
+	 * person sent or dropped it while still being heard. */
+	private ending: "send" | "drop" | null = null;
 	/** The log's order is the order things were said, so sends go one after another. */
 	private sent: Promise<unknown> = Promise.resolve();
 	private readonly watchers = new Set<() => void>();
@@ -109,13 +110,9 @@ export class Voice {
 
 	/** Sends the draft, with what is still being heard once it is. */
 	send(): void {
-		if (this.state.hearing && this.listener?.finish()) {
-			this.sending = true;
-			return;
-		}
+		if (this.finishing("send")) return;
 		const text = join(this.state.draft, this.state.hearing);
 		this.set({ draft: "", hearing: "" });
-		this.sending = false;
 		if (!text) {
 			this.speaker?.resume();
 			return;
@@ -128,10 +125,20 @@ export class Voice {
 		});
 	}
 
-	/** Drops the draft, and the speaker reads on. */
+	/** Drops the draft, with what is still being heard once it is, and the
+	 * speaker reads on. */
 	clear(): void {
-		this.set({ draft: "" });
-		if (!this.state.hearing) this.speaker?.resume();
+		if (this.finishing("drop")) return;
+		this.set({ draft: "", hearing: "" });
+		this.speaker?.resume();
+	}
+
+	/** Ends the segment in progress, if one is, and leaves `ending` for when
+	 * it has. */
+	private finishing(ending: "send" | "drop"): boolean {
+		if (!this.state.hearing || !this.listener?.finish()) return false;
+		this.ending = ending;
+		return true;
 	}
 
 	/** Skips the message being read. */
@@ -146,8 +153,11 @@ export class Voice {
 	}
 
 	private segment(text: string): void {
+		const ending = this.ending;
+		this.ending = null;
 		this.set({ hearing: "", draft: join(this.state.draft, text) });
-		if (this.state.autoEnd || this.sending) this.send();
+		if (ending === "drop") this.clear();
+		else if (ending === "send" || this.state.autoEnd) this.send();
 		else if (!this.state.draft) this.speaker?.resume();
 	}
 

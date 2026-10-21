@@ -16,7 +16,7 @@ importers:
         version: 5.3.0
       byoa:
         specifier: github:luiswirth/byoa
-        version: https://codeload.github.com/luiswirth/byoa/tar.gz/038aa6e71e9126568480004ac1b20430e557fc58
+        version: https://codeload.github.com/luiswirth/byoa/tar.gz/ba35d8ca0986b4dd583cb7aeadf129dde4be0626
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -717,8 +717,8 @@ packages:
     resolution: {integrity: sha512-DdH81/zPLVS11EUgWq3tEu/xn+EzljlMYooDNdzWEnFha3R3NBMpMV1UqYIpjYHV/SgpFKMIX1Oh7o06SjM/oA==}
     engines: {node: '>=18'}
 
-  byoa@https://codeload.github.com/luiswirth/byoa/tar.gz/038aa6e71e9126568480004ac1b20430e557fc58:
-    resolution: {gitHosted: true, integrity: sha512-P71YY1l/FnpMfGFuRTfQ4ct3sYN/VbHkKhrJwNTNZ2kT7ZLtRh62bLETYzemHp+IJACq0YF2bRfip4j9OU9B0Q==, tarball: https://codeload.github.com/luiswirth/byoa/tar.gz/038aa6e71e9126568480004ac1b20430e557fc58}
+  byoa@https://codeload.github.com/luiswirth/byoa/tar.gz/ba35d8ca0986b4dd583cb7aeadf129dde4be0626:
+    resolution: {gitHosted: true, integrity: sha512-zrDQdGu8c2VlLMG1CfIDR0aS09u7VYA2lrkmxybmPMyxpirAuE1h0/AxpRDJ3vpuzL56akp8OQeYwrkjuJex9Q==, tarball: https://codeload.github.com/luiswirth/byoa/tar.gz/ba35d8ca0986b4dd583cb7aeadf129dde4be0626}
     version: 0.0.0
 
   bytes@3.1.2:
@@ -2560,7 +2560,7 @@ snapshots:
     dependencies:
       run-applescript: 7.1.0
 
-  byoa@https://codeload.github.com/luiswirth/byoa/tar.gz/038aa6e71e9126568480004ac1b20430e557fc58: {}
+  byoa@https://codeload.github.com/luiswirth/byoa/tar.gz/ba35d8ca0986b4dd583cb7aeadf129dde4be0626: {}
 
   bytes@3.1.2: {}
 
