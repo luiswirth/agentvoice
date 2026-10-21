@@ -7,6 +7,7 @@
 // transcript, sent or dropped, is kept in this browser, the last to copy.
 import { holdAudioSession } from "./audio.ts";
 import { Listener } from "./listener.ts";
+import { holdMedia } from "./media.ts";
 import { HEARD, MODES, type Modes, type Session, spoken } from "./protocol.ts";
 import { Speaker } from "./speaker.ts";
 
@@ -233,9 +234,23 @@ export class Voice {
 		else if (!this.state.draft) this.speaker?.resume();
 	}
 
+	/** Play and pause from the system's media controls: sends a draft, else
+	 * pauses or resumes reading, else turns listening on or off. */
+	mediaToggle = (): void => {
+		if (!this.state.autoEnd && (this.state.draft || this.state.hearing))
+			this.send();
+		else if (this.state.reading !== null) this.hold(!this.state.held);
+		else void this.setListener(!this.state.listener);
+	};
+
 	private modes(): Promise<void> {
 		const { listener, speaker } = this.state;
 		holdAudioSession(listener || speaker);
+		holdMedia(listener || speaker, {
+			toggle: this.mediaToggle,
+			next: () => this.skip(),
+			previous: () => void this.replay(),
+		});
 		const modes: Modes = { listener, speaker };
 		return this.queue(() =>
 			this.session.send(JSON.stringify(modes), { type: MODES }),

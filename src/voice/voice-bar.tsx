@@ -1,39 +1,46 @@
-// Voice's controls: two halves, Listen and Speak, each on or off on its own.
-// Listen alone is transcription, Speak alone reading aloud, both a
-// conversation. Above them, what is happening now: what is being heard, or
-// the message being read.
+// Voice as a playback bar: one floating pill whose left end is listening and
+// right end speaking, mirrored, meeting in a track that shows both. Listen
+// alone is transcription, Speak alone reading aloud, both a conversation.
+// Above it, large, what is happening now. The system's media controls work
+// it too, so that it needs no looking at.
 import {
 	Check,
 	Copy,
 	Mic,
+	MicOff,
 	Pause,
 	Play,
 	RotateCcw,
 	SendHorizontal,
 	SkipForward,
 	Volume2,
+	VolumeX,
 	X,
 } from "lucide-react";
-import { useEffect, useState, useSyncExternalStore } from "react";
-import { Button } from "@/components/ui/button";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import {
+	type ReactNode,
+	useEffect,
+	useState,
+	useSyncExternalStore,
+} from "react";
+import { showMedia } from "./media.ts";
 import type { Voice, VoiceState } from "./voice.ts";
 
 export function VoiceBar({ voice }: { voice: Voice }) {
 	const state = useSyncExternalStore(voice.watch, () => voice.state);
 	useShortcuts(voice, state);
+	useEffect(() => {
+		showMedia(now(state) || doing(state) || "voice", mode(state));
+	}, [state]);
 	return (
-		<div className="flex min-h-0 flex-1 flex-col gap-3">
-			<p className="text-sm text-muted-foreground">
-				<span className="font-medium text-foreground">{mode(state)}</span>
-				{doing(state) && ` · ${doing(state)}`}
-			</p>
+		<div className="flex min-h-0 flex-1 flex-col items-center gap-6">
 			<Now voice={voice} state={state} />
 			{state.error && <p className="text-sm text-destructive">{state.error}</p>}
-			<div className="grid gap-3 sm:grid-cols-2">
-				<Listen voice={voice} state={state} />
-				<Speak voice={voice} state={state} />
-			</div>
+			<p className="text-xs tracking-widest text-muted-foreground uppercase">
+				{mode(state)}
+				{doing(state) && ` · ${doing(state)}`}
+			</p>
+			<Bar voice={voice} state={state} />
 		</div>
 	);
 }
@@ -50,31 +57,39 @@ function doing(state: VoiceState): string {
 	if (state.reading !== null) return state.held ? "paused" : "speaking";
 	if (state.draft) return "your draft";
 	if (state.listener) return "listening";
-	if (state.speaker) return "waiting for a message";
+	if (state.speaker) return "waiting";
 	return "";
 }
 
-/** What is happening now: the person's words, or the agent's being read. */
+function now(state: VoiceState): string {
+	const yours = [state.draft, state.hearing].filter(Boolean).join(" ");
+	if (yours) return yours;
+	if (state.speaker && state.message) return state.message;
+	return "";
+}
+
+/** What is happening now, large: the person's words, or the agent's. */
 function Now({ voice, state }: { voice: Voice; state: VoiceState }) {
-	const yours = state.draft || state.hearing;
-	if (yours && !state.autoEnd) {
+	const base =
+		"w-full min-h-0 flex-1 overflow-y-auto text-2xl leading-snug font-light text-balance";
+	if ((state.draft || state.hearing) && !state.autoEnd) {
 		return (
-			<div className="flex min-h-0 flex-1 flex-col gap-1">
+			<div className={`${base} flex flex-col`}>
 				<textarea
 					aria-label="What you said, to edit before sending"
-					className="min-h-0 flex-1 resize-none rounded-lg border bg-transparent p-3 text-lg"
+					className="min-h-0 flex-1 resize-none bg-transparent outline-none"
 					value={state.draft}
 					onChange={(event) => voice.setDraft(event.target.value)}
 				/>
 				{state.hearing && (
-					<p className="text-lg text-muted-foreground">{state.hearing}</p>
+					<p className="text-muted-foreground">{state.hearing}</p>
 				)}
 			</div>
 		);
 	}
-	if (yours) {
+	if (state.draft || state.hearing) {
 		return (
-			<p className="min-h-0 flex-1 overflow-y-auto text-lg">
+			<p className={base}>
 				{state.draft}{" "}
 				<span className="text-muted-foreground">{state.hearing}</span>
 			</p>
@@ -83,14 +98,16 @@ function Now({ voice, state }: { voice: Voice; state: VoiceState }) {
 	if (state.speaker && state.message) {
 		return (
 			<p
-				className={`min-h-0 flex-1 overflow-y-auto whitespace-pre-wrap text-lg ${state.reading === null ? "text-muted-foreground" : ""}`}
+				className={`${base} whitespace-pre-wrap ${state.reading === null ? "text-muted-foreground/60" : ""}`}
 			>
 				{state.message}
 			</p>
 		);
 	}
 	return (
-		<p className="flex min-h-0 flex-1 items-center justify-center text-center text-muted-foreground">
+		<p
+			className={`${base} flex items-center justify-center text-center text-muted-foreground`}
+		>
 			{hint(state)}
 		</p>
 	);
@@ -99,132 +116,168 @@ function Now({ voice, state }: { voice: Voice; state: VoiceState }) {
 function hint({ listener, speaker }: VoiceState): string {
 	if (listener) return "Speak, and your words go to your agent.";
 	if (speaker) return "Your agent's messages are read aloud as they arrive.";
-	return "Turn on Listen to speak to your agent, Speak to hear it, or both to talk.";
+	return "Your agent's ears on the left, its voice on the right.";
 }
 
-function Listen({ voice, state }: { voice: Voice; state: VoiceState }) {
+/** The pill: listening on the left, speaking on the right, mirrored. */
+function Bar({ voice, state }: { voice: Voice; state: VoiceState }) {
 	const said = Boolean(state.draft || state.hearing);
-	return (
-		<section className="flex flex-col gap-2 rounded-xl border p-3">
-			<Button
-				className="h-14 w-full text-base"
-				variant={state.listener ? "default" : "outline"}
-				aria-pressed={state.listener}
-				disabled={state.switching === "listener"}
-				onClick={() => void voice.setListener(!state.listener)}
-			>
-				<Mic />
-				{state.listener ? "Listening" : "Listen"}
-			</Button>
-			<div className="h-1 overflow-hidden rounded-full bg-muted">
-				<div
-					className="h-full bg-primary transition-[width] duration-100"
-					style={{ width: `${Math.round(state.level * 100)}%` }}
-				/>
-			</div>
-			<div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-				<span className="text-muted-foreground">Send</span>
-				<ToggleGroup
-					variant="outline"
-					size="sm"
-					value={[state.autoEnd ? "auto" : "manual"]}
-					onValueChange={(value: string[]) => {
-						if (value[0]) voice.setAutoEnd(value[0] === "auto");
-					}}
-				>
-					<ToggleGroupItem value="auto">After a pause</ToggleGroupItem>
-					<ToggleGroupItem value="manual">By hand</ToggleGroupItem>
-				</ToggleGroup>
-			</div>
-			{!state.autoEnd && (
-				<div className="flex gap-2">
-					<Button
-						className="flex-1"
-						disabled={!said}
-						onClick={() => voice.send()}
-					>
-						<SendHorizontal />
-						Send
-					</Button>
-					<Button
-						variant="outline"
-						disabled={!said}
-						onClick={() => voice.clear()}
-					>
-						<X />
-						Drop
-					</Button>
-				</div>
-			)}
-			<CopyLast voice={voice} state={state} />
-		</section>
-	);
-}
-
-function CopyLast({ voice, state }: { voice: Voice; state: VoiceState }) {
-	const [copied, setCopied] = useState(false);
-	useEffect(() => {
-		if (!copied) return;
-		const timer = setTimeout(() => setCopied(false), 1500);
-		return () => clearTimeout(timer);
-	}, [copied]);
-	return (
-		<Button
-			variant="ghost"
-			size="sm"
-			disabled={!state.last}
-			title={state.last ?? undefined}
-			onClick={() => void voice.copyLast().then(() => setCopied(true))}
-		>
-			{copied ? <Check /> : <Copy />}
-			{copied ? "Copied" : "Copy last transcript"}
-		</Button>
-	);
-}
-
-function Speak({ voice, state }: { voice: Voice; state: VoiceState }) {
 	const reading = state.reading !== null;
 	return (
-		<section className="flex flex-col gap-2 rounded-xl border p-3">
-			<Button
-				className="h-14 w-full text-base"
-				variant={state.speaker ? "default" : "outline"}
-				aria-pressed={state.speaker}
-				onClick={() => void voice.setSpeaker(!state.speaker)}
+		<div className="flex w-full max-w-xl items-center gap-1 rounded-full border border-white/10 bg-white/[0.06] p-1.5 shadow-2xl shadow-black/60 backdrop-blur-xl">
+			<Round
+				label={state.listener ? "Stop listening" : "Listen"}
+				on={state.listener}
+				disabled={state.switching === "listener"}
+				onClick={() => void voice.setListener(!state.listener)}
+				glow={state.listener ? state.level : 0}
 			>
-				<Volume2 />
-				{state.speaker ? "Speaking" : "Speak"}
-			</Button>
-			<div className="h-1" />
-			<div className="flex gap-2">
-				<Button
-					className="flex-1"
-					variant="outline"
-					disabled={!reading}
-					onClick={() => voice.hold(!state.held)}
-				>
-					{state.held ? <Play /> : <Pause />}
-					{state.held ? "Resume" : "Pause"}
-				</Button>
-				<Button
-					variant="outline"
-					disabled={!reading}
-					onClick={() => voice.skip()}
-				>
-					<SkipForward />
-					Skip
-				</Button>
+				{state.listener ? <Mic /> : <MicOff />}
+			</Round>
+			<button
+				type="button"
+				title="Send after a pause, or by hand"
+				className="rounded-full px-2 py-1 text-xs whitespace-nowrap text-muted-foreground hover:bg-white/10 hover:text-foreground"
+				onClick={() => voice.setAutoEnd(!state.autoEnd)}
+			>
+				{state.autoEnd ? "auto" : "by hand"}
+			</button>
+			<Small
+				label="Copy last transcript"
+				disabled={!state.last}
+				onClick={() => voice.copyLast()}
+				done={<Check />}
+			>
+				<Copy />
+			</Small>
+			<div className="flex min-w-0 flex-1 items-center justify-center gap-1">
+				{said && !state.autoEnd ? (
+					<>
+						<Small label="Drop" onClick={() => voice.clear()}>
+							<X />
+						</Small>
+						<button
+							type="button"
+							className="flex h-9 items-center gap-1.5 rounded-full bg-foreground px-4 text-sm font-medium text-background"
+							onClick={() => voice.send()}
+						>
+							<SendHorizontal className="size-4" />
+							Send
+						</button>
+					</>
+				) : (
+					<Track state={state} />
+				)}
 			</div>
-			<Button
-				variant="ghost"
-				size="sm"
-				disabled={!state.message}
-				onClick={() => void voice.replay()}
-			>
+			<Small label="Read last message again" onClick={() => voice.replay()}>
 				<RotateCcw />
-				Read last message again
-			</Button>
-		</section>
+			</Small>
+			<Small
+				label={state.held ? "Resume" : "Pause"}
+				disabled={!reading}
+				onClick={() => voice.hold(!state.held)}
+			>
+				{state.held ? <Play /> : <Pause />}
+			</Small>
+			<Small label="Skip" disabled={!reading} onClick={() => voice.skip()}>
+				<SkipForward />
+			</Small>
+			<Round
+				label={state.speaker ? "Stop speaking" : "Speak"}
+				on={state.speaker}
+				onClick={() => void voice.setSpeaker(!state.speaker)}
+				glow={reading && !state.held ? 0.6 : 0}
+			>
+				{state.speaker ? <Volume2 /> : <VolumeX />}
+			</Round>
+		</div>
+	);
+}
+
+/** Where listening and speaking meet: the microphone's level grows from the
+ * left, the voice's from the right. */
+function Track({ state }: { state: VoiceState }) {
+	const speaking = state.reading !== null && !state.held;
+	return (
+		<div className="flex h-9 w-full items-center gap-[3px] px-2">
+			{Array.from({ length: 24 }, (_, i) => {
+				const left = i < 12;
+				const level = left
+					? state.level * (1 - Math.abs(i - 6) / 8)
+					: speaking
+						? 0.5
+						: 0;
+				return (
+					<span
+						// biome-ignore lint/suspicious/noArrayIndexKey: fixed bars
+						key={i}
+						className={`flex-1 rounded-full transition-[height] duration-100 ${left ? "bg-foreground/70" : "bg-foreground/40"} ${!left && speaking ? "animate-pulse" : ""}`}
+						style={{
+							height: `${Math.max(3, Math.round(level * 28 * (left ? 1 : 0.5 + ((i * 7) % 5) / 8)))}px`,
+						}}
+					/>
+				);
+			})}
+		</div>
+	);
+}
+
+function Round(props: {
+	label: string;
+	on: boolean;
+	disabled?: boolean;
+	glow: number;
+	onClick: () => void;
+	children: ReactNode;
+}) {
+	return (
+		<button
+			type="button"
+			title={props.label}
+			aria-label={props.label}
+			aria-pressed={props.on}
+			disabled={props.disabled}
+			onClick={props.onClick}
+			className={`grid size-12 shrink-0 place-items-center rounded-full transition [&_svg]:size-5 ${props.on ? "bg-foreground text-background" : "bg-white/10 text-foreground hover:bg-white/15"}`}
+			style={{
+				boxShadow: props.glow
+					? `0 0 0 ${2 + props.glow * 8}px rgb(255 255 255 / ${0.08 + props.glow * 0.2})`
+					: undefined,
+			}}
+		>
+			{props.children}
+		</button>
+	);
+}
+
+function Small(props: {
+	label: string;
+	disabled?: boolean;
+	onClick: () => unknown;
+	done?: ReactNode;
+	children: ReactNode;
+}) {
+	const [done, setDone] = useState(false);
+	useEffect(() => {
+		if (!done) return;
+		const timer = setTimeout(() => setDone(false), 1200);
+		return () => clearTimeout(timer);
+	}, [done]);
+	return (
+		<button
+			type="button"
+			title={props.label}
+			aria-label={props.label}
+			disabled={props.disabled}
+			onClick={() =>
+				void Promise.resolve(props.onClick()).then(
+					() => props.done && setDone(true),
+				)
+			}
+			className="grid size-9 shrink-0 place-items-center rounded-full text-foreground/80 transition hover:bg-white/10 hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent [&_svg]:size-4"
+		>
+			{done ? props.done : props.children}
+		</button>
 	);
 }
 

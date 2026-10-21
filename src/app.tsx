@@ -44,7 +44,7 @@ export function App() {
 		);
 	}
 	return (
-		<main className="mx-auto flex h-dvh max-w-2xl flex-col gap-4 p-4">
+		<main className="mx-auto flex h-dvh max-w-2xl flex-col gap-4 bg-[radial-gradient(ellipse_at_bottom,rgb(255_255_255/0.07),transparent_60%)] p-4 pb-8">
 			<div className="flex items-center gap-2 text-sm text-muted-foreground">
 				<span className="flex-1">
 					Keep the token and this page's link secret.
