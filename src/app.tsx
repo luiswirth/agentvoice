@@ -2,7 +2,7 @@
 // messages, and voice's controls. The session link is the page's hash, and
 // the relay the `relay` parameter, by default a local one while developing,
 // else byoa's.
-import { create, Session } from "byoa/client";
+import { create, LEAVE, Session } from "byoa/client";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
 import { type Entry, spoken } from "./voice/protocol.ts";
@@ -130,19 +130,28 @@ function Talk({ link, elevenlabs }: { link: string; elevenlabs: string }) {
 				</Button>
 			</div>
 			<ol className="flex flex-1 flex-col gap-3 overflow-y-auto">
-				{entries.filter(spoken).map((entry) => (
-					<li
-						key={entry.n}
-						className={`whitespace-pre-wrap rounded-lg px-3 py-2 text-sm ${entry.from === NAME ? "self-end bg-secondary" : "self-start"}`}
-					>
-						{entry.from !== NAME && (
-							<span className="block text-xs text-muted-foreground">
-								{entry.from}
-							</span>
-						)}
-						{entry.text}
-					</li>
-				))}
+				{entries.filter(shown).map((entry) =>
+					entry.type === LEAVE ? (
+						<li
+							key={entry.n}
+							className="self-center text-xs text-muted-foreground"
+						>
+							{entry.from === NAME ? "You" : entry.from} left
+						</li>
+					) : (
+						<li
+							key={entry.n}
+							className={`whitespace-pre-wrap rounded-lg px-3 py-2 text-sm ${entry.from === NAME ? "self-end bg-secondary" : "self-start"}`}
+						>
+							{entry.from !== NAME && (
+								<span className="block text-xs text-muted-foreground">
+									{entry.from}
+								</span>
+							)}
+							{entry.text}
+						</li>
+					),
+				)}
 			</ol>
 			{problem ? (
 				<p className="text-sm text-destructive">{problem}</p>
@@ -151,4 +160,9 @@ function Talk({ link, elevenlabs }: { link: string; elevenlabs: string }) {
 			)}
 		</>
 	);
+}
+
+/** The messages, and who left, so that the person knows when to leave too. */
+function shown(entry: Entry): boolean {
+	return spoken(entry) || entry.type === LEAVE;
 }
