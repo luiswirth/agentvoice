@@ -1,6 +1,7 @@
 // A page to try voice on: a session of the byoa transport, its chat
 // messages, and voice's controls. The session link is the page's hash, and
-// the relay the `relay` parameter, a local one by default.
+// the relay the `relay` parameter, by default a local one while developing,
+// else byoa's.
 import { create, Session } from "byoa/client";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
@@ -10,7 +11,8 @@ import { VoiceBar } from "./voice/voice-bar.tsx";
 
 const NAME = "person";
 const relay =
-	new URLSearchParams(location.search).get("relay") ?? "http://localhost:8790";
+	new URLSearchParams(location.search).get("relay") ??
+	(import.meta.env.DEV ? "http://localhost:8790" : "https://relay.senses.sh");
 
 export function App() {
 	const [key, setKey] = useState(() => localStorage.getItem("elevenlabs-key"));
