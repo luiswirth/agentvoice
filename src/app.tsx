@@ -78,6 +78,7 @@ function KeyForm({ done }: { done: (key: string) => void }) {
 
 function Talk({ link, elevenlabs }: { link: string; elevenlabs: string }) {
 	const [voice, setVoice] = useState<Voice | null>(null);
+	const [session, setSession] = useState<Session | null>(null);
 	const [entries, setEntries] = useState<Entry[]>([]);
 	const [problem, setProblem] = useState<string | null>(null);
 	useEffect(() => {
@@ -88,7 +89,9 @@ function Talk({ link, elevenlabs }: { link: string; elevenlabs: string }) {
 			// The first presence comes with the log so far, which the speaker
 			// must not read: only then does the voice appear.
 			presence: (presence) => {
-				if (NAME in presence) setVoice(voice);
+				if (!(NAME in presence)) return;
+				setVoice(voice);
+				setSession(session);
 			},
 			end: setProblem,
 		});
@@ -112,6 +115,18 @@ function Talk({ link, elevenlabs }: { link: string; elevenlabs: string }) {
 					onClick={() => navigator.clipboard.writeText(prompt)}
 				>
 					Onboard your agent
+				</Button>
+				<Button
+					variant="outline"
+					size="sm"
+					disabled={session === null}
+					title="Leave the session: once everyone has left, it is deleted"
+					onClick={async () => {
+						await session?.leave();
+						location.hash = "";
+					}}
+				>
+					Leave
 				</Button>
 			</div>
 			<ol className="flex flex-1 flex-col gap-3 overflow-y-auto">
