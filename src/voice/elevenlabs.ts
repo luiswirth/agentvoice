@@ -26,12 +26,20 @@ async function token(key: string, type: "realtime_scribe"): Promise<string> {
 function opened(socket: WebSocket): Promise<void> {
 	return new Promise((resolve, reject) => {
 		socket.addEventListener("open", () => resolve(), { once: true });
-		socket.addEventListener(
-			"close",
-			(event) => reject(new Error(`connection closed: ${event.reason}`)),
-			{ once: true },
-		);
+		socket.addEventListener("close", (event) => reject(closed(event)), {
+			once: true,
+		});
 	});
+}
+
+/** Why a socket closed, as far as the browser tells: 1006 is a connection
+ * lost with no close from the other side, which gives no reason. */
+function closed({ code, reason }: CloseEvent): Error {
+	return new Error(
+		code === 1006
+			? "The connection to ElevenLabs was lost."
+			: `ElevenLabs closed the connection (${code}${reason ? `: ${reason}` : ""}).`,
+	);
 }
 
 function base64(bytes: Uint8Array): string {
@@ -98,11 +106,7 @@ export class Scribe {
 			}
 		});
 		socket.addEventListener("close", (event) =>
-			heard.closed(
-				event.code === 1000
-					? undefined
-					: new Error(`Scribe closed: ${event.reason}`),
-			),
+			heard.closed(event.code === 1000 ? undefined : closed(event)),
 		);
 		await opened(socket);
 		return scribe;
@@ -212,7 +216,7 @@ export class Speech {
 			const done = (error?: Error) => {
 				clearTimeout(timer);
 				socket.removeEventListener("message", message);
-				socket.removeEventListener("close", closed);
+				socket.removeEventListener("close", ended);
 				if (error) reject(error);
 				else resolve();
 			};
@@ -251,9 +255,9 @@ export class Speech {
 				}
 				if (m.is_final_audio_for_turn || m.is_final) done();
 			};
-			const closed = () => done(new Error("ElevenLabs closed the connection"));
+			const ended = (event: CloseEvent) => done(closed(event));
 			socket.addEventListener("message", message);
-			socket.addEventListener("close", closed);
+			socket.addEventListener("close", ended);
 			patience();
 			socket.send(
 				JSON.stringify({
