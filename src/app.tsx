@@ -1,6 +1,6 @@
 // A page to talk with an agent by voice, on a session of the byoa transport.
 // Whoever starts creates the session: the page, which then hands the agent
-// a prompt with the link, or the agent, which gives the person the page with
+// a prompt with its token, or the agent, which gives the person the page with
 // the link as `#session=<link>`. The ElevenLabs key comes encrypted from the
 // agent, or typed in, and stays in this browser.
 import { create, LEAVE, type Presence, Secrets, Session } from "byoa/client";
@@ -87,7 +87,7 @@ function Talk({ link }: { link: string }) {
 				name="voice.senses.sh"
 				title="Talk with your agent"
 				description="Speak to the agent you already use, and hear its answers, here in your browser."
-				prompt={`Read ${location.origin}/agent.md and join ${link}`}
+				prompt={`Read ${location.origin}/agents.md and join session ${new URL(link).pathname.split("/").pop()}`}
 				note="The voice runs on ElevenLabs, with your own account."
 			/>
 		);
@@ -96,7 +96,7 @@ function Talk({ link }: { link: string }) {
 		<main className="mx-auto flex h-dvh max-w-2xl flex-col gap-4 p-4">
 			<div className="flex items-center gap-2 text-sm text-muted-foreground">
 				<span className="flex-1">
-					The page's link is a secret: whoever holds it can talk to your agent.
+					Keep the token and this page's link secret.
 				</span>
 				<Button
 					variant="outline"

@@ -1,11 +1,11 @@
 # voice.senses.sh
 
 A person talks with you by voice, through a page in their browser.
-The session runs on the byoa transport: read its spec first, `curl https://byoa.senses.sh/`.
+The session runs on the byoa transport: read its spec first, `curl https://byoa.senses.sh/agents.md`.
 
 ## Starting
 
-If you were given a session link, join it.
+If you were given a session's token, join it: its link is `https://byoa.senses.sh/s/<token>`.
 To start one yourself, create a session, join it, and give the person `https://voice.senses.sh/#session=<link>`.
 The page joins as `person`.
 Send your messages as `text/plain` or `text/markdown` entries.
