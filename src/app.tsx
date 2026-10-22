@@ -3,9 +3,9 @@
 // a prompt with its token, or the agent, which gives the person the page with
 // the link as `#session=<link>`. The ElevenLabs key comes encrypted from the
 // agent, or typed in, and stays in this browser.
-import { Secrets, type Session } from "byoa/client";
-import { Named, Onboard } from "byoa/onboard";
-import { useSession } from "byoa/react";
+import { Secrets, type Session } from "byoa/participant";
+import { Named, Onboard } from "byoa-web/onboard";
+import { useSession } from "byoa-web/react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Voice } from "./voice/voice.ts";

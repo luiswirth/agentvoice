@@ -1,7 +1,7 @@
 // Voice's protocol, on chat's, on the byoa transport: two entries of its own,
 // and nothing changed below.
 
-import type { Session as Client, Entry } from "byoa/client";
+import type { Session as Client, Entry } from "byoa/participant";
 
 export type { Entry };
 
