@@ -6,7 +6,7 @@ a person talks and listens, instead of typing and reading.
 ## What the person says
 
 A person's page writes down what they say, and sends it as a `text/plain` entry, like typed text.
-It may hold mishearings: read it as speech, not as typing.
+It may hold mishearings, which typed text doesn't.
 
 ## Voice's entries
 
@@ -18,12 +18,9 @@ Two entries of their own type tell you about the voice:
 - `application/vnd.byoa.voice.heard+json`, as `{"n":12,"text":"The first part of"}`:
   the person cut in while entry 12 was read aloud, and heard only `text` of it.
   What they said comes right after.
-  If what they missed matters, tell them again.
 
-## Writing to be heard
+## Being heard
 
-While the speaker is on, your messages are read aloud:
-
-- Keep them short, and the first sentence shortest, so that the voice starts soon.
-- Plain sentences: no tables, no lists, no code. Code blocks are not read.
-- Before work that takes a while, say so in a few words.
+While the speaker is on, your messages are read aloud, paragraph by paragraph.
+Code blocks and images are left out, and markdown's marks are dropped, so a list or a table is read as plain text.
+While you work, the person hears nothing.
