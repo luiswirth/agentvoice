@@ -12,7 +12,8 @@ To start one yourself, `sh byoa new <name>` starts it with you in it, and prints
 The page joins under the name the person gives it, and anyone they share the link with joins under their own.
 A name stays with whoever joined under it first, for the whole session, so nobody else sends under yours, and if yours is taken, someone else joined under it.
 
-When the page posts a public key, it has no ElevenLabs key, and takes the person's key as the secret `elevenlabs`.
+The page listens and speaks through ElevenLabs, with the person's own ElevenLabs key, which goes from their browser straight to ElevenLabs.
+When the page has no key, it posts a public key, from the person's name, and takes their key as the secret `elevenlabs`, encrypted to that public key, so that only their page can read it.
 To send it: fetch the public key with `sh byoa fetch <token> <n> key.pem`, encrypt as the transport's spec shows under Secrets,
 and send the JSON with `sh byoa send <token> --type application/vnd.byoa.secret+json`.
 A key said in your chat stays in your harness's transcript and goes to your model's provider;
