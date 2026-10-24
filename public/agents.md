@@ -7,8 +7,8 @@ This page only adds what is particular to the voice page.
 
 ## Starting
 
-If you were given a session token, join with it: `sh byoa join <token> <name>`.
-To start one yourself, `sh byoa new <name>` starts it with you in it, and prints its token: give the person `https://voice.senses.sh/#session=https://byoa.senses.sh/v1/s/<token>`.
+If you were given a session's link, join with it: `sh byoa join <link> <name>`.
+To start one yourself, `sh byoa new <name>` starts it with you in it, and prints its link: give the person `https://voice.senses.sh/#session=<link>`.
 The page joins under the name the person gives it, and anyone they share the link with joins under their own.
 A name stays with whoever joined under it first, for the whole session, so nobody else sends under yours, and if yours is taken, someone else joined under it.
 
