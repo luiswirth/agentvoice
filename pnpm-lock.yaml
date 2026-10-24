@@ -16,10 +16,10 @@ importers:
         version: 5.3.0
       byoa:
         specifier: github:luiswirth/byoa
-        version: https://codeload.github.com/luiswirth/byoa/tar.gz/3a6debb378adc9c7eb67010a3878c19660e2bd20
+        version: https://codeload.github.com/luiswirth/byoa/tar.gz/04d5e8a144687dea2762052ae7c086b974737707
       byoa-web:
         specifier: github:luiswirth/byoa-web
-        version: https://codeload.github.com/luiswirth/byoa-web/tar.gz/a7abf825f3796362c38daa0b8b05cc3a653b06e3(byoa@https://codeload.github.com/luiswirth/byoa/tar.gz/3a6debb378adc9c7eb67010a3878c19660e2bd20)(react@19.3.1)
+        version: https://codeload.github.com/luiswirth/byoa-web/tar.gz/a7abf825f3796362c38daa0b8b05cc3a653b06e3(byoa@https://codeload.github.com/luiswirth/byoa/tar.gz/04d5e8a144687dea2762052ae7c086b974737707)(react@19.3.1)
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -1120,8 +1120,8 @@ packages:
       byoa: github:luiswirth/byoa
       react: '>=19'
 
-  byoa@https://codeload.github.com/luiswirth/byoa/tar.gz/3a6debb378adc9c7eb67010a3878c19660e2bd20:
-    resolution: {gitHosted: true, integrity: sha512-//vQ1jbCGIezuHVtiaUZTQ/dro9CI/yoCv2E9hcpWh6JgQKS0a3pjJh357+Mekzwxe/u0pXFPgUo8XDmI4LXgA==, tarball: https://codeload.github.com/luiswirth/byoa/tar.gz/3a6debb378adc9c7eb67010a3878c19660e2bd20}
+  byoa@https://codeload.github.com/luiswirth/byoa/tar.gz/04d5e8a144687dea2762052ae7c086b974737707:
+    resolution: {gitHosted: true, integrity: sha512-FmLsEGTPeBaEu/I0nNGxKO73dH6ODlB10y/3KnlK2+hCTXZDPNkYSlgynoWQ5XWsLmS9b4N1X4FaIuR4Bq5eAA==, tarball: https://codeload.github.com/luiswirth/byoa/tar.gz/04d5e8a144687dea2762052ae7c086b974737707}
     version: 0.0.0
 
   bytes@3.1.2:
@@ -3277,12 +3277,12 @@ snapshots:
     dependencies:
       run-applescript: 7.1.0
 
-  byoa-web@https://codeload.github.com/luiswirth/byoa-web/tar.gz/a7abf825f3796362c38daa0b8b05cc3a653b06e3(byoa@https://codeload.github.com/luiswirth/byoa/tar.gz/3a6debb378adc9c7eb67010a3878c19660e2bd20)(react@19.3.1):
+  byoa-web@https://codeload.github.com/luiswirth/byoa-web/tar.gz/a7abf825f3796362c38daa0b8b05cc3a653b06e3(byoa@https://codeload.github.com/luiswirth/byoa/tar.gz/04d5e8a144687dea2762052ae7c086b974737707)(react@19.3.1):
     dependencies:
-      byoa: https://codeload.github.com/luiswirth/byoa/tar.gz/3a6debb378adc9c7eb67010a3878c19660e2bd20
+      byoa: https://codeload.github.com/luiswirth/byoa/tar.gz/04d5e8a144687dea2762052ae7c086b974737707
       react: 19.3.1
 
-  byoa@https://codeload.github.com/luiswirth/byoa/tar.gz/3a6debb378adc9c7eb67010a3878c19660e2bd20: {}
+  byoa@https://codeload.github.com/luiswirth/byoa/tar.gz/04d5e8a144687dea2762052ae7c086b974737707: {}
 
   bytes@3.1.2: {}
 
