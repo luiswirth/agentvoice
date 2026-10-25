@@ -15,9 +15,13 @@ A voice keeps its number for the whole session, reloads included, but the page d
 the person's own voice is the one that talks with you, and another is someone or something near the microphone, such as a video, which may not be meant for you at all.
 A short stretch of speech may be taken for the wrong voice.
 
+Name the voices once you can tell who talks to you, with the names entry below.
+Until you name one, any voice cuts you off by speaking, your own echo and a video near the microphone included;
+once you have named one, only the voices you named do.
+
 ## Voice's entries
 
-Two entries of their own type tell you about the voice:
+Entries of their own type tell you about the voice, and one you send tells the page who the voices are:
 
 - `application/vnd.byoa.voice.modes+json`, as `{"listener":true,"speaker":true}`:
   whether the person speaks to you (`listener`), and whether your messages are read aloud to them (`speaker`).
@@ -26,6 +30,13 @@ Two entries of their own type tell you about the voice:
   the person cut in before entry 12 was heard to its end, and heard only `text` of it, empty if it was still waiting to be read.
   It is dropped, so say again what of it still matters.
   What they said comes right after.
+- `application/vnd.byoa.voice.names+json`, as `{"1":"Luis","3":"Benedict"}`, which you send:
+  who the voices are, by their number, the person's name where they are a user of your harness, a name of your own otherwise.
+  The latest one holds, so each names every voice you know, and `{}` takes the names back.
+  A voice you named cuts you off by speaking, and the page shows the person who is speaking now by that name.
+  A voice you didn't name can't cut you off once you named any: what it says still reaches you, tagged by its number, while you keep speaking.
+  The tags stay numbers.
+  Name someone as soon as you can tell who they are, and send it again whenever you learn more, such as two numbers that are the same person.
 - `application/vnd.byoa.voice.trace+json`, only while the person shares it, which is off until they turn it on:
   a JSON array of what the page did since the last trace, or since it opened, reloads included, each event with its `time` and name, such as what was heard as it was heard, and when reading aloud paused.
   One comes as the person turns sharing on, and then one right before each of their messages, for you to judge how voice works and improve it.

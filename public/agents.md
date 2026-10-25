@@ -18,3 +18,9 @@ To send it: fetch the public key with `sh byoa fetch <token> <n> key.pem`, encry
 and send the JSON with `sh byoa send <token> --type application/vnd.byoa.secret+json`.
 A key said in your chat stays in your harness's transcript and goes to your model's provider;
 the person can also enter it in the page.
+
+## Naming the voices
+
+The person's messages tag each voice by number, and anything near their microphone, your own echo too, can cut you off until you name a voice.
+So once you can tell who talks to you, name them, as voice's spec has it under its names entry:
+`echo '{"1":"Luis"}' | sh byoa send <token> --type application/vnd.byoa.voice.names+json`.
