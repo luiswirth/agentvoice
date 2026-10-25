@@ -13,6 +13,7 @@ export const base: VoiceState = {
 	held: false,
 	message: null,
 	last: "Earlier words.",
+	languages: [],
 	sharing: false,
 	error: null,
 };
@@ -25,6 +26,7 @@ export const states: Record<string, Partial<VoiceState>> = {
 		hearing: "so the plan is that we measure it before we",
 	},
 	conversation: { listener: true, speaker: true },
+	languages: { listener: true, languages: ["en", "de"] },
 	"agent-speaking": { listener: true, speaker: true, reading: 1 },
 	"you-speaking": {
 		listener: true,

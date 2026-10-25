@@ -9,6 +9,7 @@ import {
 	Check,
 	Copy,
 	CornerDownLeft,
+	Globe,
 	Mic,
 	MicOff,
 	Pause,
@@ -238,7 +239,7 @@ function Status({ voice, state }: { voice: Voice; state: VoiceState }) {
 					? "var(--agent)"
 					: "var(--muted-foreground)";
 	return (
-		<div className="flex items-center gap-3 text-xs tracking-widest text-muted-foreground uppercase">
+		<div className="flex items-center gap-2 text-xs tracking-widest whitespace-nowrap text-muted-foreground uppercase sm:gap-3">
 			<p className="flex items-center gap-2">
 				<span
 					className="size-2 rounded-full transition-[background] duration-500"
@@ -246,9 +247,12 @@ function Status({ voice, state }: { voice: Voice; state: VoiceState }) {
 				/>
 				{mode(state)}
 				{doing(state) && (
-					<span className="text-muted-foreground/60">· {doing(state)}</span>
+					<span className="hidden text-muted-foreground/60 sm:inline">
+						· {doing(state)}
+					</span>
 				)}
 			</p>
+			<Languages voice={voice} state={state} />
 			<button
 				type="button"
 				aria-pressed={state.sharing}
@@ -259,6 +263,54 @@ function Status({ voice, state }: { voice: Voice; state: VoiceState }) {
 				{state.sharing ? "sharing trace" : "share trace"}
 			</button>
 		</div>
+	);
+}
+
+const names = new Intl.DisplayNames(["en"], { type: "language" });
+
+/** The languages the person speaks, for transcription: detected, shown as
+ * the globe alone, or typed as codes such as `en, de`, the most likely first. */
+function Languages({ voice, state }: { voice: Voice; state: VoiceState }) {
+	const [editing, setEditing] = useState<string | null>(null);
+	const title =
+		"The languages you speak, the most likely first, as codes such as en, de: transcription hears only these. Empty is automatic.";
+	if (editing === null)
+		return (
+			<button
+				type="button"
+				title={title}
+				aria-label={`Languages: ${state.languages.join(", ") || "detected"}`}
+				className="flex items-center gap-1.5 rounded-full px-2 py-0.5 tracking-widest uppercase transition hover:bg-white/10 hover:text-foreground text-muted-foreground/60"
+				onClick={() => setEditing(state.languages.join(", "))}
+			>
+				<Globe className="size-3" />
+				{state.languages.join(" · ")}
+			</button>
+		);
+	const save = () => {
+		const codes = editing
+			.toLowerCase()
+			.split(/[\s,]+/)
+			.filter((code) => /^[a-z]{2,3}$/.test(code) && names.of(code) !== code);
+		void voice.setLanguages([...new Set(codes)]);
+		setEditing(null);
+	};
+	return (
+		<input
+			// biome-ignore lint/a11y/noAutofocus: it opens at the person's click
+			autoFocus
+			aria-label="The languages you speak"
+			title={title}
+			placeholder="en, de"
+			className="w-24 rounded-full bg-white/10 px-2 py-0.5 text-xs tracking-normal text-foreground normal-case outline-none placeholder:text-muted-foreground/60"
+			value={editing}
+			onChange={(event) => setEditing(event.target.value)}
+			onBlur={save}
+			onKeyDown={(event) => {
+				if (event.key === "Enter") save();
+				if (event.key === "Escape") setEditing(null);
+			}}
+		/>
 	);
 }
 
@@ -462,10 +514,12 @@ function Small(props: {
 }
 
 /** Space turns listening on and off, Enter sends what was said by hand,
- * Escape drops it. Not while typing in the draft, except Escape. */
+ * Escape drops it. Not while typing in the draft, except Escape, nor in a
+ * field. */
 function useShortcuts(voice: Voice, state: VoiceState) {
 	useEffect(() => {
 		const key = (event: KeyboardEvent) => {
+			if (event.target instanceof HTMLInputElement) return;
 			const typing = event.target instanceof HTMLTextAreaElement;
 			if (event.key === "Escape") voice.clear();
 			else if (typing || event.repeat) return;

@@ -80,6 +80,8 @@ export class Listener {
 		key: string,
 		hearing: Hearing,
 		floor: () => number,
+		/** What the person speaks, as `Scribe.open` takes it: none to detect it. */
+		languages: readonly string[],
 	): Promise<Listener> {
 		let listener: Listener | null = null;
 		/** Whether the segment in progress counts. */
@@ -251,49 +253,53 @@ export class Listener {
 		let scribe: Scribe;
 		try {
 			[scribe] = await Promise.all([
-				Scribe.open(key, {
-					partial: (text) => {
-						// It belongs to a segment being committed.
-						if (commits.length > 0) return;
-						const heard = [...pieces, text].join(" ").trim();
-						tell({ type: "text", text: heard });
-						if (!/\w/.test(text)) return;
-						if (!speaking && loudest < floor()) return;
-						if (!speaking) hearing.speaking();
-						speaking = true;
-						hearing.partial(heard);
-					},
-					committed: (text, automatic, timed) => {
-						const why = automatic ? "piece" : (commits.shift() ?? "piece");
-						// Where the words don't spell the text, the text is one word,
-						// so that the tags never lose any of it.
-						const spelled =
-							timed
-								.map((w) => w.text)
-								.join("")
-								.trim() === text.trim();
-						hearing.trace("committed", { why, text, spelled });
-						if (why !== "between" && text.trim()) {
-							pieces.push(text.trim());
-							const start = timed[0]?.start ?? clock;
-							const end = timed.at(-1)?.end ?? clock;
-							if (words.length > 0)
-								words.push({ text: " ", start, end: start });
-							if (spelled) words.push(...timed);
-							else words.push({ text: text.trim(), start, end });
-						}
-						if (why === "end") segment();
-						else if (turn) {
-							// What a pause settled replaces its partial.
-							const heard = pieces.join(" ");
+				Scribe.open(
+					key,
+					{
+						partial: (text) => {
+							// It belongs to a segment being committed.
+							if (commits.length > 0) return;
+							const heard = [...pieces, text].join(" ").trim();
 							tell({ type: "text", text: heard });
-							if (speaking) hearing.partial(heard);
-						}
+							if (!/\w/.test(text)) return;
+							if (!speaking && loudest < floor()) return;
+							if (!speaking) hearing.speaking();
+							speaking = true;
+							hearing.partial(heard);
+						},
+						committed: (text, automatic, timed) => {
+							const why = automatic ? "piece" : (commits.shift() ?? "piece");
+							// Where the words don't spell the text, the text is one word,
+							// so that the tags never lose any of it.
+							const spelled =
+								timed
+									.map((w) => w.text)
+									.join("")
+									.trim() === text.trim();
+							hearing.trace("committed", { why, text, spelled });
+							if (why !== "between" && text.trim()) {
+								pieces.push(text.trim());
+								const start = timed[0]?.start ?? clock;
+								const end = timed.at(-1)?.end ?? clock;
+								if (words.length > 0)
+									words.push({ text: " ", start, end: start });
+								if (spelled) words.push(...timed);
+								else words.push({ text: text.trim(), start, end });
+							}
+							if (why === "end") segment();
+							else if (turn) {
+								// What a pause settled replaces its partial.
+								const heard = pieces.join(" ");
+								tell({ type: "text", text: heard });
+								if (speaking) hearing.partial(heard);
+							}
+						},
+						closed: (error) => {
+							if (error) fail(error);
+						},
 					},
-					closed: (error) => {
-						if (error) fail(error);
-					},
-				}),
+					languages,
+				),
 				ready,
 			]);
 		} catch (error) {

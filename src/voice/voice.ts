@@ -31,12 +31,16 @@ export type VoiceState = Modes & {
 	message: string | null;
 	/** The person's last transcript, sent or dropped. */
 	last: string | null;
+	/** The languages the person speaks, most likely first, as ISO 639-1
+	 * codes: none to have Scribe detect it. Kept in this browser. */
+	languages: string[];
 	/** Whether the page sends its trace into the session. */
 	sharing: boolean;
 	error: string | null;
 };
 
 const TRANSCRIPTS = "voice-transcripts";
+const LANGUAGES = "voice-languages";
 
 /** How loud, in dBFS, the person must get to count while the speaker plays:
  * the speaker's echo left over measured -42 to -57, the person's speech -12
@@ -66,7 +70,8 @@ export class Voice {
 	private readonly trace = new Trace();
 	/** Where the tab keeps the modes, so that a reload keeps them. */
 	private readonly modesKey = `voice-modes ${location.href}`;
-	/** While the modes the page opens with come on. */
+	/** While modes come back on as they were: as the page opens, or as
+	 * listening reopens. */
 	private restoring = false;
 	private readonly unsubscribe: () => void;
 	state: VoiceState = {
@@ -81,6 +86,7 @@ export class Voice {
 		held: false,
 		message: null,
 		last: transcripts()[0] ?? null,
+		languages: JSON.parse(localStorage.getItem(LANGUAGES) ?? "[]") as string[],
 		sharing: this.trace.sharing,
 		error: null,
 	};
@@ -179,12 +185,31 @@ export class Voice {
 					},
 				},
 				() => (this.speaker?.playing ? ECHO_FLOOR : Number.NEGATIVE_INFINITY),
+				this.state.languages,
 			);
 			this.set({ listener: true, switching: null });
 			await this.modes();
 		} catch (error) {
 			this.set({ switching: null, error: (error as Error).message });
 		}
+	}
+
+	/** Sets the languages the person speaks. Listening hears them from its
+	 * next start, at once while nothing is being heard. */
+	async setLanguages(languages: string[]): Promise<void> {
+		this.trace.event("languages", { languages });
+		localStorage.setItem(LANGUAGES, JSON.stringify(languages));
+		this.set({ languages });
+		if (!this.state.listener || this.state.hearing || this.state.switching)
+			return;
+		this.listener?.close();
+		this.listener = null;
+		this.set({ listener: false, level: 0 });
+		this.restoring = true;
+		await this.setListener(true);
+		this.restoring = false;
+		// Listening that failed to reopen is off, which the others must know.
+		if (!this.state.listener) await this.modes();
 	}
 
 	/** Call it from a click, since it starts the page's audio. */

@@ -32,6 +32,7 @@ const voice = {
 	hold: () => {},
 	replay: async () => {},
 	share: () => {},
+	setLanguages: async () => {},
 	skip: () => {},
 } as unknown as Voice;
 // The microphone's level is part of the state, which changes as it moves.
