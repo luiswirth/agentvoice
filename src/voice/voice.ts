@@ -5,10 +5,22 @@
 // one chat message: at a segment's end if turns end automatically, else
 // when the person sends it. Nothing the person says is lost: every
 // transcript, sent or dropped, is kept in this browser, the last to copy.
+// Words take the floor, pausing the speaker, and a message they end in
+// drops what was not heard of the agent's: any voice's words while the agent
+// named none, only a named voice's once it named any.
 import { holdAudioSession } from "./audio.ts";
 import { Listener } from "./listener.ts";
 import { holdMedia } from "./media.ts";
-import { HEARD, MODES, type Modes, type Session, spoken } from "./protocol.ts";
+import {
+	HEARD,
+	MODES,
+	type Modes,
+	NAMES,
+	type Names,
+	names,
+	type Session,
+	spoken,
+} from "./protocol.ts";
 import { Speaker } from "./speaker.ts";
 import { TRACE, Trace } from "./trace.ts";
 
@@ -36,6 +48,11 @@ export type VoiceState = Modes & {
 	languages: string[];
 	/** Whether the page sends its trace into the session. */
 	sharing: boolean;
+	/** Who the agent named the voices, by number. */
+	names: Names;
+	/** The voice heard now, by its number, null for one without a number,
+	 * undefined while none is heard. */
+	voice?: number | null | undefined;
 	error: string | null;
 };
 
@@ -64,6 +81,9 @@ export class Voice {
 	/** What happens to the draft once the segment in progress ends: the
 	 * person sent or dropped it while still being heard. */
 	private ending: "send" | "drop" | null = null;
+	/** Whether the segment in progress has words, and whether they took the floor. */
+	private words = false;
+	private floor = false;
 	/** The log's order is the order things were said, so sends go one after another. */
 	private sent: Promise<unknown> = Promise.resolve();
 	private readonly watchers = new Set<() => void>();
@@ -88,6 +108,7 @@ export class Voice {
 		last: transcripts()[0] ?? null,
 		languages: JSON.parse(localStorage.getItem(LANGUAGES) ?? "[]") as string[],
 		sharing: this.trace.sharing,
+		names: {},
 		error: null,
 	};
 
@@ -102,8 +123,21 @@ export class Voice {
 					session.log.findLast((entry) => entry.from !== name && spoken(entry))
 						?.text ?? null,
 			});
+		const named = () => {
+			const entry = session.log.findLast((e) => e.type.startsWith(NAMES));
+			this.set({ names: names(entry?.text) });
+		};
 		message();
-		this.unsubscribe = session.subscribe({ entry: message });
+		named();
+		this.unsubscribe = session.subscribe({
+			entry: (entry) => {
+				message();
+				if (entry.type.startsWith(NAMES)) {
+					named();
+					this.trace.event("names", this.state.names);
+				}
+			},
+		});
 		// The speaker is on from the start, the listener off, unless the tab
 		// had them otherwise before a reload. Their audio starts at the first
 		// gesture on the page.
@@ -138,10 +172,12 @@ export class Voice {
 		if (!on) {
 			this.listener?.close();
 			this.listener = null;
-			this.set({ listener: false, hearing: "", level: 0 });
+			this.set({ listener: false, hearing: "", level: 0, voice: undefined });
 			return this.modes();
 		}
 		this.set({ switching: "listener", error: null });
+		this.words = false;
+		this.floor = false;
 		try {
 			this.listener = await Listener.open(
 				this.key,
@@ -151,7 +187,12 @@ export class Voice {
 					voiced: (voiced) => this.speaker?.duck(voiced),
 					speaking: () => {
 						this.trace.event("speaking", { reading: this.state.reading });
-						this.speaker?.pause();
+						this.words = true;
+						this.claim();
+					},
+					voice: (voice) => {
+						if (voice !== this.state.voice) this.set({ voice });
+						this.claim();
 					},
 					partial: (hearing) => {
 						// Scribe's partials repeat the whole segment so far, so a
@@ -179,6 +220,7 @@ export class Voice {
 							listener: false,
 							hearing: "",
 							level: 0,
+							voice: undefined,
 							error: error.message,
 						});
 						void this.modes();
@@ -241,8 +283,20 @@ export class Voice {
 		if (autoEnd && this.state.draft && !this.state.hearing) this.send();
 	}
 
-	/** Sends the draft, with what is still being heard once it is. */
-	send(): void {
+	/** Pauses the speaker for the words in progress, once they may take the floor. */
+	private claim(): void {
+		if (!this.words || this.floor) return;
+		const { names, voice } = this.state;
+		if (Object.keys(names).length > 0 && !(voice != null && voice in names))
+			return;
+		this.floor = true;
+		this.trace.event("floor", { voice, reading: this.state.reading });
+		this.speaker?.pause();
+	}
+
+	/** Sends the draft, with what is still being heard once it is, dropping
+	 * what was not heard of the agent's messages unless `interrupt` is off. */
+	send(interrupt = true): void {
 		if (this.finishing("send")) return;
 		const text = join(this.state.draft, this.state.hearing);
 		this.set({ draft: "", hearing: "" });
@@ -251,7 +305,8 @@ export class Voice {
 			return;
 		}
 		this.keep(text);
-		const heard = this.speaker?.interrupt() ?? [];
+		const heard = interrupt ? (this.speaker?.interrupt() ?? []) : [];
+		if (!interrupt) this.speaker?.duck(false);
 		this.trace.event("send", { text, heard });
 		const trace = this.trace.take();
 		this.queue(async () => {
@@ -346,11 +401,20 @@ export class Voice {
 
 	private segment(text: string): void {
 		const ending = this.ending;
+		const floor = this.floor;
 		this.ending = null;
-		this.set({ hearing: "", draft: join(this.state.draft, text) });
+		this.words = false;
+		this.floor = false;
+		this.set({
+			hearing: "",
+			draft: join(this.state.draft, text),
+			voice: undefined,
+		});
 		if (ending === "drop") this.clear();
-		else if (ending === "send" || this.state.autoEnd) this.send();
+		else if (ending === "send") this.send();
+		else if (this.state.autoEnd) this.send(floor);
 		else if (!this.state.draft) this.speaker?.resume();
+		else if (!floor) this.speaker?.duck(false);
 	}
 
 	/** Play and pause from the system's media controls: sends a draft, else

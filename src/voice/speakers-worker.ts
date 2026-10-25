@@ -9,12 +9,14 @@ import { CAMPLUS, fetchModel } from "./models.ts";
 
 export type ToSpeakers =
 	| { type: "audio"; pcm: ArrayBuffer }
-	| { type: "embed"; from: number; to: number };
+	| { type: "embed" | "probe"; from: number; to: number };
 
 export type FromSpeakers =
 	| { type: "ready" }
 	/** The unit-length embedding of an `embed`, answered in order. */
 	| { type: "embedding"; embedding: Float32Array }
+	/** The same for a `probe`, in the same order. */
+	| { type: "probe"; embedding: Float32Array }
 	| { type: "failed"; error: string };
 
 ort.env.wasm.wasmPaths = { wasm };
@@ -66,10 +68,11 @@ self.onmessage = ({ data }: MessageEvent<ToSpeakers>) => {
 		for (const s of new Int16Array(data.pcm)) kept[heard++ % KEPT] = s / 32768;
 		return;
 	}
+	const type = data.type === "probe" ? "probe" : "embedding";
 	queue = queue
 		.then(() => embed(data.from, data.to))
 		.then(
-			(embedding) => post({ type: "embedding", embedding }, [embedding.buffer]),
+			(embedding) => post({ type, embedding }, [embedding.buffer]),
 			(error: Error) => post({ type: "failed", error: error.message }),
 		);
 };

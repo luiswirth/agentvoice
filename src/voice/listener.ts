@@ -10,7 +10,8 @@
 // before speech starts until its turn ends, so that the silence between
 // turns is not paid for. Each stretch of speech is tagged by its voice, on a
 // local speaker model, and a segment's words by the voice of their stretch,
-// which it waits for if the model is not done.
+// which it waits for if the model is not done. While speech goes on, the
+// model also tells which known voice is heard now, if any.
 import { Microphone } from "./audio.ts";
 import { LISTEN_RATE, Scribe, type Word } from "./elevenlabs.ts";
 import type { FromSpeakers, ToSpeakers } from "./speakers-worker.ts";
@@ -25,6 +26,9 @@ export type Hearing = {
 	voiced(voiced: boolean): void;
 	/** The person started saying words. */
 	speaking(): void;
+	/** The voice heard now, while speech goes on: its number, null for one
+	 * close to no voice heard before or that has no number yet. */
+	voice(number: number | null): void;
 	/** What was heard so far of the segment in progress. */
 	partial(text: string): void;
 	/** A segment ended, empty if it held no words or never counted. */
@@ -49,6 +53,11 @@ const KEPT = PREROLL + 0.5;
 /** The longest stretch the speaker model hears at once, in seconds, so that
  * a long one is heard while it goes on, and a voice change inside it shows. */
 const STRETCH = 10;
+
+/** How long speech goes on, in seconds, before the speaker model is asked
+ * which voice is heard now, how often it is asked again while it goes on,
+ * and the longest it hears for it. */
+const PROBE = { first: 0.75, every: 0.5, longest: 1.5 };
 
 /** What a commit is for: a piece of the turn in progress, or its end. A
  * pause commits a piece shortly before it ends the turn, so that the turn's
@@ -105,6 +114,10 @@ export class Listener {
 		/** Where the stretch of speech in progress starts, as far as the
 		 * speaker model has not heard it yet. */
 		let open: number | null = null;
+		/** Where the speech in progress starts, and where it was last asked
+		 * which voice is heard. */
+		let since: number | null = null;
+		let probed: number | null = null;
 		/** The stretches of the segments in progress, with their voices. */
 		let stretches: Stretch[] = [];
 		/** The stretches the speaker model is still to answer, in order. */
@@ -129,6 +142,12 @@ export class Listener {
 				voicing = false;
 				hearing.trace("voice.failed", { error: data.error });
 				for (const { done } of embedding.splice(0)) done();
+			} else if (data.type === "probe") {
+				if (!data.embedding.some((x) => x !== 0)) return;
+				const { voice, similarity } = voices.closest(data.embedding);
+				const number = voice === null ? null : voices.numbered(voice);
+				hearing.trace("voice.now", { voice: number, similarity });
+				hearing.voice(number);
 			} else {
 				const asked = embedding.shift();
 				if (!asked) return;
@@ -250,6 +269,8 @@ export class Listener {
 								scribe.hear(pcm);
 							else scribe.skip(pcm.length);
 						open = data.at;
+						since = data.at;
+						probed = null;
 						turn = true;
 						settled = false;
 						hearing.trace("vad.speech", { at: data.at });
@@ -259,6 +280,7 @@ export class Listener {
 						voiced = false;
 						if (open !== null) embed(open, data.at);
 						open = null;
+						since = null;
 						hearing.trace("vad.silence", { at: data.at });
 						hearing.voiced(false);
 						return;
@@ -356,6 +378,15 @@ export class Listener {
 					const heard = pcm.slice();
 					ask({ type: "audio", pcm: heard.buffer }, [heard.buffer]);
 					clock += pcm.length / LISTEN_RATE;
+					if (
+						voicing &&
+						since !== null &&
+						clock >= (probed ?? since + PROBE.first - PROBE.every) + PROBE.every
+					) {
+						const from = Math.max(since, clock - PROBE.longest);
+						ask({ type: "probe", from, to: clock });
+						probed = clock;
+					}
 					if (open !== null && clock - open >= STRETCH) {
 						embed(open, open + STRETCH);
 						open += STRETCH;

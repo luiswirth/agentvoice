@@ -3,7 +3,8 @@
 // conversation. Above them, large, what the person is saying and has not yet
 // sent: the agent's words belong to its harness. The two voices show as
 // light, the person's warm and the agent's cool: a glow behind the page, the
-// switch of each, and a strip of the last seconds of both. The system's
+// switch of each, and a strip of the last seconds of both. Once the agent
+// named voices, the one heard now shows by name above the words. The system's
 // media controls work it too, so that it needs no looking at.
 import {
 	Check,
@@ -44,6 +45,7 @@ export function VoiceBar({ voice }: { voice: Voice }) {
 	return (
 		<div ref={root} className="flex min-h-0 flex-1 flex-col items-center gap-4">
 			<Aura />
+			<Who state={state} />
 			<Now voice={voice} state={state} />
 			{state.error && <p className="text-sm text-destructive">{state.error}</p>}
 			<Status voice={voice} state={state} />
@@ -65,7 +67,7 @@ function mode({ listener, speaker }: VoiceState): string {
 }
 
 function doing(state: VoiceState): string {
-	if (state.hearing) return "hearing you";
+	if (state.hearing) return `hearing ${who(state)?.name ?? "you"}`;
 	if (state.reading !== null) return state.held ? "paused" : "speaking";
 	if (state.draft) return "your draft";
 	if (state.listener) return "listening";
@@ -75,6 +77,54 @@ function doing(state: VoiceState): string {
 
 function now(state: VoiceState): string {
 	return [state.draft, state.hearing].filter(Boolean).join(" ");
+}
+
+/** Who is heard now, once the agent named any voice: by name, or by number
+ * for a voice it didn't name, which can't take the floor. */
+function who({
+	names,
+	voice,
+}: VoiceState): { name: string; named: boolean } | null {
+	if (Object.keys(names).length === 0 || voice === undefined) return null;
+	const name = voice === null ? undefined : names[voice];
+	if (name !== undefined) return { name, named: true };
+	return {
+		name: voice === null ? "new voice" : `voice ${voice}`,
+		named: false,
+	};
+}
+
+/** The voice heard now, as a name lit by the person's level, which fades
+ * out between turns. Only there once the agent named any voice, so that one
+ * person alone sees nothing of it. */
+function Who({ state }: { state: VoiceState }) {
+	const now = who(state);
+	// The last voice heard stays as it fades out.
+	const last = useRef(now);
+	if (now) last.current = now;
+	const shown = last.current;
+	if (Object.keys(state.names).length === 0) return null;
+	return (
+		<p
+			aria-live="polite"
+			className={`flex h-7 shrink-0 items-center gap-2.5 rounded-full bg-black/30 px-3.5 text-xs tracking-widest uppercase transition-opacity duration-500 ${now ? "opacity-100" : "opacity-0"}`}
+		>
+			<span
+				className={`size-2 rounded-full ${shown?.named ? "bg-you" : "bg-muted-foreground"}`}
+				style={{
+					boxShadow: `0 0 calc(4px + var(--you-level, 0) * 16px) ${shown?.named ? "var(--you)" : "transparent"}`,
+					transform: "scale(calc(1 + var(--you-level, 0) * 0.8))",
+				}}
+			/>
+			<span
+				className={
+					shown?.named ? "text-foreground" : "text-muted-foreground/70"
+				}
+			>
+				{shown?.name}
+			</span>
+		</p>
+	);
 }
 
 /** The levels of both voices, eased, as the CSS variables `--you-level` and

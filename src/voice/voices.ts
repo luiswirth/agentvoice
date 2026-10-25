@@ -1,6 +1,6 @@
 // Which voice said what: every stretch of speech gets the number of the voice
 // it sounds like, the closest voice heard before if close enough, a new one
-// otherwise, and the words of a segment are tagged by the voice of their
+// otherwise if it is long enough, and the words of a segment are tagged by the voice of their
 // stretch, as `[voice 1] ...`. The page doesn't know who a voice is.
 // Embeddings are kept across reloads, so are voices' numbers.
 import type { Word } from "./elevenlabs.ts";
@@ -15,6 +15,11 @@ const SAME = 0.3;
  * a shorter one takes the voice of a longer one in its segment, and only
  * where there is none is it matched itself. */
 export const SHORTEST = 1;
+
+/** The shortest stretch, in seconds, that is heard as a new voice when it is
+ * close to none: a shorter one, such as Luis's lone "um", or his "It means"
+ * over 1.3 s at 0.2, is taken as short instead. */
+const NEW = 2;
 
 /** A stretch of speech, its embedding, and its voice, null for a short one
  * until its segment ends. */
@@ -44,6 +49,11 @@ export class Voices {
 		this.numbers = stored.numbers ?? [];
 	}
 
+	/** The number of a voice, if it was given one. */
+	numbered(voice: number): number | null {
+		return this.numbers[voice] ?? null;
+	}
+
 	/** The number of a voice, given to it now if it has none. */
 	number(voice: number): number {
 		const given = this.numbers[voice];
@@ -66,28 +76,56 @@ export class Voices {
 	): { stretch: Stretch; similarity?: number } {
 		if (to - from < SHORTEST)
 			return { stretch: { from, to, embedding, voice: null } };
-		const { voice, similarity } = this.voice(embedding);
-		return { stretch: { from, to, embedding, voice }, similarity };
+		const { voice, similarity } = this.closest(embedding);
+		if (voice === null && to - from < NEW)
+			return { stretch: { from, to, embedding, voice: null }, similarity };
+		return {
+			stretch: { from, to, embedding, voice: this.voice(embedding) },
+			similarity,
+		};
 	}
 
-	/** The voice of a unit-length embedding, and how close it is to it. */
-	voice(embedding: Float32Array): { voice: number; similarity: number } {
+	/** The voice a unit-length embedding is close enough to, null for none,
+	 * and how close it is to the closest voice, without hearing it as one. */
+	closest(embedding: Float32Array): {
+		voice: number | null;
+		similarity: number;
+	} {
+		const { best, similarity } = this.best(embedding);
+		return { voice: similarity >= SAME ? best : null, similarity };
+	}
+
+	/** The voice of a unit-length embedding: the voice it is close enough to,
+	 * a new one otherwise. */
+	voice(embedding: Float32Array): number {
+		const { voice } = this.closest(embedding);
+		if (voice === null) {
+			this.sums.push(embedding.slice());
+			this.store();
+			return this.sums.length - 1;
+		}
+		const sum = this.sums[voice] as Float32Array;
+		for (let i = 0; i < sum.length; i++)
+			sum[i] = (sum[i] ?? 0) + (embedding[i] ?? 0);
+		this.store();
+		return voice;
+	}
+
+	/** The voice closest to a short stretch heard on its own: the closest
+	 * one, however far, or a new one if there is none yet. */
+	guess(embedding: Float32Array): number {
+		const { best } = this.best(embedding);
+		return best >= 0 ? best : this.voice(embedding);
+	}
+
+	private best(embedding: Float32Array): { best: number; similarity: number } {
 		let best = -1;
 		let similarity = Number.NEGATIVE_INFINITY;
 		for (const [i, sum] of this.sums.entries()) {
 			const s = dot(sum, embedding) / Math.sqrt(dot(sum, sum));
 			if (s > similarity) [best, similarity] = [i, s];
 		}
-		if (similarity >= SAME) {
-			const sum = this.sums[best] as Float32Array;
-			for (let i = 0; i < sum.length; i++)
-				sum[i] = (sum[i] ?? 0) + (embedding[i] ?? 0);
-		} else {
-			best = this.sums.length;
-			this.sums.push(embedding.slice());
-		}
-		this.store();
-		return { voice: best, similarity };
+		return { best, similarity };
 	}
 
 	private store(): void {
@@ -118,7 +156,7 @@ export function annotate(
 			s.voice =
 				long.length > 0
 					? voiceAt((s.from + s.to) / 2, long)
-					: voices.voice(s.embedding).voice;
+					: voices.guess(s.embedding);
 	let text = "";
 	let last = -1;
 	for (const word of words) {
