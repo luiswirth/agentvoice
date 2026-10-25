@@ -35,6 +35,11 @@ export type VoiceState = Modes & {
 
 const TRANSCRIPTS = "voice-transcripts";
 
+/** How loud, in dBFS, the person must get to count while the speaker plays:
+ * the speaker's echo left over measured -42 to -57, the person's speech -12
+ * to -13, and -35 within 0.25 s of its start. */
+const ECHO_FLOOR = -35;
+
 function transcripts(): string[] {
 	try {
 		return JSON.parse(localStorage.getItem(TRANSCRIPTS) ?? "[]") as string[];
@@ -103,22 +108,26 @@ export class Voice {
 		}
 		this.set({ switching: "listener", error: null });
 		try {
-			this.listener = await Listener.open(this.key, {
-				speaking: () => this.speaker?.pause(),
-				partial: (hearing) => this.set({ hearing }),
-				segment: (text) => this.segment(text),
-				level: (level) => this.set({ level }),
-				failed: (error) => {
-					this.listener = null;
-					this.set({
-						listener: false,
-						hearing: "",
-						level: 0,
-						error: error.message,
-					});
-					void this.modes();
+			this.listener = await Listener.open(
+				this.key,
+				{
+					speaking: () => this.speaker?.pause(),
+					partial: (hearing) => this.set({ hearing }),
+					segment: (text) => this.segment(text),
+					level: (level) => this.set({ level }),
+					failed: (error) => {
+						this.listener = null;
+						this.set({
+							listener: false,
+							hearing: "",
+							level: 0,
+							error: error.message,
+						});
+						void this.modes();
+					},
 				},
-			});
+				() => (this.speaker?.playing ? ECHO_FLOOR : Number.NEGATIVE_INFINITY),
+			);
 			this.set({ listener: true, switching: null });
 			await this.modes();
 		} catch (error) {

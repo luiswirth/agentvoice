@@ -59,6 +59,11 @@ export class Speaker {
 		return this.readings[0]?.n ?? null;
 	}
 
+	/** Whether the speaker is sounding now. */
+	get playing(): boolean {
+		return this.player.playing;
+	}
+
 	/** Lets go of the messages played to their end. */
 	private settle(): void {
 		const before = this.reading;
@@ -111,25 +116,33 @@ export class Speaker {
 	}
 
 	/**
-	 * Drops everything not yet played, as the person cuts in: what was heard
-	 * of each message cut off, which goes to the log before what cut it off.
+	 * Drops the messages that started playing, as the person cuts in, and
+	 * reads on with those that didn't: what was heard of each message cut
+	 * off, which goes to the log before what cut it off.
 	 */
 	interrupt(): Heard[] {
-		const heard = this.readings.map((reading) => ({
+		const cut = this.readings.filter(
+			({ line }) => this.player.progress(line) > 0,
+		);
+		const heard = cut.map((reading) => ({
 			n: reading.n,
 			text: this.heard(reading),
 		}));
-		for (const { line } of this.readings) this.dropped.add(line);
-		this.readings = [];
-		this.player.stop();
-		this.player.resume();
-		this.changed(null);
+		for (const { line } of cut) {
+			this.dropped.add(line);
+			this.player.stop(line);
+		}
+		this.readings = this.readings.filter((reading) => !cut.includes(reading));
+		this.resume();
+		this.changed(this.reading);
 		return heard;
 	}
 
 	close(): void {
 		this.unsubscribe();
-		this.interrupt();
+		for (const { line } of this.readings) this.dropped.add(line);
+		this.readings = [];
+		this.player.stop();
 		this.speech.close();
 	}
 
