@@ -82,13 +82,7 @@ export class Scribe {
 		this.socket = socket;
 	}
 
-	/** `languages`: what the person speaks, most likely first, as BCP 47 tags
-	 * such as `navigator.languages` gives; Scribe hears only these. */
-	static async open(
-		key: string,
-		heard: Heard,
-		languages: readonly string[],
-	): Promise<Scribe> {
+	static async open(key: string, heard: Heard): Promise<Scribe> {
 		const query = new URLSearchParams({
 			model_id: "scribe_v2_realtime",
 			token: await token(key, "realtime_scribe"),
@@ -96,12 +90,6 @@ export class Scribe {
 			commit_strategy: "manual",
 			include_timestamps: "true",
 		});
-		const codes = languages.map(
-			(tag) => tag.split("-")[0]?.toLowerCase() ?? "",
-		);
-		const [first, ...rest] = [...new Set(codes)].filter((code) => code !== "");
-		if (first !== undefined) query.set("language_code", first);
-		for (const code of rest) query.append("secondary_languages", code);
 		const socket = new WebSocket(`${SOCKETS}/speech-to-text/realtime?${query}`);
 		const scribe = new Scribe(socket);
 		socket.addEventListener("message", ({ data }) => {
