@@ -24,7 +24,7 @@ import {
 	type Session,
 	spoken,
 } from "./protocol.ts";
-import { type Cue, play, setSounds, soundsOn } from "./sounds.ts";
+import { type Cue, onPlay, play, setSounds, soundsOn } from "./sounds.ts";
 import { Speaker } from "./speaker.ts";
 import { TRACE, Trace } from "./trace.ts";
 
@@ -79,6 +79,14 @@ function failure(error: Error): Pick<VoiceState, "error" | "refused"> {
  * the last repeating. */
 const WORKING = [3, 5, 8, 12, 20];
 
+/** How long after the agent read the person's message, in milliseconds,
+ * its cue plays if it hasn't answered by then. */
+const READ = 1000;
+
+/** How soon after the speaker finished a message, in seconds, the next one
+ * read counts as following it. */
+const NEXT = 4;
+
 const TRANSCRIPTS = "voice-transcripts";
 const LANGUAGES = "voice-languages";
 
@@ -122,6 +130,10 @@ export class Voice {
 	private working: ReturnType<typeof setTimeout> | undefined;
 	/** When the cue of sending last played, by `performance.now()`. */
 	private sentAt = 0;
+	/** The cue that the agent read the person's message, while it waits. */
+	private readCue: ReturnType<typeof setTimeout> | undefined;
+	/** When the speaker last finished a message, by `performance.now()`. */
+	private readEnded = Number.NEGATIVE_INFINITY;
 	state: VoiceState = {
 		listener: false,
 		speaker: false,
@@ -169,18 +181,27 @@ export class Voice {
 				}
 			},
 		});
+		onPlay((cue) => this.trace.event("cue", { cue }));
 		this.activity = new Activity(session, name, {
-			// An agent waiting on a receive reads at once, so its cue waits
-			// for the cue of sending to end.
-			read: () =>
-				setTimeout(
+			// An agent often reads the person's message only right before it
+			// answers, so the cue waits a second, and plays only if the agent
+			// is still working by then.
+			read: () => {
+				clearTimeout(this.readCue);
+				this.readCue = setTimeout(
 					() => play("read"),
-					Math.max(0, this.sentAt + 250 - performance.now()),
-				),
-			// A message read aloud is heard as it is read, so its cue would
-			// only come before the voice.
+					Math.max(READ, this.sentAt + READ - performance.now()),
+				);
+			},
+			// A message read aloud now is heard as it is read, so a cue would
+			// only come before the voice: it sounds only for one that waits,
+			// while the person talks or reading aloud is paused, or isn't read.
 			message: () => {
-				if (!this.state.speaker) play("message");
+				const waits =
+					this.state.held ||
+					this.state.hearing !== "" ||
+					this.state.voice !== undefined;
+				if (!this.state.speaker || waits) play("message");
 			},
 			other: () => {
 				play("other");
@@ -194,6 +215,7 @@ export class Voice {
 				clearTimeout(this.working);
 				this.working = undefined;
 				if (progress === "working") this.work(0);
+				else clearTimeout(this.readCue);
 			},
 		});
 		// The speaker is on from the start, the listener off, unless the tab
@@ -355,6 +377,15 @@ export class Voice {
 			const speaker = new Speaker(this.session, this.name, this.key);
 			speaker.changed = (reading) => {
 				this.trace.event("reading", { n: reading });
+				// A message read right after another, so that the break
+				// between the two is heard.
+				const before = this.state.reading;
+				const next =
+					reading !== null &&
+					(before !== null || performance.now() - this.readEnded < NEXT * 1000);
+				if (next) play("next");
+				if (reading === null && before !== null)
+					this.readEnded = performance.now();
 				this.set({ reading });
 			};
 			speaker.failed = (error) => {
@@ -501,6 +532,7 @@ export class Voice {
 		this.unsubscribe();
 		this.activity.close();
 		clearTimeout(this.working);
+		clearTimeout(this.readCue);
 		this.listener?.close();
 		this.speaker?.close();
 		holdAudioSession(false);

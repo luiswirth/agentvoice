@@ -18,18 +18,19 @@ type Tone = {
 
 /** A cue as its tones, all in D major's pentatonic scale (A4 is 0: B 2, D 5,
  * E 7, F♯ 9), so that any two sound well together, except for a problem.
- * The person's side sounds low, the agent's high, and turning on rises
- * where turning off falls. */
+ * The person's side sounds lower, the agent's higher, and turning on rises
+ * where turning off falls. Nothing sounds below A4: a phone's speaker barely
+ * plays it. */
 const CUES = {
 	// The person's own acts.
 	press: [{ pitch: 21, at: 0, length: 0.03, gain: 0.4, wave: "triangle" }],
 	listen: [
-		{ pitch: -5, at: 0, length: 0.09 },
-		{ pitch: 2, at: 0.07, length: 0.14 },
+		{ pitch: 2, at: 0, length: 0.09 },
+		{ pitch: 7, at: 0.07, length: 0.14 },
 	],
 	unlisten: [
-		{ pitch: 2, at: 0, length: 0.09 },
-		{ pitch: -5, at: 0.07, length: 0.14 },
+		{ pitch: 7, at: 0, length: 0.09 },
+		{ pitch: 2, at: 0.07, length: 0.14 },
 	],
 	speak: [
 		{ pitch: 9, at: 0, length: 0.09 },
@@ -39,12 +40,22 @@ const CUES = {
 		{ pitch: 14, at: 0, length: 0.09 },
 		{ pitch: 9, at: 0.07, length: 0.14 },
 	],
-	speaking: [{ pitch: -7, to: 5, at: 0, length: 0.08, gain: 0.45 }],
+	// The person's first words are heard, and their turn has begun.
+	speaking: [
+		{ pitch: 2, at: 0, length: 0.06, gain: 0.6 },
+		{ pitch: 9, at: 0.05, length: 0.1, gain: 0.6 },
+	],
 	sent: [{ pitch: 5, to: 17, at: 0, length: 0.12, gain: 0.6 }],
-	dropped: [{ pitch: 5, to: -7, at: 0, length: 0.12, gain: 0.5 }],
+	dropped: [{ pitch: 9, to: 0, at: 0, length: 0.14, gain: 0.5 }],
 	// The agent's side.
 	read: [{ pitch: 19, at: 0, length: 0.12, gain: 0.45 }],
-	working: [{ pitch: 2, at: 0, length: 0.3, gain: 0.2 }],
+	working: [{ pitch: 14, at: 0, length: 0.3, gain: 0.25 }],
+	// Between two messages read one after the other, so that each is heard
+	// as a unit of its own.
+	next: [
+		{ pitch: 17, at: 0, length: 0.05, gain: 0.35 },
+		{ pitch: 14, at: 0.05, length: 0.09, gain: 0.35 },
+	],
 	message: [
 		{ pitch: 9, at: 0, length: 0.1, gain: 0.7 },
 		{ pitch: 14, at: 0.08, length: 0.18, gain: 0.7 },
@@ -52,25 +63,31 @@ const CUES = {
 	other: [{ pitch: 17, at: 0, length: 0.05, gain: 0.35, wave: "triangle" }],
 	// The session.
 	joined: [
-		{ pitch: 2, at: 0, length: 0.12 },
+		{ pitch: 5, at: 0, length: 0.12 },
 		{ pitch: 7, at: 0.09, length: 0.12 },
 		{ pitch: 14, at: 0.18, length: 0.2 },
 	],
 	left: [
 		{ pitch: 14, at: 0, length: 0.12 },
 		{ pitch: 7, at: 0.09, length: 0.12 },
-		{ pitch: 2, at: 0.18, length: 0.2 },
+		{ pitch: 5, at: 0.18, length: 0.2 },
 	],
 	problem: [
-		{ pitch: 1, at: 0, length: 0.14, wave: "triangle" },
-		{ pitch: -2, at: 0.12, length: 0.22, wave: "triangle" },
+		{ pitch: 3, at: 0, length: 0.14, wave: "triangle" },
+		{ pitch: 0, at: 0.12, length: 0.22, wave: "triangle" },
 	],
 } satisfies Record<string, Tone[]>;
 
 export type Cue = keyof typeof CUES;
 
+/** Called with every cue as it plays, as for the page's trace. */
+let played: (cue: Cue) => void = () => {};
+export function onPlay(listener: (cue: Cue) => void): void {
+	played = listener;
+}
+
 /** How loud the cues are as a whole: well under speech. */
-const VOLUME = 0.12;
+const VOLUME = 0.2;
 
 const SOUNDS = "voice-sounds";
 
@@ -90,6 +107,7 @@ export function play(cue: Cue): void {
 	if (!soundsOn()) return;
 	const audio = runningAudio();
 	if (audio === null) return;
+	played(cue);
 	schedule(audio, cue, audio.currentTime + 0.01);
 }
 
