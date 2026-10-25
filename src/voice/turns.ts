@@ -20,6 +20,9 @@ export type Patience = {
 	textSettle: number;
 	/** The silence that ends a turn the turn detector does not. */
 	wait: number;
+	/** The silence that ends a turn whose words so far trail off, as the
+	 * person thinks how to go on. */
+	textWait: number;
 };
 
 /** Weighed on Luis's real use, in the research log of voice's design. */
@@ -28,6 +31,7 @@ export const PATIENCE: Patience = {
 	confidence: 0.8,
 	textSettle: 1.5,
 	wait: 3,
+	textWait: 6,
 };
 
 export type Models = {
@@ -166,11 +170,12 @@ export class Turns {
 		}
 		if (this.silence === null || this.start === null) return this.trim();
 		const paused = (now - this.silence) / RATE;
-		const { settle, textSettle, wait } = this.patience;
+		const { settle, textSettle, wait, textWait } = this.patience;
 		if (this.complete === null && paused >= settle - LEAD)
 			await this.judge(events);
 		// When the pause ends the turn, as far as is known now.
 		let [end, reason]: [number, Reason] = [wait, "wait"];
+		if (trailing(this.text)) end = textWait;
 		if (finished(this.text) && textSettle < end)
 			[end, reason] = [textSettle, "text"];
 		if (this.complete && settle < end) [end, reason] = [settle, "complete"];
@@ -277,13 +282,24 @@ export function closingSilences(
  */
 export function finished(text: string): boolean {
 	const words = text.trim();
-	// An ellipsis trails off, as where the person paused mid-sentence.
+	// Scribe ends a partial on an ellipsis while it is unsure how it goes on.
 	if (!/[.?!]["'”’)]*$/.test(words) || /(\.\.|…)["'”’)]*$/.test(words))
 		return false;
+	return !trailing(words);
+}
+
+/**
+ * Whether the words trail off, as where the person thinks how to go on: they
+ * end on a comma, a word cut off, a filler or a conjunction. An ellipsis
+ * alone says nothing, as Scribe puts one on any partial it is unsure of.
+ */
+export function trailing(text: string): boolean {
+	const words = text.trim();
+	if (/[,\-—]["'”’)]*$/.test(words)) return true;
 	const last = words
 		.split(/[^\p{L}'-]+/u)
 		.findLast((word) => /\p{L}/u.test(word));
-	return last !== undefined && !TRAILING.has(last.toLowerCase());
+	return last !== undefined && TRAILING.has(last.toLowerCase());
 }
 
 /** Words a sentence the person goes on after may end on. */

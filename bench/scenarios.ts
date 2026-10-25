@@ -63,6 +63,14 @@ export const scenarios: Scenario[] = [
 				],
 				pause: 0.4,
 			},
+			// A pause longer than the wait, where the words trail off.
+			{
+				parts: [
+					"Wait, there is one more thing, um...",
+					"should we test it first?",
+				],
+				pause: 4.5,
+			},
 		],
 	},
 ];
