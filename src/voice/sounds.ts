@@ -40,11 +40,8 @@ const CUES = {
 		{ pitch: 14, at: 0, length: 0.09 },
 		{ pitch: 9, at: 0.07, length: 0.14 },
 	],
-	// The person's first words are heard, and their turn has begun.
-	speaking: [
-		{ pitch: 2, at: 0, length: 0.06, gain: 0.6 },
-		{ pitch: 9, at: 0.05, length: 0.1, gain: 0.6 },
-	],
+	// No cue as the person starts speaking: it can only come once their words
+	// are recognized, about a second in, where it sounds like a call to stop.
 	sent: [{ pitch: 5, to: 17, at: 0, length: 0.12, gain: 0.6 }],
 	dropped: [{ pitch: 9, to: 0, at: 0, length: 0.14, gain: 0.5 }],
 	// The agent's side.

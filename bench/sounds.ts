@@ -8,12 +8,11 @@ import { join } from "node:path";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
 
-/** A conversation: the person turns listening on, starts speaking, sends; the agent
+/** A conversation: the person turns listening on, speaks, sends; the agent
  * reads it, works, sends a file, works on, and answers in two messages,
  * the cue between them. */
 const course: [number, string][] = [
 	[0, "listen"],
-	[1.5, "speaking"],
 	[3, "sent"],
 	[4, "read"],
 	[6.2, "working"],
@@ -27,7 +26,6 @@ const alone = [
 	"unlisten",
 	"speak",
 	"unspeak",
-	"speaking",
 	"sent",
 	"dropped",
 	"read",
