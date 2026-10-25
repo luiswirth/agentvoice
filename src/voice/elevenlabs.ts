@@ -12,15 +12,41 @@ export const SPEECH_RATE = 24_000;
 /** Arthur, a library voice: "clear, engaging", an audiobook narrator. */
 export const VOICE = "C1npRmjB19a6yNkEucvx";
 
+/** ElevenLabs refused the key itself, which another key fixes: it is
+ * invalid, out of credits, or lacks a permission voice needs. */
+export class KeyRefused extends Error {}
+
+/** An error ElevenLabs gave as a `code` and a `message`, a `KeyRefused`
+ * where the code is about the key. */
+function refusal(code: string, message: string): Error {
+	return /key|auth|quota|permission|credit|payment/i.test(code)
+		? new KeyRefused(`ElevenLabs refused the key: ${message}`)
+		: new Error(`ElevenLabs: ${message || code}`);
+}
+
 /** A single-use token, for a socket that takes no header from a browser. */
 async function token(key: string, type: "realtime_scribe"): Promise<string> {
 	const response = await fetch(`${API}/single-use-token/${type}`, {
 		method: "POST",
 		headers: { "xi-api-key": key },
 	});
-	if (!response.ok)
-		throw new Error(`ElevenLabs refused the key: ${await response.text()}`);
+	if (!response.ok) {
+		const text = await response.text();
+		let detail: { status?: string; message?: string } = {};
+		try {
+			detail = JSON.parse(text).detail ?? {};
+		} catch {}
+		throw response.status === 401 || response.status === 403
+			? new KeyRefused(`ElevenLabs refused the key: ${detail.message ?? text}`)
+			: refusal(detail.status ?? "", detail.message ?? text);
+	}
 	return ((await response.json()) as { token: string }).token;
+}
+
+/** Throws a `KeyRefused` unless ElevenLabs takes `key` for listening, at no
+ * cost: a token is free. */
+export async function checkKey(key: string): Promise<void> {
+	await token(key, "realtime_scribe");
 }
 
 function opened(socket: WebSocket): Promise<void> {
@@ -143,9 +169,7 @@ export class Scribe {
 				}
 				default:
 					if (message.error) {
-						heard.closed(
-							new Error(`${message.message_type}: ${message.error}`),
-						);
+						heard.closed(refusal(message.message_type, message.error));
 						socket.close();
 					}
 			}
@@ -303,7 +327,7 @@ export class Speech {
 			const message = ({ data }: MessageEvent) => {
 				patience();
 				const m = JSON.parse(String(data));
-				if (m.error) return done(new Error(`${m.error}: ${m.message ?? ""}`));
+				if (m.error) return done(refusal(m.error, m.message ?? ""));
 				if (m.audio) {
 					const audio = unbase64(m.audio);
 					const all = new Uint8Array(held.length + audio.length);

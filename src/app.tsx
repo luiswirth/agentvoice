@@ -4,50 +4,112 @@
 // the link as `#session=<link>`. The ElevenLabs key comes encrypted from the
 // agent, or typed in, and stays in this browser.
 import { Secrets, type Session } from "byoa/participant";
-import { Named, Onboard } from "byoa-web/onboard";
+import { Frame, Named, Onboard } from "byoa-web/onboard";
 import { useSession } from "byoa-web/react";
-import { useEffect, useState } from "react";
+import {
+	type ReactNode,
+	useEffect,
+	useState,
+	useSyncExternalStore,
+} from "react";
 import { Button } from "@/components/ui/button";
+import { checkKey, KeyRefused } from "./voice/elevenlabs.ts";
 import { Voice } from "./voice/voice.ts";
 import { VoiceBar } from "./voice/voice-bar.tsx";
 
 const KEY = "elevenlabs-key";
+const SERVICE = "voice.senses.sh";
 
 export function App() {
 	return (
-		<Named service="voice.senses.sh">{(name) => <Page name={name} />}</Named>
+		<Named service={SERVICE}>
+			{(name, rename) => <Page name={name} rename={rename} />}
+		</Named>
 	);
 }
 
 /** The page, taking part under the person's `name`. */
-function Page({ name }: { name: string }) {
-	const { session, alone, problem, leave } = useSession(name);
+function Page({ name, rename }: { name: string; rename: () => void }) {
+	const { session, alone, problem, taken, leave } = useSession(name);
 	const [key, setKey] = useState(() => localStorage.getItem(KEY));
+	// Why ElevenLabs refused the last key, which asks for another.
+	const [refused, setRefused] = useState<string | null>(null);
 
+	/** Keeps `candidate` unless ElevenLabs refuses it; a check that fails
+	 * for another reason, such as the network, can't tell, so it keeps it. */
+	const offer = async (candidate: string) => {
+		try {
+			await checkKey(candidate);
+		} catch (error) {
+			if (error instanceof KeyRefused) {
+				setRefused(error.message);
+				return;
+			}
+		}
+		localStorage.setItem(KEY, candidate);
+		setRefused(null);
+		setKey(candidate);
+	};
+	const forget = (why: string) => {
+		localStorage.removeItem(KEY);
+		setRefused(why);
+		setKey(null);
+	};
+
+	// Without a key, a public key of its own for the agent to send it to.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: offer only sets state
 	useEffect(() => {
-		if (!session) return;
+		if (!session || key) return;
 		const secrets = new Secrets(session);
-		if (!localStorage.getItem(KEY)) void secrets.publish();
+		void secrets.publish();
 		return session.subscribe({
 			entry: (entry) =>
 				void secrets.open(entry).then((secret) => {
-					if (secret?.name !== "elevenlabs") return;
-					localStorage.setItem(KEY, secret.value);
-					setKey(secret.value);
+					if (secret?.name === "elevenlabs") void offer(secret.value.trim());
 				}),
 		});
-	}, [session]);
+	}, [session, key]);
 
+	if (problem) {
+		return taken ? (
+			<Frame
+				name={SERVICE}
+				title="That name is taken here"
+				description={`Someone joined this session as ${name} already, maybe you on another device. Join under another name, such as ${name}-phone.`}
+			>
+				<Actions>
+					<Button size="lg" onClick={rename}>
+						Choose another name
+					</Button>
+				</Actions>
+			</Frame>
+		) : (
+			<Frame
+				name={SERVICE}
+				title="This session can't be joined"
+				description={problem}
+			>
+				<Actions>
+					<Button size="lg" onClick={() => void leave()}>
+						Start a new session
+					</Button>
+				</Actions>
+			</Frame>
+		);
+	}
 	if (session && alone) {
 		return (
 			<Onboard
-				name="voice.senses.sh"
+				name={SERVICE}
 				title="Talk with your agent"
 				description="Speak to the agent you already use, and hear its answers, here in your browser."
 				link={session.link}
 				note="The voice runs on ElevenLabs, with your own account."
 			/>
 		);
+	}
+	if (session && !key) {
+		return <KeyStep refused={refused} offer={offer} />;
 	}
 	return (
 		<main className="mx-auto flex h-dvh max-w-2xl flex-col gap-4 p-4 pb-8">
@@ -63,23 +125,25 @@ function Page({ name }: { name: string }) {
 					Leave
 				</Button>
 			</div>
-			{problem ? (
-				<p className="text-sm text-destructive">{problem}</p>
-			) : key ? (
-				session && <Speech session={session} elevenlabs={key} />
-			) : (
-				<KeyField done={setKey} />
+			{session && key && (
+				<Speech session={session} elevenlabs={key} forget={forget} />
 			)}
 		</main>
 	);
 }
 
+function Actions({ children }: { children: ReactNode }) {
+	return <div className="flex flex-wrap gap-2">{children}</div>;
+}
+
 function Speech({
 	session,
 	elevenlabs,
+	forget,
 }: {
 	session: Session;
 	elevenlabs: string;
+	forget: (why: string) => void;
 }) {
 	const [voice, setVoice] = useState<Voice | null>(null);
 	useEffect(() => {
@@ -87,35 +151,91 @@ function Speech({
 		setVoice(voice);
 		return () => voice.close();
 	}, [session, elevenlabs]);
-	return voice && <VoiceBar voice={voice} />;
+	return voice && <Refusable voice={voice} forget={forget} />;
 }
 
-/** For an agent that can't send the key encrypted. */
-function KeyField({ done }: { done: (key: string) => void }) {
-	const [key, setKey] = useState("");
+/** The voice bar, and a way to another key once ElevenLabs refuses this one. */
+function Refusable({
+	voice,
+	forget,
+}: {
+	voice: Voice;
+	forget: (why: string) => void;
+}) {
+	const state = useSyncExternalStore(voice.watch, () => voice.state);
 	return (
-		<form
-			className="flex flex-col gap-2 text-sm text-muted-foreground"
-			onSubmit={(event) => {
-				event.preventDefault();
-				if (!key.trim()) return;
-				localStorage.setItem(KEY, key.trim());
-				done(key.trim());
-			}}
+		<>
+			<VoiceBar voice={voice} />
+			{state.refused && state.error && (
+				<div className="flex justify-center">
+					<Button variant="outline" onClick={() => forget(state.error ?? "")}>
+						Use another ElevenLabs key
+					</Button>
+				</div>
+			)}
+		</>
+	);
+}
+
+/** Asks for the ElevenLabs key, unless the agent sends it first. */
+function KeyStep({
+	refused,
+	offer,
+}: {
+	refused: string | null;
+	offer: (key: string) => Promise<void>;
+}) {
+	const [draft, setDraft] = useState("");
+	const [checking, setChecking] = useState(false);
+	const key = draft.trim();
+	return (
+		<Frame
+			name={SERVICE}
+			title="Your ElevenLabs key"
+			description="This page listens and speaks through ElevenLabs, with your own account. Your agent can send the key, or you enter it here. It goes from this browser straight to ElevenLabs, and stays in this browser."
 		>
-			<span>
-				Waiting for your agent to send your ElevenLabs key, or enter it:
-			</span>
-			<div className="flex gap-2">
-				<input
-					type="password"
-					aria-label="ElevenLabs API key"
-					className="flex-1 rounded-lg border bg-transparent px-2"
-					value={key}
-					onChange={(event) => setKey(event.target.value)}
-				/>
-				<Button type="submit">Save</Button>
+			<div className="flex flex-col gap-3">
+				<form
+					className="flex flex-col gap-2 rounded-2xl border bg-card/60 p-2 shadow-2xl shadow-black/20 backdrop-blur sm:flex-row"
+					onSubmit={async (event) => {
+						event.preventDefault();
+						if (!key) return;
+						setChecking(true);
+						await offer(key);
+						setChecking(false);
+					}}
+				>
+					<input
+						type="password"
+						autoComplete="off"
+						aria-label="ElevenLabs API key"
+						className="h-11 flex-1 rounded-xl bg-background/80 px-4 font-mono text-base outline-none placeholder:font-sans placeholder:text-muted-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
+						placeholder="sk_…"
+						value={draft}
+						onChange={(event) => setDraft(event.target.value)}
+					/>
+					<button
+						type="submit"
+						disabled={!key || checking}
+						className="h-11 rounded-xl bg-primary px-6 font-medium text-primary-foreground transition-all outline-none hover:bg-primary/85 focus-visible:ring-3 focus-visible:ring-ring/50 active:translate-y-px disabled:opacity-50"
+					>
+						{checking ? "Checking…" : "Continue"}
+					</button>
+				</form>
+				{refused && <p className="px-2 text-sm text-destructive">{refused}</p>}
 			</div>
-		</form>
+			<p className="text-sm text-pretty text-muted-foreground">
+				No key yet? Create one in{" "}
+				<a
+					className="text-foreground underline underline-offset-4"
+					href="https://elevenlabs.io/app/developers/api-keys"
+					target="_blank"
+					rel="noreferrer"
+				>
+					ElevenLabs, under Developers, API Keys
+				</a>
+				, with Speech to Text and Text to Speech allowed.
+			</p>
+		</Frame>
 	);
 }

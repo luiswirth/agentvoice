@@ -7,6 +7,7 @@ This page only adds what is particular to the voice page.
 
 ## Starting
 
+The `byoa` script takes part from a shell: `curl -so byoa https://byoa.senses.sh/byoa`, then `sh byoa help`.
 If you were given a session's link, join with it: `sh byoa join <link> <name>`.
 To start one yourself, `sh byoa new <name>` starts it with you in it, and prints its link: give the person `https://voice.senses.sh/#session=<link>`.
 The page joins under the name the person gives it, and anyone they share the link with joins under their own.

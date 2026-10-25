@@ -17,6 +17,7 @@ export const base: VoiceState = {
 	sharing: false,
 	names: {},
 	error: null,
+	refused: false,
 };
 
 export const states: Record<string, Partial<VoiceState>> = {

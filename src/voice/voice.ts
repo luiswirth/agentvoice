@@ -9,6 +9,7 @@
 // drops what was not heard of the agent's: any voice's words while the agent
 // named none, only a named voice's once it named any.
 import { holdAudioSession } from "./audio.ts";
+import { KeyRefused } from "./elevenlabs.ts";
 import { Listener } from "./listener.ts";
 import { holdMedia } from "./media.ts";
 import {
@@ -54,7 +55,15 @@ export type VoiceState = Modes & {
 	 * undefined while none is heard. */
 	voice?: number | null | undefined;
 	error: string | null;
+	/** Whether the error is ElevenLabs refusing the key, which another key
+	 * fixes. */
+	refused: boolean;
 };
+
+/** The state that shows `error`. */
+function failure(error: Error): Pick<VoiceState, "error" | "refused"> {
+	return { error: error.message, refused: error instanceof KeyRefused };
+}
 
 const TRANSCRIPTS = "voice-transcripts";
 const LANGUAGES = "voice-languages";
@@ -110,6 +119,7 @@ export class Voice {
 		sharing: this.trace.sharing,
 		names: {},
 		error: null,
+		refused: false,
 	};
 
 	/** `name` is the person's in the session, `key` their ElevenLabs key. */
@@ -175,7 +185,7 @@ export class Voice {
 			this.set({ listener: false, hearing: "", level: 0, voice: undefined });
 			return this.modes();
 		}
-		this.set({ switching: "listener", error: null });
+		this.set({ switching: "listener", error: null, refused: false });
 		this.words = false;
 		this.floor = false;
 		try {
@@ -221,7 +231,7 @@ export class Voice {
 							hearing: "",
 							level: 0,
 							voice: undefined,
-							error: error.message,
+							...failure(error),
 						});
 						void this.modes();
 					},
@@ -233,7 +243,7 @@ export class Voice {
 			this.set({ listener: true, switching: null });
 			await this.modes();
 		} catch (error) {
-			this.set({ switching: null, error: (error as Error).message });
+			this.set({ switching: null, ...failure(error as Error) });
 		}
 	}
 
@@ -266,7 +276,7 @@ export class Voice {
 			};
 			speaker.failed = (error) => {
 				this.trace.event("failed", { error: error.message });
-				this.set({ error: error.message });
+				this.set(failure(error));
 			};
 			this.speaker = speaker;
 		} else {
@@ -448,7 +458,7 @@ export class Voice {
 		this.sent = sent.catch(() => {});
 		return sent.then(
 			() => {},
-			(error: Error) => this.set({ error: error.message }),
+			(error: Error) => this.set(failure(error)),
 		);
 	}
 
