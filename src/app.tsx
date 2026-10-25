@@ -104,6 +104,7 @@ function Page({ name, rename }: { name: string; rename: () => void }) {
 				title="Talk with your agent"
 				description="Speak to the agent you already use, and hear its answers, here in your browser."
 				link={session.link}
+				person={name}
 				note="The voice runs on ElevenLabs, with your own account."
 			/>
 		);
