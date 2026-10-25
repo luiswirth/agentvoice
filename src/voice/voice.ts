@@ -237,10 +237,16 @@ export class Voice {
 		this.speaker?.replay();
 	}
 
-	/** Shares the page's trace with the session, or stops. */
+	/** Shares the page's trace with the session, at once what it kept so far,
+	 * or stops. */
 	share(on: boolean): void {
 		this.trace.share(on);
 		this.set({ sharing: on });
+		const trace = this.trace.take();
+		if (trace.length > 0)
+			this.queue(() =>
+				this.session.send(JSON.stringify(trace), { type: TRACE }),
+			);
 	}
 
 	private keep(text: string): void {

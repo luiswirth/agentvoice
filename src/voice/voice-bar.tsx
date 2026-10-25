@@ -45,7 +45,7 @@ export function VoiceBar({ voice }: { voice: Voice }) {
 				<button
 					type="button"
 					aria-pressed={state.sharing}
-					title="Send your agent a trace of what voice does, with each message, so that it can improve voice"
+					title="Send your agent a trace of what voice does, now and with each message, so that it can improve voice"
 					className={`rounded-full px-2 py-0.5 tracking-widest uppercase hover:bg-white/10 hover:text-foreground ${state.sharing ? "text-foreground" : ""}`}
 					onClick={() => voice.share(!state.sharing)}
 				>
