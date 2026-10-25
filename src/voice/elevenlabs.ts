@@ -53,28 +53,43 @@ function unbase64(text: string): Uint8Array {
 	return Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
 }
 
-/** A word as Scribe times it, in seconds of the audio it heard, or the
- * spacing between words. */
+/** A word as Scribe times it, in seconds of the stream it was given, heard
+ * or skipped, or the spacing between words. */
 export type Word = { text: string; start: number; end: number };
 
 export type Heard = {
 	/** What Scribe hears so far of the segment in progress, each replacing the last. */
 	partial(text: string): void;
 	/** A segment settled: one committed, or one Scribe committed on its own
-	 * after about 36 s of audio, with its words timed in seconds of the
-	 * audio Scribe heard. */
+	 * after about 36 s of audio, with its words timed. */
 	committed(text: string, automatic: boolean, words: Word[]): void;
 	/** The session ended, with why if it failed. */
 	closed(error?: Error): void;
 };
 
-/** A Scribe session over the whole microphone stream, whose segments end
- * where `commit` settles them. */
+/** Scribe bills every second of audio it is sent, silence included, and
+ * closes a session that is sent none for about 15 s. */
+const KEEPALIVE = 5 * LISTEN_RATE;
+/** What keeps the session open: 10 ms of silence. */
+const ALIVE = new Int16Array(LISTEN_RATE / 100);
+
+/** A Scribe session over a stream, of which it hears what `hear` gives it
+ * and skips the rest, so that only what is heard is paid for; its segments
+ * end where `commit` settles them. */
 export class Scribe {
 	/** Samples sent since the last commit: Scribe refuses a commit of under 0.3 s, and closes. */
 	uncommitted = 0;
+	/** Samples sent in all, which Scribe bills. */
+	sent = 0;
 	/** Commits not yet answered. */
 	private commits = 0;
+	/** Samples skipped since the last sent. */
+	private quiet = 0;
+	/** Samples of the stream in all, heard or skipped. */
+	private stream = 0;
+	/** Where the stream is ahead of what was sent, from each sample sent on,
+	 * in order: Scribe times its words in what it was sent. */
+	private shifts: { from: number; shift: number }[] = [{ from: 0, shift: 0 }];
 
 	private readonly socket: WebSocket;
 
@@ -118,7 +133,12 @@ export class Scribe {
 					const automatic = scribe.commits === 0;
 					if (automatic) scribe.uncommitted = 0;
 					else scribe.commits--;
-					heard.committed(message.text ?? "", automatic, message.words ?? []);
+					const words: Word[] = message.words ?? [];
+					heard.committed(
+						message.text ?? "",
+						automatic,
+						words.map((word) => scribe.place(word)),
+					);
 					return;
 				}
 				default:
@@ -137,10 +157,40 @@ export class Scribe {
 		return scribe;
 	}
 
-	/** 16-bit PCM at `LISTEN_RATE`. */
+	/** The stream's next 16-bit PCM at `LISTEN_RATE`, to transcribe. */
 	hear(pcm: Int16Array): void {
+		const shift = this.stream - this.sent;
+		if (shift !== this.shifts.at(-1)?.shift)
+			this.shifts.push({ from: this.sent, shift });
+		this.stream += pcm.length;
+		this.quiet = 0;
+		this.send(pcm);
+	}
+
+	/** The stream's next `samples`, not to transcribe. */
+	skip(samples: number): void {
+		this.stream += samples;
+		this.quiet += samples;
+		if (this.quiet < KEEPALIVE) return;
+		this.quiet = 0;
+		this.send(ALIVE);
+	}
+
+	/** A word Scribe timed in what it was sent, in the stream, by where it
+	 * ends, since Scribe may start one a little before the audio it is in.
+	 * Words come in order, so the shifts before a word's are done with. */
+	private place(word: Word): Word {
+		const at = word.end * LISTEN_RATE;
+		while ((this.shifts[1]?.from ?? Number.POSITIVE_INFINITY) <= at)
+			this.shifts.shift();
+		const shift = (this.shifts[0]?.shift ?? 0) / LISTEN_RATE;
+		return { ...word, start: word.start + shift, end: word.end + shift };
+	}
+
+	private send(pcm: Int16Array): void {
 		if (this.socket.readyState !== WebSocket.OPEN) return;
 		this.uncommitted += pcm.length;
+		this.sent += pcm.length;
 		this.socket.send(
 			JSON.stringify({
 				message_type: "input_audio_chunk",
