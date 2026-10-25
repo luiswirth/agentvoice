@@ -10,6 +10,12 @@ ci:
 dev:
     pnpm dev
 
+# Plays a scenario of bench/scenarios.ts into the page built from here, and
+# measures how its turns reached a fake agent.
+bench scenario="turns":
+    pnpm build
+    CHROMIUM="$(command -v chromium)" pnpm exec tsx bench/bench.ts {{ scenario }}
+
 # Builds the page and serves it at voice.senses.sh.
 deploy: ci
     pnpm exec wrangler deploy --domain voice.senses.sh
