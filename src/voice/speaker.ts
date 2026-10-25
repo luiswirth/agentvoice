@@ -180,8 +180,13 @@ export class Speaker {
 	/** The text of a message heard so far, to within a word. */
 	private heard(reading: Reading): string {
 		const played = this.player.progress(reading.line);
+		// Always a start of the message: ElevenLabs times each alignment from
+		// the start of the audio it comes with, while the speech it times can
+		// run on into later audio, so a later piece's first characters can be
+		// timed before an earlier piece's last.
+		const unplayed = reading.chars.findIndex(({ at }) => at >= played);
 		return reading.chars
-			.filter(({ at }) => at < played)
+			.slice(0, unplayed < 0 ? undefined : unplayed)
 			.map(({ char }) => char)
 			.join("")
 			.trim();
