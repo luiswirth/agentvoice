@@ -112,7 +112,7 @@ function Page({ name, rename }: { name: string; rename: () => void }) {
 		return <KeyStep refused={refused} offer={offer} />;
 	}
 	return (
-		<main className="mx-auto flex h-dvh max-w-2xl flex-col gap-4 p-4 pb-8">
+		<main className="mx-auto flex h-dvh max-w-2xl flex-col gap-4 px-2 pt-4 pb-8 sm:px-4">
 			<div className="flex items-center gap-2 text-sm text-muted-foreground">
 				<span className="flex-1">Keep this page's link secret.</span>
 				<Button

@@ -447,7 +447,7 @@ function Part(props: {
 	const left = props.side === "left";
 	return (
 		<div
-			className={`flex items-center gap-0.5 border p-1 sm:gap-1 sm:p-1.5 shadow-2xl shadow-black/60 backdrop-blur-xl transition-all duration-500 ${props.on ? "bg-white/[0.08]" : "border-white/10 bg-white/[0.03]"}`}
+			className={`flex shrink-0 items-center gap-0.5 border p-1 sm:gap-1 sm:p-1.5 ${left ? "pr-1.5 sm:pr-2" : ""} shadow-2xl shadow-black/60 backdrop-blur-xl transition-all duration-500 ${props.on ? "bg-white/[0.08]" : "border-white/10 bg-white/[0.03]"}`}
 			style={{
 				borderRadius: left
 					? `999px ${inner} ${inner} 999px`
@@ -522,7 +522,7 @@ function TurnEnd({ voice, state }: { voice: Voice; state: VoiceState }) {
 					type="button"
 					aria-pressed={state.autoEnd === auto}
 					title={title}
-					className={`relative rounded-full px-2 transition-colors sm:px-2.5 ${state.autoEnd === auto ? "text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+					className={`relative rounded-full px-1.5 transition-colors sm:px-2.5 ${state.autoEnd === auto ? "text-foreground" : "text-muted-foreground hover:text-foreground"}`}
 					onClick={() => voice.setAutoEnd(auto)}
 				>
 					{label}
