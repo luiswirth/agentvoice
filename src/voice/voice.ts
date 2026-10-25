@@ -185,6 +185,7 @@ export class Voice {
 					},
 				},
 				() => (this.speaker?.playing ? ECHO_FLOOR : Number.NEGATIVE_INFINITY),
+				(text) => this.speaker?.echoes(text) ?? false,
 				this.state.languages,
 			);
 			this.set({ listener: true, switching: null });

@@ -2,8 +2,9 @@
 // Scribe. Turn detection runs in the page, on local models, and ends a
 // segment once the person sounds done; whether a segment ends the person's
 // turn is for whoever uses the listener to decide. A segment counts only
-// once it is loud enough, so that the speaker's echo, which the browser's
-// echo cancellation never removes entirely, is not taken for the person.
+// once it is loud enough, and only if its words are not the speaker's own,
+// so that the speaker's echo, which the browser's echo cancellation never
+// removes entirely and at times not at all, is not taken for the person.
 // Scribe hears each chunk once turn detection has, so that a commit at what
 // turn detection marks lands where it marked it, and only from shortly
 // before speech starts until its turn ends, so that the silence between
@@ -78,13 +79,15 @@ export class Listener {
 
 	/**
 	 * `floor`: how loud, in dBFS, a segment's loudest 0.1 s must be for it to
-	 * count, asked as it is heard. Call it from a click, since it starts the
-	 * page's audio.
+	 * count, asked as it is heard. `echo`: whether words heard are the
+	 * speaker's own, which never count. Call it from a click, since it starts
+	 * the page's audio.
 	 */
 	static async open(
 		key: string,
 		hearing: Hearing,
 		floor: () => number,
+		echo: (text: string) => boolean,
 		/** What the person speaks, as `Scribe.open` takes it: none to detect it. */
 		languages: readonly string[],
 	): Promise<Listener> {
@@ -187,16 +190,21 @@ export class Listener {
 		const tell = (message: ToTurns, transfer: Transferable[] = []) =>
 			worker.postMessage(message, transfer);
 		const segment = () => {
-			const counts = speaking || loudest >= floor();
 			const text = pieces.join(" ").trim();
+			const echoed = echo(text);
+			if (echoed) hearing.trace("echo", { text });
+			const counts = (speaking || loudest >= floor()) && !echoed;
 			const timed = words;
 			speaking = false;
 			loudest = Number.NEGATIVE_INFINITY;
 			pieces = [];
 			words = [];
 			const tagged = () => {
+				// What doesn't count is no voice's.
 				const said =
-					timed.length > 0 ? annotate(timed, stretches, voices) : text;
+					counts && timed.length > 0
+						? annotate(timed, stretches, voices)
+						: text;
 				// What is left belongs to the segments still to come.
 				const end = timed.at(-1)?.end;
 				if (end !== undefined) stretches = stretches.filter((s) => s.to > end);
@@ -289,7 +297,7 @@ export class Listener {
 							const heard = [...pieces, text].join(" ").trim();
 							tell({ type: "text", text: heard });
 							if (!/\w/.test(text)) return;
-							if (!speaking && loudest < floor()) return;
+							if (!speaking && (loudest < floor() || echo(heard))) return;
 							if (!speaking) hearing.speaking();
 							speaking = true;
 							hearing.partial(heard);

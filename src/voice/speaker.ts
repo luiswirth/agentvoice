@@ -20,6 +20,14 @@ type Reading = {
 	done: boolean;
 };
 
+/** How much of what the speaker played the listener's words are matched
+ * against, in seconds back from where it is: what its echo may still be. */
+const ECHO = 4;
+
+/** How many of the words heard must be, in order, words the speaker just
+ * played for them to be its echo: Scribe mishears some of them. */
+const ECHOED = 0.7;
+
 export class Speaker {
 	private readonly speech: Speech;
 	private readonly player = new Player();
@@ -35,6 +43,9 @@ export class Speaker {
 	private held = false;
 	/** Paused while the person has the floor. */
 	private yielded = false;
+	/** The words the message read last ended on, until when, in the page's
+	 * clock, their echo may still be heard. */
+	private tail: { words: string[]; until: number } = { words: [], until: 0 };
 	/** Called as the message being read changes, with none once none is. */
 	changed: (n: number | null) => void = () => {};
 	failed: (error: Error) => void = () => {};
@@ -89,13 +100,39 @@ export class Speaker {
 		return this.player.level();
 	}
 
+	/**
+	 * Whether what the listener heard is the speaker's own voice, back through
+	 * the microphone: words it played in the last few seconds. The browser's
+	 * echo cancellation lets it through at times, as loud as the person.
+	 */
+	echoes(text: string): boolean {
+		const heard = words(text);
+		if (heard.length === 0) return false;
+		const played = [
+			...(this.tail.until > performance.now() ? this.tail.words : []),
+			...this.readings.flatMap((reading) => {
+				const at = this.player.progress(reading.line);
+				// A word's alignment can run a little ahead of its sound.
+				return at > 0 ? words(sounded(reading, at - ECHO, at + 0.5)) : [];
+			}),
+		];
+		return common(heard, played) >= ECHOED * heard.length;
+	}
+
 	/** Lets go of the messages played to their end. */
 	private settle(): void {
 		const before = this.reading;
 		const playing = this.player.head;
 		this.readings = this.readings.filter((reading) => {
 			const kept = playing === null ? !reading.done : reading.line >= playing;
-			if (!kept) this.done(reading.n);
+			if (!kept) {
+				this.done(reading.n);
+				const end = reading.chars.at(-1)?.at ?? 0;
+				this.tail = {
+					words: words(sounded(reading, end - ECHO, end)),
+					until: performance.now() + ECHO * 1000,
+				};
+			}
 			return kept;
 		});
 		if (this.reading !== before) this.changed(this.reading);
@@ -229,4 +266,31 @@ export class Speaker {
 		this.readings = this.readings.filter((reading) => reading.n !== n);
 		this.changed(this.reading);
 	}
+}
+
+/** The text of a reading between two times into it, in seconds. */
+function sounded(reading: Reading, from: number, to: number): string {
+	return reading.chars
+		.filter(({ at }) => at >= from && at <= to)
+		.map(({ char }) => char)
+		.join("");
+}
+
+/** A text's words, in lower case, without punctuation. */
+function words(text: string): string[] {
+	return text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+}
+
+/** How many words two texts have in common, in order. */
+function common(a: string[], b: string[]): number {
+	let row = new Array<number>(b.length + 1).fill(0);
+	for (const x of a) {
+		const next = [0];
+		for (const [j, y] of b.entries())
+			next.push(
+				x === y ? (row[j] ?? 0) + 1 : Math.max(row[j + 1] ?? 0, next[j] ?? 0),
+			);
+		row = next;
+	}
+	return row[b.length] ?? 0;
 }
