@@ -135,3 +135,14 @@
 		@apply font-sans;
 	}
 }
+
+/* The agent's switch breathes while the agent works on the person's message. */
+@keyframes working {
+	0%,
+	100% {
+		box-shadow: 0 0 0 0 color-mix(in oklch, var(--agent) 0%, transparent);
+	}
+	50% {
+		box-shadow: 0 0 0 7px color-mix(in oklch, var(--agent) 30%, transparent);
+	}
+}

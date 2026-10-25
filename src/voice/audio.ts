@@ -22,6 +22,12 @@ export function audioContext(): { audio: AudioContext; loaded: Promise<void> } {
 	return context;
 }
 
+/** The page's audio context if it runs, else null: for what may sound only
+ * once the page's audio was started. */
+export function runningAudio(): AudioContext | null {
+	return context?.audio.state === "running" ? context.audio : null;
+}
+
 // Safari derives the page's audio session from what is active, so the
 // speaker would jump in volume as the microphone opens and closes. The page
 // holds play-and-record while voice is in use, where the browser has audio

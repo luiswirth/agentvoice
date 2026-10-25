@@ -29,3 +29,12 @@ deploy: ci
 # Mac's window and an iPhone's, into bench/.cache/gallery/.
 gallery:
     CHROMIUM="$(command -v chromium)" pnpm exec tsx bench/gallery.ts
+
+# The page's cues as one WAV to listen to, into bench/.cache/sounds.wav.
+sounds:
+    CHROMIUM="$(command -v chromium)" pnpm exec tsx bench/sounds.ts
+
+# What the page tells of an agent, as agents.md has it take part, against the
+# real relay.
+activity:
+    pnpm exec tsx bench/activity.ts

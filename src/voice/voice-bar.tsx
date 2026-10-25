@@ -70,6 +70,8 @@ function doing(state: VoiceState): string {
 	if (state.hearing) return `hearing ${who(state)?.name ?? "you"}`;
 	if (state.reading !== null) return state.held ? "paused" : "speaking";
 	if (state.draft) return "your draft";
+	if (state.progress === "working") return "agent working";
+	if (state.progress === "sent") return "sent";
 	if (state.listener) return "listening";
 	if (state.speaker) return "waiting";
 	return "";
@@ -312,6 +314,15 @@ function Status({ voice, state }: { voice: Voice; state: VoiceState }) {
 			>
 				{state.sharing ? "sharing trace" : "share trace"}
 			</button>
+			<button
+				type="button"
+				aria-pressed={state.sounds}
+				title="Short sounds for what happens, such as your message going out and your agent working on it"
+				className={`rounded-full px-2 py-0.5 tracking-widest uppercase transition hover:bg-white/10 hover:text-foreground ${state.sounds ? "text-muted-foreground" : "text-muted-foreground/40 line-through"}`}
+				onClick={() => voice.setSounds(!state.sounds)}
+			>
+				sounds
+			</button>
 		</div>
 	);
 }
@@ -425,6 +436,7 @@ function Bar({ voice, state }: { voice: Voice; state: VoiceState }) {
 					busy={state.switching === "speaker"}
 					color="--agent"
 					level="--agent-level"
+					working={state.progress === "working"}
 					onClick={() => void voice.setSpeaker(!state.speaker)}
 				>
 					{state.speaker ? <Volume2 /> : <VolumeX />}
@@ -471,6 +483,8 @@ function Switch(props: {
 	busy: boolean;
 	color: string;
 	level: string;
+	/** Whether to breathe, as the agent's while it works. */
+	working?: boolean;
 	onClick: () => void;
 	children: ReactNode;
 }) {
@@ -484,7 +498,7 @@ function Switch(props: {
 			aria-pressed={props.on}
 			disabled={props.busy}
 			onClick={props.onClick}
-			className={`grid size-11 shrink-0 place-items-center rounded-full sm:size-12 transition-colors duration-300 [&_svg]:size-5 ${props.on ? "text-black" : "bg-white/10 text-foreground/70 hover:bg-white/15 hover:text-foreground"} ${props.busy ? "animate-pulse" : ""}`}
+			className={`grid size-11 shrink-0 place-items-center rounded-full sm:size-12 transition-colors duration-300 [&_svg]:size-5 ${props.on ? "text-black" : "bg-white/10 text-foreground/70 hover:bg-white/15 hover:text-foreground"} ${props.busy ? "animate-pulse" : ""} ${props.working ? "animate-[working_2.4s_ease-in-out_infinite]" : ""}`}
 			style={
 				props.on
 					? {

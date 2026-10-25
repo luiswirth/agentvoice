@@ -7,7 +7,9 @@
 // transcript, sent or dropped, is kept in this browser, the last to copy.
 // Words take the floor, pausing the speaker, and a message they end in
 // drops what was not heard of the agent's: any voice's words while the agent
-// named none, only a named voice's once it named any.
+// named none, only a named voice's once it named any. What happens is heard
+// as short cues, so that voice seems responsive while nothing is said.
+import { Activity, type Progress } from "./activity.ts";
 import { holdAudioSession } from "./audio.ts";
 import { KeyRefused } from "./elevenlabs.ts";
 import { Listener } from "./listener.ts";
@@ -22,6 +24,7 @@ import {
 	type Session,
 	spoken,
 } from "./protocol.ts";
+import { type Cue, play, setSounds, soundsOn } from "./sounds.ts";
 import { Speaker } from "./speaker.ts";
 import { TRACE, Trace } from "./trace.ts";
 
@@ -51,6 +54,11 @@ export type VoiceState = Modes & {
 	sharing: boolean;
 	/** Who the agent named the voices, by number. */
 	names: Names;
+	/** Where the person's last message is: sent, or read by the agent, who
+	 * works on it until it answers. */
+	progress: Progress;
+	/** Whether what happens is heard as cues. Kept in this browser. */
+	sounds: boolean;
 	/** The voice heard now, by its number, null for one without a number,
 	 * undefined while none is heard. */
 	voice?: number | null | undefined;
@@ -62,8 +70,14 @@ export type VoiceState = Modes & {
 
 /** The state that shows `error`. */
 function failure(error: Error): Pick<VoiceState, "error" | "refused"> {
+	play("problem");
 	return { error: error.message, refused: error instanceof KeyRefused };
 }
+
+/** The pauses between the cues that the agent is still working, in seconds:
+ * close at first, when an answer may still come any moment, then sparse,
+ * the last repeating. */
+const WORKING = [3, 5, 8, 12, 20];
 
 const TRANSCRIPTS = "voice-transcripts";
 const LANGUAGES = "voice-languages";
@@ -103,6 +117,11 @@ export class Voice {
 	 * listening reopens. */
 	private restoring = false;
 	private readonly unsubscribe: () => void;
+	private readonly activity: Activity;
+	/** The next cue that the agent is still working, while it is. */
+	private working: ReturnType<typeof setTimeout> | undefined;
+	/** When the cue of sending last played, by `performance.now()`. */
+	private sentAt = 0;
 	state: VoiceState = {
 		listener: false,
 		speaker: false,
@@ -118,6 +137,8 @@ export class Voice {
 		languages: JSON.parse(localStorage.getItem(LANGUAGES) ?? "[]") as string[],
 		sharing: this.trace.sharing,
 		names: {},
+		progress: null,
+		sounds: soundsOn(),
 		error: null,
 		refused: false,
 	};
@@ -148,6 +169,29 @@ export class Voice {
 				}
 			},
 		});
+		this.activity = new Activity(session, name, {
+			// An agent waiting on a receive reads at once, so its cue waits
+			// for the cue of sending to end.
+			read: () =>
+				setTimeout(
+					() => play("read"),
+					Math.max(0, this.sentAt + 250 - performance.now()),
+				),
+			message: () => play("message"),
+			other: () => {
+				play("other");
+				if (this.working !== undefined) this.work(0);
+			},
+			joined: () => play("joined"),
+			left: () => play("left"),
+			progress: (progress) => {
+				this.trace.event("progress", { progress });
+				this.set({ progress });
+				clearTimeout(this.working);
+				this.working = undefined;
+				if (progress === "working") this.work(0);
+			},
+		});
 		// The speaker is on from the start, the listener off, unless the tab
 		// had them otherwise before a reload. Their audio starts at the first
 		// gesture on the page.
@@ -162,6 +206,35 @@ export class Voice {
 			this.restoring = false;
 			return this.modes();
 		});
+	}
+
+	/** Plays the cue that the agent is still working after the `step`th pause,
+	 * unless something else is heard then, and goes on. Something the agent
+	 * does starts the pauses over. */
+	private work(step: number): void {
+		clearTimeout(this.working);
+		const pause = WORKING[Math.min(step, WORKING.length - 1)] ?? 0;
+		this.working = setTimeout(() => {
+			const busy =
+				this.state.reading !== null ||
+				this.state.hearing !== "" ||
+				this.state.voice !== undefined;
+			if (!busy) play("working");
+			this.work(step + 1);
+		}, pause * 1000);
+	}
+
+	/** Turns the cues on or off. */
+	setSounds(sounds: boolean): void {
+		setSounds(sounds);
+		this.set({ sounds });
+		if (sounds) play("press");
+	}
+
+	/** A cue for the person's own act, which plays only for theirs, not
+	 * while modes come back on as they were. */
+	private cue(cue: Cue): void {
+		if (!this.restoring) play(cue);
 	}
 
 	/** For React's `useSyncExternalStore`. */
@@ -183,6 +256,7 @@ export class Voice {
 			this.listener?.close();
 			this.listener = null;
 			this.set({ listener: false, hearing: "", level: 0, voice: undefined });
+			this.cue("unlisten");
 			return this.modes();
 		}
 		this.set({ switching: "listener", error: null, refused: false });
@@ -241,6 +315,7 @@ export class Voice {
 				this.state.languages,
 			);
 			this.set({ listener: true, switching: null });
+			this.cue("listen");
 			await this.modes();
 		} catch (error) {
 			this.set({ switching: null, ...failure(error as Error) });
@@ -251,6 +326,7 @@ export class Voice {
 	 * next start, at once while nothing is being heard. */
 	async setLanguages(languages: string[]): Promise<void> {
 		this.trace.event("languages", { languages });
+		play("press");
 		localStorage.setItem(LANGUAGES, JSON.stringify(languages));
 		this.set({ languages });
 		if (!this.state.listener || this.state.hearing || this.state.switching)
@@ -284,11 +360,13 @@ export class Voice {
 			this.speaker = null;
 		}
 		this.set({ speaker: on, reading: null, held: false });
+		this.cue(on ? "speak" : "unspeak");
 		await this.modes();
 	}
 
 	setAutoEnd(autoEnd: boolean): void {
 		this.trace.event("autoEnd", { on: autoEnd });
+		play("press");
 		this.set({ autoEnd });
 		if (autoEnd && this.state.draft && !this.state.hearing) this.send();
 	}
@@ -315,6 +393,8 @@ export class Voice {
 			return;
 		}
 		this.keep(text);
+		play("sent");
+		this.sentAt = performance.now();
 		const heard = interrupt ? (this.speaker?.interrupt() ?? []) : [];
 		if (!interrupt) this.speaker?.duck(false);
 		this.trace.event("send", { text, heard });
@@ -333,7 +413,10 @@ export class Voice {
 		if (this.finishing("drop")) return;
 		const text = join(this.state.draft, this.state.hearing);
 		this.trace.event("drop", { text });
-		if (text) this.keep(text);
+		if (text) {
+			this.keep(text);
+			play("dropped");
+		}
 		this.set({ draft: "", hearing: "" });
 		this.speaker?.resume();
 	}
@@ -345,12 +428,15 @@ export class Voice {
 
 	/** Copies the last transcript, sent or dropped. */
 	async copyLast(): Promise<void> {
-		if (this.state.last) await navigator.clipboard.writeText(this.state.last);
+		if (!this.state.last) return;
+		await navigator.clipboard.writeText(this.state.last);
+		play("press");
 	}
 
 	/** Pauses or resumes reading aloud. */
 	hold(held: boolean): void {
 		this.trace.event("hold", { on: held });
+		play("press");
 		this.speaker?.hold(held);
 		this.set({ held });
 	}
@@ -368,6 +454,7 @@ export class Voice {
 	 * or stops. */
 	share(on: boolean): void {
 		this.trace.share(on);
+		play("press");
 		this.set({ sharing: on });
 		const trace = this.trace.take();
 		this.queue(() => this.shareTrace(trace));
@@ -399,11 +486,14 @@ export class Voice {
 	/** Skips the message being read. */
 	skip(): void {
 		this.trace.event("skip");
+		play("press");
 		this.speaker?.skip();
 	}
 
 	close(): void {
 		this.unsubscribe();
+		this.activity.close();
+		clearTimeout(this.working);
 		this.listener?.close();
 		this.speaker?.close();
 		holdAudioSession(false);
