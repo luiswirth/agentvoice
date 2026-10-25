@@ -20,7 +20,7 @@ Two entries of their own type tell you about the voice:
   It is dropped, so say again what of it still matters.
   What they said comes right after.
 - `application/vnd.byoa.voice.trace+json`, only while the person shares it, which is off until they turn it on:
-  a JSON array of what the page did since the last trace, or since it loaded, each event with its `time` and name, such as what was heard as it was heard, and when reading aloud paused.
+  a JSON array of what the page did since the last trace, or since it opened, reloads included, each event with its `time` and name, such as what was heard as it was heard, and when reading aloud paused.
   One comes as the person turns sharing on, and then one right before each of their messages, for you to judge how voice works and improve it.
 
 ## Being heard
