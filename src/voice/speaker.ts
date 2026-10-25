@@ -81,6 +81,12 @@ export class Speaker {
 		if (this.reading !== before) this.changed(this.reading);
 	}
 
+	/** Reads on quieter while the person may be starting to talk, or at full
+	 * volume again. */
+	duck(ducked: boolean): void {
+		this.player.duck(ducked);
+	}
+
 	/** Pauses while the person has the floor. */
 	pause(): void {
 		this.yielded = true;
@@ -90,6 +96,7 @@ export class Speaker {
 	/** Reads on once the person gave the floor back, unless they hold it. */
 	resume(): void {
 		this.yielded = false;
+		this.player.duck(false);
 		if (!this.held) this.player.resume();
 	}
 

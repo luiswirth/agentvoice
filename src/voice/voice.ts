@@ -116,6 +116,9 @@ export class Voice {
 			this.listener = await Listener.open(
 				this.key,
 				{
+					// The voice gets quieter at any speech, and stops only at
+					// words, so that a cough or a noise stops nothing.
+					voiced: (voiced) => this.speaker?.duck(voiced),
 					speaking: () => {
 						this.trace.event("speaking", { reading: this.state.reading });
 						this.speaker?.pause();

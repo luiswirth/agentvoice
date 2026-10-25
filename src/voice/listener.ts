@@ -10,7 +10,10 @@ import type { FromTurns, ToTurns } from "./turns-worker.ts";
 import TurnsWorker from "./turns-worker.ts?worker";
 
 export type Hearing = {
-	/** The person started saying something, which may still turn out to be no words. */
+	/** Turn detection hears speech start, louder than the echo, or stop: a
+	 * sound that may still turn out to be no words. */
+	voiced(voiced: boolean): void;
+	/** The person started saying words. */
 	speaking(): void;
 	/** What was heard so far of the segment in progress. */
 	partial(text: string): void;
@@ -109,9 +112,12 @@ export class Listener {
 						return fail(new Error(`Turn detection failed: ${data.error}`));
 					case "speech":
 						turn = true;
-						return hearing.trace("vad.speech", { at: data.at });
+						hearing.trace("vad.speech", { at: data.at });
+						if (loudest >= floor()) hearing.voiced(true);
+						return;
 					case "silence":
 						hearing.trace("vad.silence", { at: data.at });
+						hearing.voiced(false);
 						if (turn && scribe.uncommitted >= PIECE) commit("piece");
 						return;
 					case "verdict":

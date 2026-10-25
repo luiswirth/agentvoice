@@ -73,6 +73,9 @@ export class Microphone {
 	}
 }
 
+/** The volume speech plays at while the person may be starting to talk. */
+const DUCKED = 0.25;
+
 /** A stretch of a line's speech, and where it starts in the line, in seconds. */
 type Stretch = { line: number; from: number; buffer: AudioBuffer };
 
@@ -92,6 +95,8 @@ export class Player {
 	}[] = [];
 	private end = 0;
 	private paused = false;
+	/** Every line plays through it, so that it can get quieter. */
+	private readonly volume: GainNode;
 	/** How far each line played, in seconds. */
 	private readonly played = new Map<number, number>();
 	/** The line at the head of the queue, as last told. */
@@ -101,6 +106,17 @@ export class Player {
 
 	constructor() {
 		this.audio = audioContext().audio;
+		this.volume = new GainNode(this.audio);
+		this.volume.connect(this.audio.destination);
+	}
+
+	/** Plays on quieter, or at full volume again. */
+	duck(ducked: boolean): void {
+		this.volume.gain.setTargetAtTime(
+			ducked ? DUCKED : 1,
+			this.audio.currentTime,
+			0.03,
+		);
 	}
 
 	/** Queues samples of a line, starting `from` seconds into it. */
@@ -169,7 +185,7 @@ export class Player {
 		const node = new AudioBufferSourceNode(this.audio, {
 			buffer: stretch.buffer,
 		});
-		node.connect(this.audio.destination);
+		node.connect(this.volume);
 		const at = Math.max(this.end, this.audio.currentTime + 0.02);
 		this.end = at + stretch.buffer.duration;
 		this.scheduled.push({ stretch, at, node });
