@@ -39,12 +39,19 @@ export class Speaker {
 	changed: (n: number | null) => void = () => {};
 	failed: (error: Error) => void = () => {};
 
-	/** Reads what `session` brings from now on that is not from `name`. */
+	/** Reads the messages not from `name`: those since `name` last said
+	 * anything, which are still to be answered, and every one after. */
 	constructor(session: Session, name: string, key: string, voice?: string) {
 		this.session = session;
 		this.name = name;
 		this.speech = new Speech(key, voice);
 		this.player.changed = () => this.settle();
+		const since =
+			session.log.findLast((entry) => entry.from === name && spoken(entry))
+				?.n ?? 0;
+		for (const entry of session.log)
+			if (entry.n > since && entry.from !== name && spoken(entry))
+				this.read(entry);
 		const after = session.log.at(-1)?.n ?? 0;
 		this.unsubscribe = session.subscribe({
 			entry: (entry) => {

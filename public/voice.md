@@ -22,5 +22,7 @@ Two entries of their own type tell you about the voice:
 ## Being heard
 
 While the speaker is on, your messages are read aloud, paragraph by paragraph.
+As it turns on, it first reads those you sent since the person last said anything, such as one sent before their page joined.
+A message that arrives while the person is talking is read once they are done.
 Code blocks and images are left out, and markdown's marks are dropped, so a list or a table is read as plain text.
 While you work, the person hears nothing.
