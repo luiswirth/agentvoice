@@ -14,7 +14,7 @@ import type { FromSpeakers, ToSpeakers } from "./speakers-worker.ts";
 import SpeakersWorker from "./speakers-worker.ts?worker";
 import type { FromTurns, ToTurns } from "./turns-worker.ts";
 import TurnsWorker from "./turns-worker.ts?worker";
-import { annotate, type Stretch, Voices } from "./voices.ts";
+import { annotate, SHORTEST, type Stretch, Voices } from "./voices.ts";
 
 export type Hearing = {
 	/** Turn detection hears speech start, louder than the echo, or stop: a
@@ -43,9 +43,6 @@ const BETWEEN = 20 * LISTEN_RATE;
 /** The longest stretch the speaker model hears at once, in seconds, so that
  * a long one is heard while it goes on, and a voice change inside it shows. */
 const STRETCH = 10;
-/** The shortest stretch it hears, in seconds: a shorter one is heard with
- * the sound around it, since a voice shows only over about a second. */
-const SHORTEST = 1;
 
 /** What a commit is for: a piece of the turn in progress, its end, or the
  * sound between turns, which is dropped. A pause commits a piece shortly
@@ -111,6 +108,7 @@ export class Listener {
 			speakers.postMessage(message, transfer);
 		const embed = (from: number, to: number) => {
 			if (!voicing) return;
+			// A short one is heard with the sound around it.
 			const short = Math.max(0, SHORTEST - (to - from)) / 2;
 			ask({ type: "embed", from: from - short, to: to + short });
 			embedded = new Promise((done) => embedding.push({ from, to, done }));
@@ -126,9 +124,18 @@ export class Listener {
 				if (!asked) return;
 				const { from, to, done } = asked;
 				if (data.embedding.some((x) => x !== 0)) {
-					const { voice, similarity } = voices.voice(data.embedding);
-					stretches.push({ from, to, voice });
-					hearing.trace("voice", { from, to, voice, similarity });
+					const { stretch, similarity } = voices.stretch(
+						from,
+						to,
+						data.embedding,
+					);
+					stretches.push(stretch);
+					hearing.trace("voice", {
+						from,
+						to,
+						voice: stretch.voice,
+						similarity,
+					});
 				}
 				done();
 			}
@@ -258,12 +265,22 @@ export class Listener {
 					},
 					committed: (text, automatic, timed) => {
 						const why = automatic ? "piece" : (commits.shift() ?? "piece");
+						// Where the words don't spell the text, the text is one word,
+						// so that the tags never lose any of it.
+						const spelled =
+							timed
+								.map((w) => w.text)
+								.join("")
+								.trim() === text.trim();
+						hearing.trace("committed", { why, text, spelled });
 						if (why !== "between" && text.trim()) {
 							pieces.push(text.trim());
 							const start = timed[0]?.start ?? clock;
+							const end = timed.at(-1)?.end ?? clock;
 							if (words.length > 0)
 								words.push({ text: " ", start, end: start });
-							words.push(...timed);
+							if (spelled) words.push(...timed);
+							else words.push({ text: text.trim(), start, end });
 						}
 						if (why === "end") segment();
 						else if (turn) {

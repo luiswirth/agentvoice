@@ -11,8 +11,19 @@ import type { Word } from "./elevenlabs.ts";
  * apart above 0.3. */
 const SAME = 0.3;
 
-/** A stretch of speech and its voice. */
-export type Stretch = { from: number; to: number; voice: number };
+/** The shortest stretch of speech, in seconds, whose voice shows on its own:
+ * a shorter one takes the voice of a longer one in its segment, and only
+ * where there is none is it matched itself. */
+export const SHORTEST = 1;
+
+/** A stretch of speech, its embedding, and its voice, null for a short one
+ * until its segment ends. */
+export type Stretch = {
+	from: number;
+	to: number;
+	embedding: Float32Array;
+	voice: number | null;
+};
 
 /** The voices heard so far, kept across reloads under `key`. */
 export class Voices {
@@ -41,6 +52,19 @@ export class Voices {
 		this.numbers[voice] = number;
 		this.store();
 		return number;
+	}
+
+	/** A stretch, with its voice if it is long enough to show, and how close
+	 * it is to that voice. */
+	stretch(
+		from: number,
+		to: number,
+		embedding: Float32Array,
+	): { stretch: Stretch; similarity?: number } {
+		if (to - from < SHORTEST)
+			return { stretch: { from, to, embedding, voice: null } };
+		const { voice, similarity } = this.voice(embedding);
+		return { stretch: { from, to, embedding, voice }, similarity };
 	}
 
 	/** The voice of a unit-length embedding, and how close it is to it. */
@@ -73,19 +97,33 @@ export class Voices {
 }
 
 /**
- * The words, each tagged by the voice of the stretch it lies in, or else of
- * the closest one, with a tag wherever the voice changes. Without stretches,
- * the words as they are.
+ * The words of a segment, each tagged by the voice of the stretch it lies
+ * in, or else of the closest one, with a tag wherever the voice changes.
+ * Without stretches, the words as they are.
  */
 export function annotate(
 	words: Word[],
-	stretches: Stretch[],
+	all: Stretch[],
 	voices: Voices,
 ): string {
+	const from = (words[0]?.start ?? 0) - 1;
+	const to = (words.at(-1)?.end ?? 0) + 1;
+	const stretches = all.filter((s) => s.to > from && s.from < to);
+	const long = stretches.filter((s) => s.voice !== null);
+	for (const s of stretches)
+		if (s.voice === null)
+			s.voice =
+				long.length > 0
+					? voiceAt((s.from + s.to) / 2, long)
+					: voices.voice(s.embedding).voice;
 	let text = "";
 	let last = -1;
 	for (const word of words) {
 		const voice = voiceAt((word.start + word.end) / 2, stretches) ?? last;
+		if (voice < 0) {
+			text += word.text;
+			continue;
+		}
 		if (voice !== last && /\w/.test(word.text)) {
 			text = `${text.trimEnd()} [voice ${voices.number(voice)}] `;
 			last = voice;
@@ -95,14 +133,14 @@ export function annotate(
 	return text.trim();
 }
 
-function voiceAt(time: number, stretches: Stretch[]): number | undefined {
+function voiceAt(time: number, stretches: Stretch[]): number | null {
 	let closest: Stretch | undefined;
 	let distance = Number.POSITIVE_INFINITY;
 	for (const stretch of stretches) {
 		const d = Math.max(stretch.from - time, time - stretch.to, 0);
 		if (d < distance) [closest, distance] = [stretch, d];
 	}
-	return closest?.voice;
+	return closest?.voice ?? null;
 }
 
 function dot(a: Float32Array, b: Float32Array): number {
