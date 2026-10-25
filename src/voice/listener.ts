@@ -217,6 +217,8 @@ export class Listener {
 			const echoed = echo(text);
 			if (echoed) hearing.trace("echo", { text });
 			const counts = (speaking || loudest >= floor()) && !echoed;
+			if (!counts && !echoed && /\w/.test(text))
+				hearing.trace("quiet", { text, loudest, floor: floor() });
 			const timed = words;
 			speaking = false;
 			loudest = Number.NEGATIVE_INFINITY;
