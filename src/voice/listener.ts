@@ -159,10 +159,14 @@ export class Listener {
 						data.embedding,
 					);
 					stretches.push(stretch);
+					// `voice` is the number the message tags, as in `voice.now`,
+					// null until its words are tagged; `index` is the stretch's voice.
 					hearing.trace("voice", {
 						from,
 						to,
-						voice: stretch.voice,
+						voice:
+							stretch.voice === null ? null : voices.numbered(stretch.voice),
+						index: stretch.voice,
 						similarity,
 					});
 				}
