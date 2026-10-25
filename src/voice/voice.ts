@@ -126,7 +126,15 @@ export class Voice {
 						this.speaker?.pause();
 					},
 					partial: (hearing) => {
-						this.trace.event("partial", { text: hearing });
+						// Scribe's partials repeat the whole segment so far, so a
+						// partial that only extends the last one keeps what it adds.
+						const last = this.state.hearing;
+						this.trace.event(
+							"partial",
+							last && hearing.startsWith(last)
+								? { added: hearing.slice(last.length) }
+								: { text: hearing },
+						);
 						this.set({ hearing });
 					},
 					segment: (text) => {
