@@ -10,11 +10,16 @@ ci:
 dev:
     pnpm dev
 
-# Plays a scenario of bench/scenarios.ts into the page built from here, and
-# measures how its turns reached a fake agent.
+# Plays a scenario of bench/scenarios.ts, or a recording's WAV, into the page
+# built from here, and measures how its turns reached a fake agent.
 bench scenario="turns":
     pnpm build
     CHROMIUM="$(command -v chromium)" pnpm exec tsx bench/bench.ts {{ scenario }}
+
+# Joins the audio a page shared into the session at `link` into one WAV, for
+# `just bench` to replay.
+recording link out="recording.wav":
+    pnpm exec tsx bench/recording.ts {{ link }} {{ out }}
 
 # Builds the page and serves it at voice.senses.sh.
 deploy: ci

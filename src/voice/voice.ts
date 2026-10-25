@@ -131,6 +131,7 @@ export class Voice {
 						this.trace.event("segment", { text });
 						this.segment(text);
 					},
+					audio: (pcm) => this.trace.hear(pcm),
 					level: (level) => this.set({ level }),
 					trace: (event, data) => this.trace.event(event, data),
 					failed: (error) => {
@@ -196,8 +197,7 @@ export class Voice {
 		this.trace.event("send", { text, heard });
 		const trace = this.trace.take();
 		this.queue(async () => {
-			if (trace.length > 0)
-				await this.session.send(JSON.stringify(trace), { type: TRACE });
+			await this.shareTrace(trace);
 			for (const entry of heard)
 				await this.session.send(JSON.stringify(entry), { type: HEARD });
 			await this.session.send(text, { type: "text/plain" });
@@ -247,10 +247,16 @@ export class Voice {
 		this.trace.share(on);
 		this.set({ sharing: on });
 		const trace = this.trace.take();
-		if (trace.length > 0)
-			this.queue(() =>
-				this.session.send(JSON.stringify(trace), { type: TRACE }),
-			);
+		this.queue(() => this.shareTrace(trace));
+	}
+
+	/** Sends a trace taken, with the audio heard, each stretch named by its
+	 * start. */
+	private async shareTrace({ events, audio }: ReturnType<Trace["take"]>) {
+		if (events.length > 0)
+			await this.session.send(JSON.stringify(events), { type: TRACE });
+		for (const { start, wav } of audio)
+			await this.session.send(wav, { filename: `heard ${start}.wav` });
 	}
 
 	private keep(text: string): void {

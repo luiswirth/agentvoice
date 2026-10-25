@@ -19,6 +19,8 @@ export type Hearing = {
 	partial(text: string): void;
 	/** A segment ended, empty if it held no words or never counted. */
 	segment(text: string): void;
+	/** What the microphone hears, as Scribe gets it, before it goes on. */
+	audio(pcm: Int16Array): void;
 	/** How loud the microphone is, from 0 to 1, every 0.1 s. */
 	level(level: number): void;
 	/** The listener stopped on its own. */
@@ -170,6 +172,7 @@ export class Listener {
 		try {
 			microphone = await Microphone.open(
 				(pcm) => {
+					hearing.audio(pcm);
 					scribe.hear(pcm);
 					const rms = root(pcm);
 					loudest = Math.max(loudest, 20 * Math.log10(rms));
