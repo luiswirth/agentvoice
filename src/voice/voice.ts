@@ -177,7 +177,11 @@ export class Voice {
 					() => play("read"),
 					Math.max(0, this.sentAt + 250 - performance.now()),
 				),
-			message: () => play("message"),
+			// A message read aloud is heard as it is read, so its cue would
+			// only come before the voice.
+			message: () => {
+				if (!this.state.speaker) play("message");
+			},
 			other: () => {
 				play("other");
 				if (this.working !== undefined) this.work(0);
