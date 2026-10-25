@@ -48,7 +48,10 @@ export class Voices {
 	number(voice: number): number {
 		const given = this.numbers[voice];
 		if (given != null) return given;
-		const number = Math.max(0, ...this.numbers.map((n) => n ?? 0)) + 1;
+		// The numbers have holes where a voice has none yet, which `reduce`
+		// skips and spreading would read as NaN.
+		const number =
+			this.numbers.reduce<number>((m, n) => Math.max(m, n ?? 0), 0) + 1;
 		this.numbers[voice] = number;
 		this.store();
 		return number;
