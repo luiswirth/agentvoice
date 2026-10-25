@@ -160,9 +160,12 @@ export class Speaker {
 		if (this.readings.length === 1) this.changed(entry.n);
 		// Each paragraph is a line of its own, timed on from the one before.
 		let start = 0;
-		const lines = speech(entry.text).map((paragraph) =>
+		const lines = speech(entry.text).map((paragraph, i) =>
 			this.speech.say(paragraph, (piece: Piece) => {
 				if (this.dropped.has(line)) return;
+				// Paragraphs are heard apart, so their texts join with a space.
+				if (i > 0 && reading.chars.at(-1)?.char !== " ")
+					reading.chars.push({ char: " ", at: start });
 				for (const { char, at } of piece.chars)
 					reading.chars.push({ char, at: start + at });
 				this.player.play(line, start, piece.samples);
