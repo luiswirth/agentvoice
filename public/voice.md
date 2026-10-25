@@ -45,7 +45,7 @@ Entries of their own type tell you about the voice, and one you send tells the p
 ## Being heard
 
 While the speaker is on, your messages are read aloud, paragraph by paragraph.
-As it turns on, it first reads those you sent since the person last said anything, such as one sent before their page joined.
+It reads only what arrives while it is on, and a message that arrived a few seconds before it turned on, as during a reload: none from further back, which the person may have heard already, though they can have your last one read again.
 A message that arrives while the person is talking is read once they are done, unless they send: sending drops every message not yet heard to its end.
 Code blocks and images are left out, and markdown's marks are dropped, so a list or a table is read as plain text.
 A file, any entry with a filename, is never read aloud.

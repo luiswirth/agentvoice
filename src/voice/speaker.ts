@@ -28,6 +28,10 @@ const ECHO = 4;
  * played for them to be its echo: Scribe mishears some of them. */
 const ECHOED = 0.7;
 
+/** How long before the speaker turns on a message may have arrived and
+ * still be read, in seconds: one that came during a reload. */
+const RECENT = 10;
+
 export class Speaker {
 	private readonly speech: Speech;
 	private readonly player = new Player();
@@ -50,21 +54,24 @@ export class Speaker {
 	changed: (n: number | null) => void = () => {};
 	failed: (error: Error) => void = () => {};
 
-	/** Reads the messages not from `name`: those since `name` last said
-	 * anything, which are still to be answered, and every one after, except
-	 * those this tab already read, heard or dropped before a reload. */
+	/** Reads the messages not from `name` that arrive from now on, and those
+	 * that arrived just before, as during a reload, except those this tab
+	 * already read, heard or dropped. None from further back: the person may
+	 * have heard or read them, and can have the last read again. */
 	constructor(session: Session, name: string, key: string, voice?: string) {
 		this.session = session;
 		this.name = name;
 		this.speech = new Speech(key, voice);
 		this.player.changed = () => this.settle();
-		const since = Math.max(
-			session.log.findLast((entry) => entry.from === name && spoken(entry))
-				?.n ?? 0,
-			Number(sessionStorage.getItem(this.key) ?? 0),
-		);
+		const since = Number(sessionStorage.getItem(this.key) ?? 0);
+		const recent = Date.now() - RECENT * 1000;
 		for (const entry of session.log)
-			if (entry.n > since && entry.from !== name && spoken(entry))
+			if (
+				entry.n > since &&
+				Date.parse(entry.time) > recent &&
+				entry.from !== name &&
+				spoken(entry)
+			)
 				this.read(entry);
 		const after = session.log.at(-1)?.n ?? 0;
 		this.unsubscribe = session.subscribe({
