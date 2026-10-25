@@ -56,20 +56,20 @@ function unbase64(text: string): Uint8Array {
 export type Heard = {
 	/** What Scribe hears so far of the segment in progress, each replacing the last. */
 	partial(text: string): void;
-	/** A segment settled, after a pause or a commit. */
-	committed(text: string): void;
+	/** A segment settled: one committed, or one Scribe committed on its own
+	 * after about 36 s of audio. */
+	committed(text: string, automatic: boolean): void;
 	/** The session ended, with why if it failed. */
 	closed(error?: Error): void;
 };
 
-/**
- * A Scribe session over the whole microphone stream. Scribe's own voice
- * activity commits a segment after `silence` seconds of it; `commit` settles
- * the segment in progress at once.
- */
+/** A Scribe session over the whole microphone stream, whose segments end
+ * where `commit` settles them. */
 export class Scribe {
 	/** Samples sent since the last commit: Scribe refuses a commit of under 0.3 s, and closes. */
-	private uncommitted = 0;
+	uncommitted = 0;
+	/** Commits not yet answered. */
+	private commits = 0;
 
 	private readonly socket: WebSocket;
 
@@ -77,13 +77,12 @@ export class Scribe {
 		this.socket = socket;
 	}
 
-	static async open(key: string, heard: Heard, silence = 1.5): Promise<Scribe> {
+	static async open(key: string, heard: Heard): Promise<Scribe> {
 		const query = new URLSearchParams({
 			model_id: "scribe_v2_realtime",
 			token: await token(key, "realtime_scribe"),
 			audio_format: `pcm_${LISTEN_RATE}`,
-			commit_strategy: "vad",
-			vad_silence_threshold_secs: String(silence),
+			commit_strategy: "manual",
 		});
 		const socket = new WebSocket(`${SOCKETS}/speech-to-text/realtime?${query}`);
 		const scribe = new Scribe(socket);
@@ -93,9 +92,13 @@ export class Scribe {
 				case "partial_transcript":
 					heard.partial(message.text ?? "");
 					return;
-				case "committed_transcript":
-					heard.committed(message.text ?? "");
+				case "committed_transcript": {
+					const automatic = scribe.commits === 0;
+					if (automatic) scribe.uncommitted = 0;
+					else scribe.commits--;
+					heard.committed(message.text ?? "", automatic);
 					return;
+				}
 				default:
 					if (message.error) {
 						heard.closed(
@@ -132,6 +135,7 @@ export class Scribe {
 	commit(): boolean {
 		if (this.uncommitted < (2 * LISTEN_RATE) / 5) return false;
 		this.uncommitted = 0;
+		this.commits++;
 		this.socket.send(
 			JSON.stringify({
 				message_type: "input_audio_chunk",
@@ -141,11 +145,6 @@ export class Scribe {
 			}),
 		);
 		return true;
-	}
-
-	/** After a segment Scribe committed on its own. */
-	settled(): void {
-		this.uncommitted = 0;
 	}
 
 	close(): void {

@@ -129,6 +129,7 @@ export class Voice {
 						this.segment(text);
 					},
 					level: (level) => this.set({ level }),
+					trace: (event, data) => this.trace.event(event, data),
 					failed: (error) => {
 						this.trace.event("failed", { error: error.message });
 						this.listener = null;
