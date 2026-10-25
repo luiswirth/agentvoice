@@ -192,15 +192,6 @@ function Now({ voice, state }: { voice: Voice; state: VoiceState }) {
 				<div className="flex shrink-0 justify-end gap-2 text-sm font-normal">
 					<button
 						type="button"
-						title="Drop it (Escape): it can still be copied"
-						className="flex h-9 items-center gap-1.5 rounded-full px-3 text-muted-foreground transition hover:bg-white/10 hover:text-foreground"
-						onClick={() => voice.clear()}
-					>
-						<X className="size-4" />
-						Drop
-					</button>
-					<button
-						type="button"
 						title="Send it to your agent (Enter)"
 						className="flex h-9 items-center gap-2 rounded-full bg-you px-4 font-medium text-black shadow-[0_0_24px_-4px_var(--you)] transition hover:brightness-110"
 						onClick={() => voice.send()}
@@ -291,14 +282,23 @@ function Bar({ voice, state }: { voice: Voice; state: VoiceState }) {
 					{state.listener ? <Mic /> : <MicOff />}
 				</Switch>
 				<TurnEnd voice={voice} state={state} />
-				<Small
-					label="Copy your last transcript"
-					disabled={!state.last}
-					onClick={() => voice.copyLast()}
-					done={<Check />}
-				>
-					<Copy />
-				</Small>
+				{state.draft || state.hearing ? (
+					<Small
+						label="Drop what you said so far (Escape): it can still be copied"
+						onClick={() => voice.clear()}
+					>
+						<X />
+					</Small>
+				) : (
+					<Small
+						label="Copy your last transcript"
+						disabled={!state.last}
+						onClick={() => voice.copyLast()}
+						done={<Check />}
+					>
+						<Copy />
+					</Small>
+				)}
 			</Part>
 			<Part side="right" on={state.speaker} joined={joined} color="--agent">
 				<Small
