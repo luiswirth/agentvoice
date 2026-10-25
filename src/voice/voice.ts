@@ -437,11 +437,13 @@ export class Voice {
 		if (!interrupt) this.speaker?.duck(false);
 		this.trace.event("send", { text, heard });
 		const trace = this.trace.take();
+		// The message goes first, so that the trace's audio, which takes a
+		// while to upload, holds it back from the agent no longer.
 		this.queue(async () => {
-			await this.shareTrace(trace);
 			for (const entry of heard)
 				await this.session.send(JSON.stringify(entry), { type: HEARD });
 			await this.session.send(text, { type: "text/plain" });
+			await this.shareTrace(trace);
 		});
 	}
 

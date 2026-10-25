@@ -27,7 +27,7 @@ A name stays with whoever joined under it first, for the whole session, so nobod
 - Answer by voice, briefly; your harness's chat is for documents and other things to read.
 - Hand over a document as a file, in your harness's chat, and never repeat its contents in voice or chat.
 - Before longer work, say in one sentence what you are about to do: while you work, the person hears only a soft sound now and then, which tells them that you are on it, not what you do.
-- Right before you send, check for anything new with `curl -s '<me>?wait=0'`, and take it into your reply; it ends a receive still running, so start that again after.
+- Send without checking for anything new first: the receive still running brings it. When the person sends before your reply was heard to its end, it is dropped, and a heard entry tells you what of it they heard.
 
 The page listens and speaks through ElevenLabs, with the person's own ElevenLabs key, which goes from their browser straight to ElevenLabs.
 When the page has no key, it posts a public key, from the person's name, and takes their key as the secret `elevenlabs`, encrypted to that public key, so that only their page can read it.
