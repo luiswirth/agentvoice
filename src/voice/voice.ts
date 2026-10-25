@@ -94,6 +94,8 @@ export class Voice {
 			});
 		message();
 		this.unsubscribe = session.subscribe({ entry: message });
+		// The speaker is on from the start, the listener off.
+		void this.setSpeaker(true);
 	}
 
 	/** For React's `useSyncExternalStore`. */

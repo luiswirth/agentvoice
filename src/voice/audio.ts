@@ -1,10 +1,16 @@
 // The page's audio: one context for the microphone and the speaker, at the
 // device's own rate. Browsers start audio only from a user's gesture, so the
-// context is made, or resumed, by a switch's click.
+// context is resumed by a switch's click, and by the first gesture anywhere
+// on the page, for the speaker that is on from the start.
 import capture from "./capture.ts?worker&url";
 import { SPEECH_RATE } from "./elevenlabs.ts";
 
 let context: { audio: AudioContext; loaded: Promise<void> } | null = null;
+
+for (const gesture of ["pointerdown", "keydown"])
+	window.addEventListener(gesture, () => void context?.audio.resume(), {
+		capture: true,
+	});
 
 /** The page's audio context, started or resumed: call it from a click. */
 export function audioContext(): { audio: AudioContext; loaded: Promise<void> } {
