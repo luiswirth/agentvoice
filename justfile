@@ -24,3 +24,8 @@ recording link out="recording.wav":
 # Builds the page and serves it at voice.senses.sh.
 deploy: ci
     pnpm exec wrangler deploy --domain voice.senses.sh
+
+# Screenshots of the voice bar in each state of bench/gallery-states.ts, on a
+# Mac's window and an iPhone's, into bench/.cache/gallery/.
+gallery:
+    CHROMIUM="$(command -v chromium)" pnpm exec tsx bench/gallery.ts

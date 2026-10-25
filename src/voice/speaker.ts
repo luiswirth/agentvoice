@@ -84,6 +84,11 @@ export class Speaker {
 		return this.player.playing;
 	}
 
+	/** How loud the speaker sounds now, from 0 to 1. */
+	level(): number {
+		return this.player.level();
+	}
+
 	/** Lets go of the messages played to their end. */
 	private settle(): void {
 		const before = this.reading;

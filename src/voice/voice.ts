@@ -120,6 +120,12 @@ export class Voice {
 		return () => this.watchers.delete(watcher);
 	};
 
+	/** How loud the speaker sounds now, from 0 to 1: read it as often as
+	 * needed, since it changes too fast for `state`. */
+	speakerLevel(): number {
+		return this.speaker?.level() ?? 0;
+	}
+
 	/** Call it from a click, since it starts the page's audio. */
 	async setListener(on: boolean): Promise<void> {
 		if (on === this.state.listener || this.state.switching) return;

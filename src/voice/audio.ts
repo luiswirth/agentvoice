@@ -103,6 +103,9 @@ export class Player {
 	private paused = false;
 	/** Every line plays through it, so that it can get quieter. */
 	private readonly volume: GainNode;
+	/** What plays, as it sounds, for `level`. */
+	private readonly analyser: AnalyserNode;
+	private readonly samples = new Float32Array(512);
 	/** How far each line played, in seconds. */
 	private readonly played = new Map<number, number>();
 	/** The line at the head of the queue, as last told. */
@@ -114,6 +117,16 @@ export class Player {
 		this.audio = audioContext().audio;
 		this.volume = new GainNode(this.audio);
 		this.volume.connect(this.audio.destination);
+		this.analyser = new AnalyserNode(this.audio, { fftSize: 512 });
+		this.volume.connect(this.analyser);
+	}
+
+	/** How loud it plays now, from 0 to 1, scaled as the microphone's level. */
+	level(): number {
+		this.analyser.getFloatTimeDomainData(this.samples);
+		let sum = 0;
+		for (const sample of this.samples) sum += sample * sample;
+		return Math.min(1, Math.sqrt(sum / this.samples.length) * 8);
 	}
 
 	/** Plays on quieter, or at full volume again. */
