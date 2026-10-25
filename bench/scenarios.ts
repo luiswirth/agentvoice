@@ -73,4 +73,20 @@ export const scenarios: Scenario[] = [
 			},
 		],
 	},
+	{
+		// German words that trail off keep the turn through a pause longer than
+		// the wait, and a tag question with one of them still ends it.
+		name: "german",
+		turns: [
+			{
+				parts: ["Also...", "wir sollten das zuerst testen."],
+				pause: 4.5,
+			},
+			{
+				parts: ["Ich habe das ausprobiert, ähm...", "und es geht."],
+				pause: 4.5,
+			},
+			{ parts: ["Das macht Sinn, oder?"] },
+		],
+	},
 ];

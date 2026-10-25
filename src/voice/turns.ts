@@ -291,19 +291,23 @@ export function finished(text: string): boolean {
 /**
  * Whether the words trail off, as where the person thinks how to go on: they
  * end on a comma, a word cut off, a filler or a conjunction. An ellipsis
- * alone says nothing, as Scribe puts one on any partial it is unsure of.
+ * alone says nothing, as Scribe puts one on any partial it is unsure of. A
+ * question asked with one of those words, as "oder?" or "so?", is finished.
  */
 export function trailing(text: string): boolean {
 	const words = text.trim();
 	if (/[,\-—]["'”’)]*$/.test(words)) return true;
+	if (/\?["'”’)]*$/.test(words)) return false;
 	const last = words
 		.split(/[^\p{L}'-]+/u)
 		.findLast((word) => /\p{L}/u.test(word));
 	return last !== undefined && TRAILING.has(last.toLowerCase());
 }
 
-/** Words a sentence the person goes on after may end on. */
+/** Words a sentence the person goes on after may end on, in the languages
+ * the person speaks. */
 const TRAILING = new Set([
+	// English
 	"um",
 	"uh",
 	"hmm",
@@ -313,4 +317,16 @@ const TRAILING = new Set([
 	"or",
 	"because",
 	"like",
+	// German, "also" in English too
+	"äh",
+	"ähm",
+	"öhm",
+	"hm",
+	"und",
+	"aber",
+	"oder",
+	"weil",
+	"also",
+	"aso",
+	"dass",
 ]);
