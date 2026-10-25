@@ -275,6 +275,9 @@ export class Voice {
 					voiced: (voiced) => this.speaker?.duck(voiced),
 					speaking: () => {
 						this.trace.event("speaking", { reading: this.state.reading });
+						// The person's turn starts with its first words, and
+						// ends as it is sent or dropped, each heard.
+						if (!this.state.draft) play("speaking");
 						this.words = true;
 						this.claim();
 					},

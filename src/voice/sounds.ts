@@ -39,6 +39,7 @@ const CUES = {
 		{ pitch: 14, at: 0, length: 0.09 },
 		{ pitch: 9, at: 0.07, length: 0.14 },
 	],
+	speaking: [{ pitch: -7, to: 5, at: 0, length: 0.08, gain: 0.45 }],
 	sent: [{ pitch: 5, to: 17, at: 0, length: 0.12, gain: 0.6 }],
 	dropped: [{ pitch: 5, to: -7, at: 0, length: 0.12, gain: 0.5 }],
 	// The agent's side.
