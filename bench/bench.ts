@@ -60,6 +60,10 @@ try {
 	const context = await browser.newContext();
 	await context.addInitScript(
 		([key]) => {
+			// Luis's languages, English first.
+			Object.defineProperty(Navigator.prototype, "languages", {
+				get: () => ["en-US", "de-CH"],
+			});
 			localStorage.setItem("byoa-name", "person");
 			localStorage.setItem("elevenlabs-key", key as string);
 			localStorage.setItem("voice-sharing-trace", "true");
