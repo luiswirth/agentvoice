@@ -53,12 +53,17 @@ function unbase64(text: string): Uint8Array {
 	return Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
 }
 
+/** A word as Scribe times it, in seconds of the audio it heard, or the
+ * spacing between words. */
+export type Word = { text: string; start: number; end: number };
+
 export type Heard = {
 	/** What Scribe hears so far of the segment in progress, each replacing the last. */
 	partial(text: string): void;
 	/** A segment settled: one committed, or one Scribe committed on its own
-	 * after about 36 s of audio. */
-	committed(text: string, automatic: boolean): void;
+	 * after about 36 s of audio, with its words timed in seconds of the
+	 * audio Scribe heard. */
+	committed(text: string, automatic: boolean, words: Word[]): void;
 	/** The session ended, with why if it failed. */
 	closed(error?: Error): void;
 };
@@ -83,6 +88,7 @@ export class Scribe {
 			token: await token(key, "realtime_scribe"),
 			audio_format: `pcm_${LISTEN_RATE}`,
 			commit_strategy: "manual",
+			include_timestamps: "true",
 		});
 		const socket = new WebSocket(`${SOCKETS}/speech-to-text/realtime?${query}`);
 		const scribe = new Scribe(socket);
@@ -92,11 +98,14 @@ export class Scribe {
 				case "partial_transcript":
 					heard.partial(message.text ?? "");
 					return;
-				case "committed_transcript": {
+				// Each commit comes twice, the second time with its words.
+				case "committed_transcript":
+					return;
+				case "committed_transcript_with_timestamps": {
 					const automatic = scribe.commits === 0;
 					if (automatic) scribe.uncommitted = 0;
 					else scribe.commits--;
-					heard.committed(message.text ?? "", automatic);
+					heard.committed(message.text ?? "", automatic, message.words ?? []);
 					return;
 				}
 				default:

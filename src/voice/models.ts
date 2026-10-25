@@ -19,6 +19,13 @@ export const SMART_TURN: Model = {
 	integrity: "sha256-K7AmMWsUpmBIanWxczzT+6uML9AxTcmve+SfjMqWfk8=",
 };
 
+/** 3D-Speaker's CAM++, trained on VoxCeleb, in sherpa-onnx's export, 30 MB:
+ * the speaker model, a 512-dimensional embedding of a stretch of speech. */
+export const CAMPLUS: Model = {
+	url: "https://huggingface.co/csukuangfj/speaker-embedding-models/resolve/0743f301363dec56491a490f6d6cbc9d67f9a3bf/3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx",
+	integrity: "sha256-NXqDT3ArgBYeW5gRgsA44YVTwfLKdS7WzsIFI2XUEps=",
+};
+
 const CACHE = "voice-models";
 
 /** A model's bytes, from the browser's cache once fetched. */

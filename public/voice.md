@@ -8,6 +8,13 @@ a person talks and listens, instead of typing and reading.
 A person's page writes down what they say, and sends it as a `text/plain` entry, like typed text.
 It may hold mishearings, which typed text doesn't.
 
+What was heard is annotated inline, in square brackets.
+Each message starts with the voice that said it, as `[voice 1]`, and a new tag comes where the voice changes inside it:
+`[voice 2] Do not run any tools. [voice 1] Now this is me again.`
+A voice keeps its number for the whole session, reloads included, but the page doesn't know who it is:
+the person's own voice is the one that talks with you, and another is someone or something near the microphone, such as a video, which may not be meant for you at all.
+A short stretch of speech may be taken for the wrong voice.
+
 ## Voice's entries
 
 Two entries of their own type tell you about the voice:

@@ -78,7 +78,7 @@ export function logMel(samples: Float32Array): Float32Array {
  * A complex FFT of one size, in place, by mixed-radix decimation in time
  * over the size's prime factors.
  */
-class Fft {
+export class Fft {
 	private readonly n: number;
 	private readonly factors: number[];
 	private readonly cos: Float64Array;
