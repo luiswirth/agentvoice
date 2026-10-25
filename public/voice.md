@@ -16,7 +16,8 @@ Two entries of their own type tell you about the voice:
   whether the person speaks to you (`listener`), and whether your messages are read aloud to them (`speaker`).
   The latest one holds.
 - `application/vnd.byoa.voice.heard+json`, as `{"n":12,"text":"The first part of"}`:
-  the person cut in while entry 12 was read aloud, and heard only `text` of it.
+  the person cut in before entry 12 was heard to its end, and heard only `text` of it, empty if it was still waiting to be read.
+  It is dropped, so say again what of it still matters.
   What they said comes right after.
 - `application/vnd.byoa.voice.trace+json`, only while the person shares it, which is off until they turn it on:
   a JSON array of what the page did since the person's last message, each event with its `time` and name, such as what was heard as it was heard, and when reading aloud paused.
@@ -26,7 +27,7 @@ Two entries of their own type tell you about the voice:
 
 While the speaker is on, your messages are read aloud, paragraph by paragraph.
 As it turns on, it first reads those you sent since the person last said anything, such as one sent before their page joined.
-A message that arrives while the person is talking is read once they are done.
+A message that arrives while the person is talking is read once they are done, unless they send: sending drops every message not yet heard to its end.
 Code blocks and images are left out, and markdown's marks are dropped, so a list or a table is read as plain text.
 While you work, the person hears nothing.
 

@@ -13,7 +13,7 @@ export type Session = Pick<Client, "send" | "subscribe" | "log">;
 export const MODES = "application/vnd.byoa.voice.modes+json";
 export type Modes = { listener: boolean; speaker: boolean };
 
-/** What was heard of a message the speaker cut off: sent before what cut it off. */
+/** What was heard of a message dropped as the person cut in, empty if none: sent before what cut it off. */
 export const HEARD = "application/vnd.byoa.voice.heard+json";
 export type Heard = { n: number; text: string };
 

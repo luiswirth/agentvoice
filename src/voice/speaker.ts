@@ -123,23 +123,20 @@ export class Speaker {
 	}
 
 	/**
-	 * Drops the messages that started playing, as the person cuts in, and
-	 * reads on with those that didn't: what was heard of each message cut
-	 * off, which goes to the log before what cut it off.
+	 * Drops every message not yet heard to its end, as the person cuts in,
+	 * since each was written before what cut it off: what was heard of each,
+	 * empty for one still queued, which goes to the log before what cut it off.
 	 */
 	interrupt(): Heard[] {
-		const cut = this.readings.filter(
-			({ line }) => this.player.progress(line) > 0,
-		);
-		const heard = cut.map((reading) => ({
+		const heard = this.readings.map((reading) => ({
 			n: reading.n,
 			text: this.heard(reading),
 		}));
-		for (const { line } of cut) {
+		for (const { line } of this.readings) {
 			this.dropped.add(line);
 			this.player.stop(line);
 		}
-		this.readings = this.readings.filter((reading) => !cut.includes(reading));
+		this.readings = [];
 		this.resume();
 		this.changed(this.reading);
 		return heard;
