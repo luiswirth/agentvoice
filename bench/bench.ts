@@ -6,9 +6,9 @@
 //
 // It uses the ElevenLabs key in ~/secrets/elevenlabs-api-key.txt and the
 // public relay.
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { create, type Entry, Session } from "byoa/participant";
 import { chromium } from "playwright-core";
 import { preview } from "vite";
@@ -115,7 +115,9 @@ function report(
 		".cache",
 		`${basename(name)}.trace.json`,
 	);
-	void writeFile(kept, JSON.stringify(events, null, 1));
+	void mkdir(dirname(kept), { recursive: true }).then(() =>
+		writeFile(kept, JSON.stringify(events, null, 1)),
+	);
 	console.log(`the page's trace: ${kept}`);
 	// Why each send's turn ended, where the page's turn detection says.
 	let reason: string | undefined;
