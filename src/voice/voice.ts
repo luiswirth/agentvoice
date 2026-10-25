@@ -10,6 +10,7 @@ import { Listener } from "./listener.ts";
 import { holdMedia } from "./media.ts";
 import { HEARD, MODES, type Modes, type Session, spoken } from "./protocol.ts";
 import { Speaker } from "./speaker.ts";
+import { TRACE, Trace } from "./trace.ts";
 
 export type VoiceState = Modes & {
 	/** Whether a turn ends by itself, after a pause. */
@@ -30,6 +31,8 @@ export type VoiceState = Modes & {
 	message: string | null;
 	/** The person's last transcript, sent or dropped. */
 	last: string | null;
+	/** Whether the page sends its trace into the session. */
+	sharing: boolean;
 	error: string | null;
 };
 
@@ -60,6 +63,7 @@ export class Voice {
 	/** The log's order is the order things were said, so sends go one after another. */
 	private sent: Promise<unknown> = Promise.resolve();
 	private readonly watchers = new Set<() => void>();
+	private readonly trace = new Trace();
 	private readonly unsubscribe: () => void;
 	state: VoiceState = {
 		listener: false,
@@ -73,6 +77,7 @@ export class Voice {
 		held: false,
 		message: null,
 		last: transcripts()[0] ?? null,
+		sharing: this.trace.sharing,
 		error: null,
 	};
 
@@ -111,11 +116,21 @@ export class Voice {
 			this.listener = await Listener.open(
 				this.key,
 				{
-					speaking: () => this.speaker?.pause(),
-					partial: (hearing) => this.set({ hearing }),
-					segment: (text) => this.segment(text),
+					speaking: () => {
+						this.trace.event("speaking", { reading: this.state.reading });
+						this.speaker?.pause();
+					},
+					partial: (hearing) => {
+						this.trace.event("partial", { text: hearing });
+						this.set({ hearing });
+					},
+					segment: (text) => {
+						this.trace.event("segment", { text });
+						this.segment(text);
+					},
 					level: (level) => this.set({ level }),
 					failed: (error) => {
+						this.trace.event("failed", { error: error.message });
 						this.listener = null;
 						this.set({
 							listener: false,
@@ -140,8 +155,14 @@ export class Voice {
 		if (on === this.state.speaker || this.state.switching) return;
 		if (on) {
 			const speaker = new Speaker(this.session, this.name, this.key);
-			speaker.changed = (reading) => this.set({ reading });
-			speaker.failed = (error) => this.set({ error: error.message });
+			speaker.changed = (reading) => {
+				this.trace.event("reading", { n: reading });
+				this.set({ reading });
+			};
+			speaker.failed = (error) => {
+				this.trace.event("failed", { error: error.message });
+				this.set({ error: error.message });
+			};
 			this.speaker = speaker;
 		} else {
 			this.speaker?.close();
@@ -152,6 +173,7 @@ export class Voice {
 	}
 
 	setAutoEnd(autoEnd: boolean): void {
+		this.trace.event("autoEnd", { on: autoEnd });
 		this.set({ autoEnd });
 		if (autoEnd && this.state.draft && !this.state.hearing) this.send();
 	}
@@ -167,7 +189,11 @@ export class Voice {
 		}
 		this.keep(text);
 		const heard = this.speaker?.interrupt() ?? [];
+		this.trace.event("send", { text, heard });
+		const trace = this.trace.take();
 		this.queue(async () => {
+			if (trace.length > 0)
+				await this.session.send(JSON.stringify(trace), { type: TRACE });
 			for (const entry of heard)
 				await this.session.send(JSON.stringify(entry), { type: HEARD });
 			await this.session.send(text, { type: "text/plain" });
@@ -179,6 +205,7 @@ export class Voice {
 	clear(): void {
 		if (this.finishing("drop")) return;
 		const text = join(this.state.draft, this.state.hearing);
+		this.trace.event("drop", { text });
 		if (text) this.keep(text);
 		this.set({ draft: "", hearing: "" });
 		this.speaker?.resume();
@@ -196,6 +223,7 @@ export class Voice {
 
 	/** Pauses or resumes reading aloud. */
 	hold(held: boolean): void {
+		this.trace.event("hold", { on: held });
 		this.speaker?.hold(held);
 		this.set({ held });
 	}
@@ -205,7 +233,14 @@ export class Voice {
 	async replay(): Promise<void> {
 		if (!this.state.speaker) await this.setSpeaker(true);
 		this.hold(false);
+		this.trace.event("replay");
 		this.speaker?.replay();
+	}
+
+	/** Shares the page's trace with the session, or stops. */
+	share(on: boolean): void {
+		this.trace.share(on);
+		this.set({ sharing: on });
 	}
 
 	private keep(text: string): void {
@@ -224,6 +259,7 @@ export class Voice {
 
 	/** Skips the message being read. */
 	skip(): void {
+		this.trace.event("skip");
 		this.speaker?.skip();
 	}
 
@@ -261,6 +297,7 @@ export class Voice {
 			previous: () => void this.replay(),
 		});
 		const modes: Modes = { listener, speaker };
+		this.trace.event("modes", modes);
 		return this.queue(() =>
 			this.session.send(JSON.stringify(modes), { type: MODES }),
 		);

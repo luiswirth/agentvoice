@@ -37,10 +37,21 @@ export function VoiceBar({ voice }: { voice: Voice }) {
 		<div className="flex min-h-0 flex-1 flex-col items-center gap-6">
 			<Now voice={voice} state={state} />
 			{state.error && <p className="text-sm text-destructive">{state.error}</p>}
-			<p className="text-xs tracking-widest text-muted-foreground uppercase">
-				{mode(state)}
-				{doing(state) && ` · ${doing(state)}`}
-			</p>
+			<div className="flex items-center gap-3 text-xs tracking-widest text-muted-foreground uppercase">
+				<p>
+					{mode(state)}
+					{doing(state) && ` · ${doing(state)}`}
+				</p>
+				<button
+					type="button"
+					aria-pressed={state.sharing}
+					title="Send your agent a trace of what voice does, with each message, so that it can improve voice"
+					className={`rounded-full px-2 py-0.5 tracking-widest uppercase hover:bg-white/10 hover:text-foreground ${state.sharing ? "text-foreground" : ""}`}
+					onClick={() => voice.share(!state.sharing)}
+				>
+					{state.sharing ? "sharing trace" : "share trace"}
+				</button>
+			</div>
 			<Bar voice={voice} state={state} />
 		</div>
 	);

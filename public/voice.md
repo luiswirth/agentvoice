@@ -18,6 +18,9 @@ Two entries of their own type tell you about the voice:
 - `application/vnd.byoa.voice.heard+json`, as `{"n":12,"text":"The first part of"}`:
   the person cut in while entry 12 was read aloud, and heard only `text` of it.
   What they said comes right after.
+- `application/vnd.byoa.voice.trace+json`, only while the person shares it, which is off until they turn it on:
+  a JSON array of what the page did since the person's last message, each event with its `time` and name, such as what was heard as it was heard, and when reading aloud paused.
+  It comes right before the person's next message, for you to judge how voice works and improve it.
 
 ## Being heard
 
