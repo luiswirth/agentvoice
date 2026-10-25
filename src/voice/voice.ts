@@ -66,6 +66,8 @@ export class Voice {
 	private readonly trace = new Trace();
 	/** Where the tab keeps the modes, so that a reload keeps them. */
 	private readonly modesKey = `voice-modes ${location.href}`;
+	/** While the modes the page opens with come on. */
+	private restoring = false;
 	private readonly unsubscribe: () => void;
 	state: VoiceState = {
 		listener: false,
@@ -102,8 +104,14 @@ export class Voice {
 		const kept: Partial<Modes> = JSON.parse(
 			sessionStorage.getItem(this.modesKey) ?? "{}",
 		);
-		if (kept.speaker ?? true) void this.setSpeaker(true);
-		if (kept.listener) void this.setListener(true);
+		// The modes go out once both are on, not one at a time.
+		this.restoring = true;
+		const speaker = (kept.speaker ?? true) && this.setSpeaker(true);
+		const listener = kept.listener && this.setListener(true);
+		void Promise.all([speaker, listener]).then(() => {
+			this.restoring = false;
+			return this.modes();
+		});
 	}
 
 	/** For React's `useSyncExternalStore`. */
@@ -331,6 +339,7 @@ export class Voice {
 			previous: () => void this.replay(),
 		});
 		const modes: Modes = { listener, speaker };
+		if (this.restoring) return Promise.resolve();
 		sessionStorage.setItem(this.modesKey, JSON.stringify(modes));
 		this.trace.event("modes", modes);
 		return this.queue(() =>
