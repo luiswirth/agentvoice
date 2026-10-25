@@ -4,6 +4,8 @@
 // turn is for whoever uses the listener to decide. A segment counts only
 // once it is loud enough, so that the speaker's echo, which the browser's
 // echo cancellation never removes entirely, is not taken for the person.
+// Scribe hears each chunk once turn detection has, so that a commit at what
+// turn detection marks lands where it marked it.
 import { Microphone } from "./audio.ts";
 import { LISTEN_RATE, Scribe } from "./elevenlabs.ts";
 import type { FromTurns, ToTurns } from "./turns-worker.ts";
@@ -29,12 +31,13 @@ export type Hearing = {
 	trace(event: string, data: Record<string, unknown>): void;
 };
 
-/** The audio after which a pause commits what Scribe heard so far, since
+/** The sound between turns after which it is committed and dropped, since
  * Scribe commits on its own after about 36 s, wherever the person is. */
-const PIECE = 20 * LISTEN_RATE;
+const BETWEEN = 20 * LISTEN_RATE;
 
 /** What a commit is for: a piece of the turn in progress, its end, or the
- * sound between turns, which is dropped. */
+ * sound between turns, which is dropped. A pause commits a piece shortly
+ * before it ends the turn, so that the turn's words are settled by then. */
 type Commit = "piece" | "end" | "between";
 
 export class Listener {
@@ -77,6 +80,18 @@ export class Listener {
 		const commits: Commit[] = [];
 		/** Whether turn detection hears a turn in progress. */
 		let turn = false;
+		/** Whether a pause committed all the person said of the turn so far. */
+		let settled = false;
+		/** The chunks turn detection has not heard yet, in order. */
+		const unheard: Int16Array[] = [];
+		/** How many of the chunks turn detection is still to hear Scribe heard
+		 * already, as the person ended the turn by hand. */
+		let early = 0;
+		const hear = (pcm: Int16Array) => {
+			scribe.hear(pcm);
+			if (!turn && commits.length === 0 && scribe.uncommitted >= BETWEEN)
+				commit("between");
+		};
 		const fail = (error: Error) => {
 			if (listener === null || listener.closing) return;
 			listener.close();
@@ -96,7 +111,9 @@ export class Listener {
 		/** Ends the segment in progress once Scribe settled it; whether it is still to come. */
 		const finish = (): boolean => {
 			turn = false;
-			if (scribe.commit()) commits.push("end");
+			const covered = settled;
+			settled = false;
+			if (!covered && scribe.commit()) commits.push("end");
 			else if (commits.length > 0) commits[commits.length - 1] = "end";
 			else return false;
 			return true;
@@ -109,24 +126,39 @@ export class Listener {
 				switch (data.type) {
 					case "ready":
 						return resolve();
+					case "heard": {
+						if (early > 0) {
+							early--;
+							return;
+						}
+						const pcm = unheard.shift();
+						if (pcm) hear(pcm);
+						return;
+					}
 					case "failed":
 						reject(new Error(`Turn detection failed: ${data.error}`));
 						return fail(new Error(`Turn detection failed: ${data.error}`));
 					case "speech":
 						turn = true;
+						settled = false;
 						hearing.trace("vad.speech", { at: data.at });
 						if (loudest >= floor()) hearing.voiced(true);
 						return;
 					case "silence":
 						hearing.trace("vad.silence", { at: data.at });
 						hearing.voiced(false);
-						if (turn && scribe.uncommitted >= PIECE) commit("piece");
 						return;
 					case "verdict":
 						return hearing.trace("turn.verdict", {
 							probability: data.probability,
-							paused: data.paused,
 						});
+					case "ending":
+						hearing.trace("turn.ending", { reason: data.reason });
+						if (turn && scribe.commit()) {
+							commits.push("piece");
+							settled = true;
+						}
+						return;
 					case "ended":
 						hearing.trace("turn.end", { reason: data.reason });
 						if (!finish()) segment();
@@ -157,6 +189,12 @@ export class Listener {
 						const why = automatic ? "piece" : (commits.shift() ?? "piece");
 						if (why !== "between" && text.trim()) pieces.push(text.trim());
 						if (why === "end") segment();
+						else if (turn) {
+							// What a pause settled replaces its partial.
+							const heard = pieces.join(" ");
+							tell({ type: "text", text: heard });
+							if (speaking) hearing.partial(heard);
+						}
 					},
 					closed: (error) => {
 						if (error) fail(error);
@@ -173,13 +211,12 @@ export class Listener {
 			microphone = await Microphone.open(
 				(pcm) => {
 					hearing.audio(pcm);
-					scribe.hear(pcm);
+					unheard.push(pcm);
 					const rms = root(pcm);
 					loudest = Math.max(loudest, 20 * Math.log10(rms));
 					hearing.level(Math.min(1, rms * 8));
-					tell({ type: "audio", pcm: pcm.buffer as ArrayBuffer }, [pcm.buffer]);
-					if (!turn && commits.length === 0 && scribe.uncommitted >= PIECE)
-						commit("between");
+					const copy = pcm.slice();
+					tell({ type: "audio", pcm: copy.buffer }, [copy.buffer]);
 				},
 				() => fail(new Error("The microphone was cut off.")),
 			);
@@ -190,6 +227,11 @@ export class Listener {
 		}
 		listener = new Listener(microphone, scribe, worker, () => {
 			tell({ type: "end" });
+			// Everything said up to the person's end belongs to the turn.
+			for (const pcm of unheard.splice(0)) {
+				scribe.hear(pcm);
+				early++;
+			}
 			const coming = finish();
 			if (!coming) {
 				speaking = false;

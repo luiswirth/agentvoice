@@ -34,4 +34,35 @@ export const scenarios: Scenario[] = [
 			{ parts: ["And then deploy it tonight."] },
 		],
 	},
+	{
+		// Short pauses mid-sentence, where words must survive the cut, and a
+		// finished sentence the person goes on after.
+		name: "pauses",
+		turns: [
+			{
+				parts: [
+					"I was wondering whether",
+					"we could move the meeting",
+					"to Thursday afternoon.",
+				],
+				pause: 0.5,
+			},
+			{
+				parts: ["The thing is that the", "numbers don't add up yet."],
+				pause: 0.8,
+			},
+			{
+				parts: ["Let me think about it.", "Actually, yes, let's do that."],
+				pause: 0.6,
+			},
+			{
+				parts: [
+					"Send the draft to Benedict",
+					"and Stefan",
+					"once it compiles.",
+				],
+				pause: 0.4,
+			},
+		],
+	},
 ];

@@ -1,7 +1,7 @@
 // Turn detection, from the microphone's audio at 16 kHz and the words heard
-// so far: voice activity marks the pauses, and through each pause the turn
-// detector judges whether the person sounds finished, as `Patience` sets
-// out. The models come from outside, so that it runs anywhere.
+// so far: voice activity marks the pauses, and in each pause the turn
+// detector judges whether the person sounds finished, which ends the turn
+// once the pause lasts as `Patience` sets out. The models come from outside, so that it runs anywhere.
 
 const RATE = 16_000;
 
@@ -43,8 +43,15 @@ export type Models = {
 export type TurnEvent =
 	| { type: "speech"; at: number }
 	| { type: "silence"; at: number }
-	| { type: "verdict"; probability: number; paused: number }
-	| { type: "ended"; reason: "complete" | "text" | "wait" };
+	/** The turn detector's verdict on a pause, `LEAD` before it settles. */
+	| { type: "verdict"; probability: number }
+	/** The turn ends in `LEAD` unless the person goes on, so that what waits on
+	 * its end, such as the transcript, can be ready by then. */
+	| { type: "ending"; reason: Reason }
+	| { type: "ended"; reason: Reason };
+
+/** What ended a turn: the turn detector, the words, or the wait. */
+export type Reason = "complete" | "text" | "wait";
 
 /** Voice activity's hysteresis: speech starts above `THRESHOLD`, and ends
  * after `PAUSE` below `NEGATIVE`, as Silero's own iterator judges. */
@@ -52,10 +59,11 @@ const THRESHOLD = 0.5;
 const NEGATIVE = 0.35;
 /** The silence that counts as a pause. */
 const PAUSE = 0.2 * RATE;
+/** How long before a pause ends the turn it tells so, and the turn detector
+ * judges it before the settle, so that its verdict is ready by then. */
+const LEAD = 0.4;
 /** How far speech's start and end move outward. */
 const PADDING = 0.1 * RATE;
-/** How often the turn detector judges a pause past the settle. */
-const JUDGING = 0.25 * RATE;
 /** The longest stretch of a pause inside a turn that the turn detector
  * hears, so that its verdict does not depend on how long the person paused. */
 const GAP = 0.3 * RATE;
@@ -79,8 +87,11 @@ export class Turns {
 	private start: number | null = null;
 	/** Where its speech last ended, while the person is silent. */
 	private silence: number | null = null;
-	/** Where the turn detector last judged the pause. */
-	private judged: number | null = null;
+	/** Whether the turn detector heard the turn finished, once it judged the
+	 * pause. */
+	private complete: boolean | null = null;
+	/** Whether the pause told that it ends the turn. */
+	private ending = false;
 	/** The words heard of the turn in progress so far. */
 	private text = "";
 
@@ -122,7 +133,8 @@ export class Turns {
 	end(): void {
 		this.start = this.triggered ? this.now() : null;
 		this.silence = null;
-		this.judged = null;
+		this.complete = null;
+		this.ending = false;
 		this.text = "";
 	}
 
@@ -139,7 +151,8 @@ export class Turns {
 				const at = Math.max(this.offset, now - WINDOW - PADDING);
 				this.start ??= at;
 				this.silence = null;
-				this.judged = null;
+				this.complete = null;
+				this.ending = false;
 				events.push({ type: "speech", at: at / RATE });
 			}
 		} else if (probability < NEGATIVE && this.triggered) {
@@ -153,28 +166,35 @@ export class Turns {
 		}
 		if (this.silence === null || this.start === null) return this.trim();
 		const paused = (now - this.silence) / RATE;
-		const { settle, confidence, textSettle, wait } = this.patience;
-		if (paused >= wait) return this.ended("wait", events);
-		if (
-			paused >= settle &&
-			(this.judged === null || now - this.judged >= JUDGING)
-		) {
-			this.judged = now;
-			const audio = this.recent.subarray(
-				this.start - this.offset,
-				this.silence - this.offset,
-			);
-			const probability = await this.models.finished(
-				closingSilences(audio, GAP),
-			);
-			events.push({ type: "verdict", probability, paused });
-			if (probability > confidence) return this.ended("complete", events);
+		const { settle, textSettle, wait } = this.patience;
+		if (this.complete === null && paused >= settle - LEAD)
+			await this.judge(events);
+		// When the pause ends the turn, as far as is known now.
+		let [end, reason]: [number, Reason] = [wait, "wait"];
+		if (finished(this.text) && textSettle < end)
+			[end, reason] = [textSettle, "text"];
+		if (this.complete && settle < end) [end, reason] = [settle, "complete"];
+		if (paused >= end) return this.ended(reason, events);
+		if (!this.ending && paused >= end - LEAD) {
+			this.ending = true;
+			events.push({ type: "ending", reason });
 		}
-		if (paused >= textSettle && finished(this.text))
-			return this.ended("text", events);
 	}
 
-	private ended(reason: "complete" | "text" | "wait", events: TurnEvent[]) {
+	/** Judges the pause. The turn detector hears the turn up to where the
+	 * pause starts, so its verdict holds for the whole pause. */
+	private async judge(events: TurnEvent[]): Promise<void> {
+		if (this.start === null || this.silence === null) return;
+		const audio = this.recent.subarray(
+			this.start - this.offset,
+			this.silence - this.offset,
+		);
+		const probability = await this.models.finished(closingSilences(audio, GAP));
+		this.complete = probability > this.patience.confidence;
+		events.push({ type: "verdict", probability });
+	}
+
+	private ended(reason: Reason, events: TurnEvent[]) {
 		this.end();
 		events.push({ type: "ended", reason });
 		this.trim();
@@ -257,7 +277,9 @@ export function closingSilences(
  */
 export function finished(text: string): boolean {
 	const words = text.trim();
-	if (!/[.?!]["'”’)]*$/.test(words)) return false;
+	// An ellipsis trails off, as where the person paused mid-sentence.
+	if (!/[.?!]["'”’)]*$/.test(words) || /(\.\.|…)["'”’)]*$/.test(words))
+		return false;
 	const last = words
 		.split(/[^\p{L}'-]+/u)
 		.findLast((word) => /\p{L}/u.test(word));

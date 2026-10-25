@@ -1,6 +1,7 @@
 // Turn detection off the page's thread, since the models take a while.
 // It takes the microphone's 16-bit PCM at 16 kHz, the words heard so far,
-// and the person ending a turn by hand, and tells what `Turns` marks.
+// and the person ending a turn by hand, and tells what `Turns` marks, and
+// when it heard each chunk of audio, after what the chunk marks.
 
 import wasm from "onnxruntime-web/ort-wasm-simd-threaded.wasm?url";
 import * as ort from "onnxruntime-web/wasm";
@@ -14,6 +15,7 @@ export type ToTurns =
 
 export type FromTurns =
 	| TurnEvent
+	| { type: "heard" }
 	| { type: "ready" }
 	| { type: "failed"; error: string };
 
@@ -41,6 +43,7 @@ self.onmessage = ({ data }: MessageEvent<ToTurns>) => {
 		const pcm = new Int16Array(data.pcm);
 		const samples = Float32Array.from(pcm, (s) => s / 32768);
 		for (const event of await detector.feed(samples)) post(event);
+		post({ type: "heard" });
 	});
 	queue = queue.catch((error: Error) =>
 		post({ type: "failed", error: error.message }),
