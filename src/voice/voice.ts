@@ -64,6 +64,8 @@ export class Voice {
 	private sent: Promise<unknown> = Promise.resolve();
 	private readonly watchers = new Set<() => void>();
 	private readonly trace = new Trace();
+	/** Where the tab keeps the modes, so that a reload keeps them. */
+	private readonly modesKey = `voice-modes ${location.href}`;
 	private readonly unsubscribe: () => void;
 	state: VoiceState = {
 		listener: false,
@@ -94,8 +96,14 @@ export class Voice {
 			});
 		message();
 		this.unsubscribe = session.subscribe({ entry: message });
-		// The speaker is on from the start, the listener off.
-		void this.setSpeaker(true);
+		// The speaker is on from the start, the listener off, unless the tab
+		// had them otherwise before a reload. Their audio starts at the first
+		// gesture on the page.
+		const kept: Partial<Modes> = JSON.parse(
+			sessionStorage.getItem(this.modesKey) ?? "{}",
+		);
+		if (kept.speaker ?? true) void this.setSpeaker(true);
+		if (kept.listener) void this.setListener(true);
 	}
 
 	/** For React's `useSyncExternalStore`. */
@@ -323,6 +331,7 @@ export class Voice {
 			previous: () => void this.replay(),
 		});
 		const modes: Modes = { listener, speaker };
+		sessionStorage.setItem(this.modesKey, JSON.stringify(modes));
 		this.trace.event("modes", modes);
 		return this.queue(() =>
 			this.session.send(JSON.stringify(modes), { type: MODES }),

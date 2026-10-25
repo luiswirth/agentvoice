@@ -40,15 +40,18 @@ export class Speaker {
 	failed: (error: Error) => void = () => {};
 
 	/** Reads the messages not from `name`: those since `name` last said
-	 * anything, which are still to be answered, and every one after. */
+	 * anything, which are still to be answered, and every one after, except
+	 * those this tab already read, heard or dropped before a reload. */
 	constructor(session: Session, name: string, key: string, voice?: string) {
 		this.session = session;
 		this.name = name;
 		this.speech = new Speech(key, voice);
 		this.player.changed = () => this.settle();
-		const since =
+		const since = Math.max(
 			session.log.findLast((entry) => entry.from === name && spoken(entry))
-				?.n ?? 0;
+				?.n ?? 0,
+			Number(sessionStorage.getItem(this.key) ?? 0),
+		);
 		for (const entry of session.log)
 			if (entry.n > since && entry.from !== name && spoken(entry))
 				this.read(entry);
@@ -59,6 +62,16 @@ export class Speaker {
 					this.read(entry);
 			},
 		});
+	}
+
+	/** Where the tab keeps the last message it is done with, so that a reload
+	 * reads none of them again. */
+	private readonly key = `voice-read ${location.href}`;
+
+	/** Done with every message up to `n`: read to its end, or dropped. */
+	private done(n: number): void {
+		if (n > Number(sessionStorage.getItem(this.key) ?? 0))
+			sessionStorage.setItem(this.key, String(n));
 	}
 
 	/** The message being read, if one is: the one playing, or else the next to. */
@@ -75,9 +88,11 @@ export class Speaker {
 	private settle(): void {
 		const before = this.reading;
 		const playing = this.player.head;
-		this.readings = this.readings.filter((reading) =>
-			playing === null ? !reading.done : reading.line >= playing,
-		);
+		this.readings = this.readings.filter((reading) => {
+			const kept = playing === null ? !reading.done : reading.line >= playing;
+			if (!kept) this.done(reading.n);
+			return kept;
+		});
 		if (this.reading !== before) this.changed(this.reading);
 	}
 
@@ -139,9 +154,10 @@ export class Speaker {
 			n: reading.n,
 			text: this.heard(reading),
 		}));
-		for (const { line } of this.readings) {
+		for (const { n, line } of this.readings) {
 			this.dropped.add(line);
 			this.player.stop(line);
+			this.done(n);
 		}
 		this.readings = [];
 		this.resume();
@@ -200,6 +216,7 @@ export class Speaker {
 	}
 
 	private drop(n: number): void {
+		this.done(n);
 		for (const reading of this.readings.filter((r) => r.n === n)) {
 			this.dropped.add(reading.line);
 			this.player.stop(reading.line);
