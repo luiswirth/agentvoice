@@ -48,6 +48,7 @@ While the speaker is on, your messages are read aloud, paragraph by paragraph.
 As it turns on, it first reads those you sent since the person last said anything, such as one sent before their page joined.
 A message that arrives while the person is talking is read once they are done, unless they send: sending drops every message not yet heard to its end.
 Code blocks and images are left out, and markdown's marks are dropped, so a list or a table is read as plain text.
+A file, any entry with a filename, is never read aloud.
 While you work, the person hears nothing.
 
 Where the person also sees your harness's UI, voice works best as a presentation:

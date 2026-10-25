@@ -42,10 +42,12 @@ export function names(text: string | undefined): Names {
 	}
 }
 
-/** Whether an entry is a chat message the speaker reads. */
+/** Whether an entry is a chat message the speaker reads: never a file, which
+ * speech makes of any entry with a filename. */
 export function spoken(entry: Entry): entry is Entry & { text: string } {
 	return (
 		entry.text !== undefined &&
+		entry.filename === undefined &&
 		(entry.type.startsWith("text/plain") ||
 			entry.type.startsWith("text/markdown"))
 	);
