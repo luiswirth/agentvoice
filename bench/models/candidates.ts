@@ -49,8 +49,15 @@ const MOONSHINE_SMALL_DE = Object.fromEntries(
 	].map((file) => [file, `./models/moonshine-small-de/${file}`]),
 );
 
+/** How Moonshine hears a clip: as the package does by default, in lines cut
+ * at the pauses its voice detection finds, or whole, without it, as one line
+ * of up to 30 s. Whole, a second of silence follows the clip, without which
+ * the clip's last word is lost. */
+type Cutting = "lines" | "whole";
+
 function moonshine(
 	language: "de" | "en",
+	cutting: Cutting,
 	files?: Record<string, string>,
 ): Hearing {
 	return {
@@ -58,15 +65,23 @@ function moonshine(
 		languages: [language],
 		async load() {
 			const modelArch = ModelArch.SmallStreaming;
+			const options: Record<string, string> =
+				cutting === "whole"
+					? { vad_threshold: "0", vad_max_segment_duration: "30" }
+					: {};
 			const transcriber =
 				files === undefined
-					? await Transcriber.load({ language, modelArch })
-					: await Transcriber.loadFromUrls(files, { modelArch });
-			return async (pcm) =>
-				transcriber
-					.transcribe(pcm, { sampleRate: 16_000 })
+					? await Transcriber.load({ language, modelArch, options })
+					: await Transcriber.loadFromUrls(files, { modelArch, options });
+			const silence = new Float32Array(cutting === "whole" ? 16_000 : 0);
+			return async (pcm) => {
+				const padded = new Float32Array(pcm.length + silence.length);
+				padded.set(pcm);
+				return transcriber
+					.transcribe(padded, { sampleRate: 16_000 })
 					.lines.map((line) => line.text)
 					.join(" ");
+			};
 		},
 	};
 }
@@ -136,8 +151,10 @@ function phonon(
 }
 
 export const candidates: Record<string, Candidate> = {
-	"moonshine-small-en": moonshine("en"),
-	"moonshine-small-de": moonshine("de", MOONSHINE_SMALL_DE),
+	"moonshine-small-en": moonshine("en", "lines"),
+	"moonshine-small-en-whole": moonshine("en", "whole"),
+	"moonshine-small-de": moonshine("de", "lines", MOONSHINE_SMALL_DE),
+	"moonshine-small-de-whole": moonshine("de", "whole", MOONSHINE_SMALL_DE),
 	"parakeet-webgpu-fp16": parakeet("webgpu"),
 	"parakeet-wasm-int8": parakeet("wasm"),
 	"phonon-31m-en-cpu": phonon("en", "cpu"),
