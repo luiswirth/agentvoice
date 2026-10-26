@@ -8,7 +8,8 @@
 //
 // Safari Technology Preview on the Mac, never the person's own Safari: its
 // driver replaces the saved session. The iPhone needs its cable to the Mac
-// and Settings → Safari → Advanced → Remote Automation.
+// and Settings → Safari → Advanced → Remote Automation, and stays unlocked
+// while the bench runs.
 import { type ChildProcess, spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
