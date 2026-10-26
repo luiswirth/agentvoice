@@ -340,14 +340,26 @@ export class Voice {
 						this.claim();
 					},
 					partial: (hearing) => {
-						// Scribe's partials repeat the whole segment so far, so a
-						// partial that only extends the last one keeps what it adds.
-						const last = this.state.hearing;
+						// Scribe's partials repeat the whole segment so far, mostly
+						// revising only its end, so a partial keeps what it adds to
+						// the start it shares with the last one, `kept` characters
+						// long where that is shorter than the last one, and its
+						// whole `text` where they share nothing, as after a send.
+						const last = this.state.hearing ?? "";
+						let kept = 0;
+						while (
+							kept < last.length &&
+							kept < hearing.length &&
+							last[kept] === hearing[kept]
+						)
+							kept++;
 						this.trace.event(
 							"partial",
-							last && hearing.startsWith(last)
-								? { added: hearing.slice(last.length) }
-								: { text: hearing },
+							kept === 0
+								? { text: hearing }
+								: kept === last.length
+									? { added: hearing.slice(kept) }
+									: { kept, added: hearing.slice(kept) },
 						);
 						this.set({ hearing });
 						this.claim();
