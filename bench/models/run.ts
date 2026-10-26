@@ -44,9 +44,11 @@ const target = DEVICES[device as keyof typeof DEVICES];
 if (target === undefined) throw new Error(`no device ${device}: mac or iphone`);
 const names = asked.length > 0 ? asked : Object.keys(candidates);
 // `clear` alone only empties what earlier runs stored in the browser.
+// Candidates joined by `+`, such as `a+b`, are loaded together.
 for (const name of names)
-	if (!(name in candidates) && name !== "clear")
-		throw new Error(`no candidate ${name}`);
+	for (const part of name.split("+"))
+		if (!(part in candidates) && name !== "clear")
+			throw new Error(`no candidate ${part}`);
 
 const all = await clips(join(CACHE, "clips"));
 await served(join(CACHE, "models"));
@@ -143,6 +145,7 @@ const WD = `http://127.0.0.1:${DRIVER_PORT}`;
 
 const reports: Report[] = [];
 let session: string | undefined;
+let stopped = false;
 try {
 	await until(async () => (await fetch(`${WD}/status`)).ok, 30_000);
 	// Each candidate loads first into an emptied browser, as a person first
@@ -161,6 +164,7 @@ try {
 	}
 	await empty("after");
 } catch (error) {
+	stopped = true;
 	console.error(`The bench stopped: ${(error as Error).message}`);
 } finally {
 	if (session !== undefined)
@@ -172,7 +176,7 @@ try {
 await writeFile(join(run, "reports.json"), JSON.stringify(reports, null, "\t"));
 console.log(summary(reports, all));
 console.log(`\nReports and audio in ${run}`);
-process.exit(0);
+process.exit(stopped ? 1 : 0);
 
 /** Empties the browser, and fails loudly where it could not, since every
  * first load after it would then measure the cache. */
@@ -205,7 +209,7 @@ async function open(name: string, pass: string): Promise<Report> {
 		}, 10_000);
 	});
 	await webdriver("POST", `/session/${id}/url`, {
-		url: `${PAGE}?candidate=${name}&pass=${pass}`,
+		url: `${PAGE}?candidate=${encodeURIComponent(name)}&pass=${pass}`,
 	});
 	return report
 		.catch((error: Error) => ({

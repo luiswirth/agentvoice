@@ -2,7 +2,12 @@
 // the clips or the sentences, and posts what it measured to the server that
 // serves it, which `run.ts` reads.
 
-import { candidates, sentences } from "./candidates.ts";
+import {
+	candidates,
+	type Hearing,
+	type Speaking,
+	sentences,
+} from "./candidates.ts";
 import type { Clip } from "./clips.ts";
 
 export type Report = {
@@ -70,18 +75,43 @@ try {
 
 async function run() {
 	if (name === "clear") return clear();
-	const candidate = candidates[name];
-	if (candidate === undefined) throw new Error(`no candidate ${name}`);
+	// Candidates joined by `+` are loaded together, as voice holds its hearing
+	// and its speaking at once, and then run one after the other.
+	const parts = name.split("+").map((part) => {
+		const candidate = candidates[part];
+		if (candidate === undefined) throw new Error(`no candidate ${part}`);
+		return candidate;
+	});
 	const stored = await usage();
 	const start = performance.now();
 	say(`loading ${name}`);
-	if (candidate.kind === "hearing") {
-		const hear = await candidate.load();
-		report.load = await loaded(start, stored);
+	const runs: (() => Promise<void>)[] = [];
+	const infos: string[] = [];
+	for (const candidate of parts)
+		if (candidate.kind === "hearing") {
+			const hear = await candidate.load();
+			runs.push(() => hearing(candidate, hear));
+		} else {
+			const voice = await candidate.load();
+			if (voice.info !== undefined) infos.push(voice.info);
+			runs.push(() => speaking(candidate, voice));
+		}
+	report.load = {
+		...(await loaded(start, stored)),
+		...(infos.length > 0 ? { info: infos.join("; ") } : {}),
+	};
+	for (const run of runs) await run();
+}
+
+async function hearing(
+	candidate: Hearing,
+	hear: (pcm: Float32Array) => Promise<string>,
+) {
+	{
 		const clips = (
 			(await (await fetch("./clips/clips.json")).json()) as Clip[]
 		).filter((clip) => candidate.languages.includes(clip.language));
-		report.heard = [];
+		report.heard ??= [];
 		for (const clip of clips) {
 			const pcm = new Float32Array(
 				await (await fetch(`./clips/${clip.name}.f32`)).arrayBuffer(),
@@ -91,35 +121,38 @@ async function run() {
 			report.heard.push({ clip: clip.name, ms: performance.now() - t, text });
 			say(`${clip.name}: ${text}`);
 		}
-	} else {
-		const voice = await candidate.load();
-		report.load = { ...(await loaded(start, stored)), info: voice.info };
-		report.spoken = [];
-		for (const [i, text] of sentences[candidate.language].entries()) {
-			const chunks: Float32Array[] = [];
-			const t = performance.now();
-			let firstMs = Number.NaN;
-			for await (const chunk of voice.speak(text)) {
-				if (chunks.length === 0) firstMs = performance.now() - t;
-				chunks.push(chunk);
-			}
-			const ms = performance.now() - t;
-			const audio = join(chunks);
-			report.spoken.push({
-				text,
-				firstMs,
-				ms,
-				seconds: audio.length / voice.sampleRate,
-			});
-			await fetch(
-				`./audio?candidate=${name}&pass=${report.pass}&n=${i}&rate=${voice.sampleRate}`,
-				{
-					method: "POST",
-					body: audio.buffer as ArrayBuffer,
-				},
-			);
-			say(`spoke ${text}`);
+	}
+}
+
+async function speaking(
+	candidate: Speaking,
+	voice: Awaited<ReturnType<Speaking["load"]>>,
+) {
+	report.spoken ??= [];
+	for (const [i, text] of sentences[candidate.language].entries()) {
+		const chunks: Float32Array[] = [];
+		const t = performance.now();
+		let firstMs = Number.NaN;
+		for await (const chunk of voice.speak(text)) {
+			if (chunks.length === 0) firstMs = performance.now() - t;
+			chunks.push(chunk);
 		}
+		const ms = performance.now() - t;
+		const audio = join(chunks);
+		report.spoken.push({
+			text,
+			firstMs,
+			ms,
+			seconds: audio.length / voice.sampleRate,
+		});
+		await fetch(
+			`./audio?candidate=${encodeURIComponent(name)}&pass=${report.pass}&n=${i}&rate=${voice.sampleRate}`,
+			{
+				method: "POST",
+				body: audio.buffer as ArrayBuffer,
+			},
+		);
+		say(`spoke ${text}`);
 	}
 }
 
