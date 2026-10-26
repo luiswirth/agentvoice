@@ -7,7 +7,10 @@
 // transcript, sent or dropped, is kept in this browser, the last to copy.
 // Words take the floor, pausing the speaker, and a message they end in
 // drops what was not heard of the agent's: any voice's words while the agent
-// named none, only a named voice's once it named any. What happens is heard
+// named none, only a named voice's once it named any. While the speaker
+// plays, only a few words or a word to stop take it, so that a short answer
+// or a "mhm" goes out and the speaker reads on. Words that didn't count
+// while it played, as its echo or too quiet, show for a while, to send. What happens is heard
 // as short cues, so that voice seems responsive while nothing is said.
 import { Activity, type Progress } from "./activity.ts";
 import { holdAudioSession } from "./audio.ts";
@@ -62,6 +65,9 @@ export type VoiceState = Modes & {
 	/** The voice heard now, by its number, null for one without a number,
 	 * undefined while none is heard. */
 	voice?: number | null | undefined;
+	/** Words heard last that didn't count, as the speaker's echo or too
+	 * quiet while it played, for the person to send if they were theirs. */
+	missed: { text: string; echoed: boolean } | null;
 	error: string | null;
 	/** Whether the error is ElevenLabs refusing the key, which another key
 	 * fixes. */
@@ -94,6 +100,14 @@ const LANGUAGES = "voice-languages";
  * the speaker's echo left over measured -42 to -57, the person's speech -12
  * to -13, and -35 within 0.25 s of its start. */
 const ECHO_FLOOR = -35;
+
+/** How many words take the floor while the speaker plays, so that a short
+ * answer or a "mhm" doesn't stop it. */
+const FLOOR_WORDS = 3;
+/** Words that take the floor alone, in the languages voice is used in. */
+const STOP = new Set(["stop", "stopp", "wait", "halt", "pause", "warte"]);
+/** How long words that didn't count show, in seconds. */
+const MISSED = 12;
 
 function transcripts(): string[] {
 	try {
@@ -132,6 +146,7 @@ export class Voice {
 	private sentAt = 0;
 	/** The cue that the agent read the person's message, while it waits. */
 	private readCue: ReturnType<typeof setTimeout> | undefined;
+	private missedClear: ReturnType<typeof setTimeout> | undefined;
 	/** When the speaker last finished a message, by `performance.now()`. */
 	private readEnded = Number.NEGATIVE_INFINITY;
 	state: VoiceState = {
@@ -151,6 +166,7 @@ export class Voice {
 		names: {},
 		progress: null,
 		sounds: soundsOn(),
+		missed: null,
 		error: null,
 		refused: false,
 	};
@@ -315,9 +331,20 @@ export class Voice {
 								: { text: hearing },
 						);
 						this.set({ hearing });
+						this.claim();
+					},
+					missed: (text, echoed) => {
+						this.trace.event("missed", { text, echoed });
+						clearTimeout(this.missedClear);
+						this.set({ missed: { text, echoed } });
+						this.missedClear = setTimeout(
+							() => this.set({ missed: null }),
+							MISSED * 1000,
+						);
 					},
 					segment: (text) => {
 						this.trace.event("segment", { text });
+						if (text) this.set({ missed: null });
 						this.segment(text);
 					},
 					audio: (pcm) => this.trace.hear(pcm),
@@ -412,6 +439,12 @@ export class Voice {
 		const { names, voice } = this.state;
 		if (Object.keys(names).length > 0 && !(voice != null && voice in names))
 			return;
+		if (this.speaker?.playing) {
+			const said =
+				this.state.hearing.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+			if (said.length < FLOOR_WORDS && !said.some((word) => STOP.has(word)))
+				return;
+		}
 		this.floor = true;
 		this.trace.event("floor", { voice, reading: this.state.reading });
 		this.speaker?.pause();
@@ -442,6 +475,17 @@ export class Voice {
 			await this.session.send(text, { type: "text/plain" });
 			await this.shareTrace(trace);
 		});
+	}
+
+	/** Sends the words that didn't count, as the person's: with the draft
+	 * when turns end by hand, else at once, and the speaker reads on. */
+	sendMissed(): void {
+		const missed = this.state.missed;
+		if (!missed) return;
+		clearTimeout(this.missedClear);
+		this.trace.event("send missed", missed);
+		this.set({ missed: null, draft: join(this.state.draft, missed.text) });
+		if (this.state.autoEnd && !this.state.hearing) this.send(false);
 	}
 
 	/** Drops the draft, with what is still being heard once it is, and the

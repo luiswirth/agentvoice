@@ -48,6 +48,7 @@ export function VoiceBar({ voice }: { voice: Voice }) {
 			<Who state={state} />
 			<Now voice={voice} state={state} />
 			{state.error && <p className="text-sm text-destructive">{state.error}</p>}
+			<Missed voice={voice} state={state} />
 			<Status voice={voice} state={state} />
 			<canvas
 				ref={strip}
@@ -281,6 +282,28 @@ function hint({ listener, speaker, autoEnd }: VoiceState): string {
 }
 
 /** The mode, what is going on in it, and sharing the trace. */
+/** Words heard while the agent spoke that didn't count, to send if they
+ * were the person's. */
+function Missed({ voice, state }: { voice: Voice; state: VoiceState }) {
+	if (!state.missed) return null;
+	const why = state.missed.echoed ? "sounded like your agent" : "too quiet";
+	return (
+		<p className="flex max-w-xl items-center gap-2 text-sm text-muted-foreground">
+			<span className="truncate">
+				Not sent, {why}: “{state.missed.text}”
+			</span>
+			<button
+				type="button"
+				title="Send it to your agent, as yours"
+				className="shrink-0 rounded-full px-3 py-1 font-medium text-foreground transition hover:bg-white/10"
+				onClick={() => voice.sendMissed()}
+			>
+				Send
+			</button>
+		</p>
+	);
+}
+
 function Status({ voice, state }: { voice: Voice; state: VoiceState }) {
 	const dot =
 		state.listener && state.speaker

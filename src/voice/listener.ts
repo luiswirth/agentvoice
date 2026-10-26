@@ -33,6 +33,9 @@ export type Hearing = {
 	partial(text: string): void;
 	/** A segment ended, empty if it held no words or never counted. */
 	segment(text: string): void;
+	/** A segment's words that didn't count, as the speaker's echo or too quiet
+	 * while it played, which may still be the person's. */
+	missed(text: string, echoed: boolean): void;
 	/** What the microphone hears, as Scribe gets it, before it goes on. */
 	audio(pcm: Int16Array): void;
 	/** How loud the microphone is, from 0 to 1, every 0.1 s. */
@@ -219,6 +222,7 @@ export class Listener {
 			const counts = (speaking || loudest >= floor()) && !echoed;
 			if (!counts && !echoed && /\w/.test(text))
 				hearing.trace("quiet", { text, loudest, floor: floor() });
+			if (!counts && /\w/.test(text)) hearing.missed(text, echoed);
 			const timed = words;
 			speaking = false;
 			loudest = Number.NEGATIVE_INFINITY;

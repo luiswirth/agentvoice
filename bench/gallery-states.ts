@@ -18,6 +18,7 @@ export const base: VoiceState = {
 	names: {},
 	progress: null,
 	sounds: true,
+	missed: null,
 	error: null,
 	refused: false,
 };
@@ -33,6 +34,12 @@ export const states: Record<string, Partial<VoiceState>> = {
 	"agent-working": { listener: true, speaker: true, progress: "working" },
 	languages: { listener: true, languages: ["en", "de"] },
 	"agent-speaking": { listener: true, speaker: true, reading: 1 },
+	missed: {
+		listener: true,
+		speaker: true,
+		reading: 1,
+		missed: { text: "Yes.", echoed: true },
+	},
 	named: {
 		listener: true,
 		speaker: true,
