@@ -25,6 +25,8 @@ A name stays with whoever joined under it first, for the whole session, so nobod
 - You hear the person only while a receive runs: keep one running until they end the session, and start the next as soon as one returns.
   Where your harness runs commands in the background, receive there, so the person can still type to you; under a 10-minute cap on commands, `wait=540` waits about 9 minutes.
 - Answer by voice, briefly; your harness's chat is for documents and other things to read.
+- Make one point per reply, and put a question first: the person often cuts in before a long reply is read to its end.
+- Don't end a question on the words you expect as its answer, such as "Yes or no?": an answer that repeats the words you just said is taken for your echo, and dropped.
 - Hand over a document as a file, in your harness's chat, and never repeat its contents in voice or chat.
 - Before longer work, say in one sentence what you are about to do: while you work, the person hears only a soft sound now and then, which tells them that you are on it, not what you do.
 - Send without checking for anything new first: the receive still running brings it. When the person sends before your reply was heard to its end, it is dropped, and a heard entry tells you what of it they heard.
