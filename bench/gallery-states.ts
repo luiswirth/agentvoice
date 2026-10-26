@@ -5,6 +5,8 @@ export const base: VoiceState = {
 	listener: false,
 	speaker: false,
 	autoEnd: true,
+	recording: false,
+	ended: null,
 	switching: null,
 	hearing: "",
 	draft: "",
@@ -61,11 +63,44 @@ export const states: Record<string, Partial<VoiceState>> = {
 		draft: "I think we should look at the turn detection first.",
 		hearing: "And then deploy it",
 	},
+	"manual-idle": { speaker: true, autoEnd: false },
+	"manual-recording": {
+		listener: true,
+		speaker: true,
+		autoEnd: false,
+		recording: true,
+	},
+	"manual-speaking": {
+		listener: true,
+		speaker: true,
+		autoEnd: false,
+		recording: true,
+		draft: "I think we should look at the turn detection first,",
+		hearing: "and then deploy it tonight.",
+	},
 	manual: {
 		listener: true,
 		speaker: true,
 		autoEnd: false,
 		draft:
 			"I think we should look at the turn detection first, and then deploy it tonight.",
+	},
+	"manual-sent": {
+		listener: true,
+		speaker: true,
+		autoEnd: false,
+		ended: {
+			text: "I think we should look at the turn detection first, and then deploy it tonight.",
+			sent: true,
+		},
+	},
+	"manual-deleted": {
+		listener: true,
+		speaker: true,
+		autoEnd: false,
+		ended: {
+			text: "I think we should look at the turn detection first, and then deploy it tonight.",
+			sent: false,
+		},
 	},
 };

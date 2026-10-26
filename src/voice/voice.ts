@@ -12,6 +12,8 @@
 // or a "mhm" goes out and the speaker reads on. Words that didn't count
 // while it played, as its echo or too quiet, show for a while, to send. What happens is heard
 // as short cues, so that voice seems responsive while nothing is said.
+// With turns ended by hand, the person records each message deliberately,
+// and sends or deletes it.
 import { Activity, type Progress } from "./activity.ts";
 import { holdAudioSession } from "./audio.ts";
 import { KeyRefused } from "./elevenlabs.ts";
@@ -32,8 +34,14 @@ import { Speaker } from "./speaker.ts";
 import { TRACE, Trace } from "./trace.ts";
 
 export type VoiceState = Modes & {
-	/** Whether a turn ends by itself, after a pause. */
+	/** Whether a turn ends by itself, after a pause. Kept in this browser. */
 	autoEnd: boolean;
+	/** Whether the person is recording a message, while turns end by hand:
+	 * only then does what the listener hears go on. */
+	recording: boolean;
+	/** The message the person last ended by hand, sent or deleted, until they
+	 * record the next. */
+	ended: { text: string; sent: boolean } | null;
 	/** A switch whose click is still under way. */
 	switching: "listener" | "speaker" | null;
 	/** What is heard of the segment in progress. */
@@ -95,6 +103,7 @@ const NEXT = 4;
 
 const TRANSCRIPTS = "voice-transcripts";
 const LANGUAGES = "voice-languages";
+const AUTO_END = "voice-auto-end";
 
 /** How loud, in dBFS, the person must get to count while the speaker plays:
  * the speaker's echo left over measured -42 to -57, the person's speech -12
@@ -152,7 +161,9 @@ export class Voice {
 	state: VoiceState = {
 		listener: false,
 		speaker: false,
-		autoEnd: true,
+		autoEnd: localStorage.getItem(AUTO_END) !== "false",
+		recording: false,
+		ended: null,
 		switching: null,
 		hearing: "",
 		draft: "",
@@ -243,7 +254,9 @@ export class Voice {
 		// The modes go out once both are on, not one at a time.
 		this.restoring = true;
 		const speaker = (kept.speaker ?? true) && this.setSpeaker(true);
-		const listener = kept.listener && this.setListener(true);
+		// Turns ended by hand record only when asked, so listening stays off.
+		const listener =
+			kept.listener && this.state.autoEnd && this.setListener(true);
 		void Promise.all([speaker, listener]).then(() => {
 			this.restoring = false;
 			return this.modes();
@@ -297,7 +310,13 @@ export class Voice {
 		if (!on) {
 			this.listener?.close();
 			this.listener = null;
-			this.set({ listener: false, hearing: "", level: 0, voice: undefined });
+			this.set({
+				listener: false,
+				recording: false,
+				hearing: "",
+				level: 0,
+				voice: undefined,
+			});
 			this.cue("unlisten");
 			return this.modes();
 		}
@@ -365,6 +384,7 @@ export class Voice {
 				},
 				() => (this.speaker?.playing ? ECHO_FLOOR : Number.NEGATIVE_INFINITY),
 				(text) => this.speaker?.echoes(text) ?? false,
+				() => this.state.autoEnd || this.state.recording,
 				this.state.languages,
 			);
 			this.set({ listener: true, switching: null });
@@ -427,10 +447,50 @@ export class Voice {
 	}
 
 	setAutoEnd(autoEnd: boolean): void {
+		if (autoEnd === this.state.autoEnd) return;
 		this.trace.event("autoEnd", { on: autoEnd });
 		play("press");
-		this.set({ autoEnd });
-		if (autoEnd && this.state.draft && !this.state.hearing) this.send();
+		localStorage.setItem(AUTO_END, String(autoEnd));
+		const { listener, recording, draft, hearing } = this.state;
+		if (autoEnd) {
+			// Listening on by itself was never asked for: only a recording
+			// goes on, as the conversation.
+			this.set({ autoEnd, recording: false, ended: null });
+			if (listener && !recording) void this.setListener(false);
+			else if (draft && !hearing) this.send();
+		} else {
+			// What is being said goes on as a recording; else nothing is
+			// recorded until the person asks.
+			const said = Boolean(draft || hearing);
+			this.set({ autoEnd, recording: listener && said, level: 0 });
+		}
+	}
+
+	/** Starts or stops recording a message, while turns end by hand. The
+	 * microphone opens at the first recording and stays open, so that the
+	 * next starts at once, without asking for it again. Call it from a click. */
+	async record(on: boolean): Promise<void> {
+		if (on === this.state.recording || this.state.switching) return;
+		this.trace.event("record", { on });
+		if (!on) {
+			this.set({ recording: false, level: 0 });
+			this.listener?.finish();
+			play("unlisten");
+			return;
+		}
+		this.set({ recording: true, ended: null, error: null });
+		if (this.listener) play("listen");
+		else await this.setListener(true);
+		if (!this.state.listener) this.set({ recording: false });
+	}
+
+	/** Brings back the message last deleted, to send or record on. */
+	undo(): void {
+		const ended = this.state.ended;
+		if (!ended || ended.sent) return;
+		this.trace.event("undo", { text: ended.text });
+		play("press");
+		this.set({ ended: null, draft: join(this.state.draft, ended.text) });
 	}
 
 	/** Pauses the speaker for the words in progress, once they may take the floor. */
@@ -453,9 +513,14 @@ export class Voice {
 	/** Sends the draft, with what is still being heard once it is, dropping
 	 * what was not heard of the agent's messages unless `interrupt` is off. */
 	send(interrupt = true): void {
+		const manual = !this.state.autoEnd;
+		// Sending ends the recording at once: nothing heard after goes in.
+		if (manual && this.state.recording)
+			this.set({ recording: false, level: 0 });
 		if (this.finishing("send")) return;
 		const text = join(this.state.draft, this.state.hearing);
 		this.set({ draft: "", hearing: "" });
+		if (manual && text) this.set({ ended: { text, sent: true } });
 		if (!text) {
 			this.speaker?.resume();
 			return;
@@ -491,9 +556,13 @@ export class Voice {
 	/** Drops the draft, with what is still being heard once it is, and the
 	 * speaker reads on. */
 	clear(): void {
+		const manual = !this.state.autoEnd;
+		if (manual && this.state.recording)
+			this.set({ recording: false, level: 0 });
 		if (this.finishing("drop")) return;
 		const text = join(this.state.draft, this.state.hearing);
 		this.trace.event("drop", { text });
+		if (manual && text) this.set({ ended: { text, sent: false } });
 		if (text) {
 			this.keep(text);
 			play("dropped");
@@ -602,9 +671,10 @@ export class Voice {
 	/** Play and pause from the system's media controls: sends a draft, else
 	 * pauses or resumes reading, else turns listening on or off. */
 	mediaToggle = (): void => {
-		if (!this.state.autoEnd && (this.state.draft || this.state.hearing))
-			this.send();
+		const { autoEnd, recording, draft, hearing } = this.state;
+		if (!autoEnd && (recording || draft || hearing)) this.send();
 		else if (this.state.reading !== null) this.hold(!this.state.held);
+		else if (!autoEnd) void this.record(true);
 		else void this.setListener(!this.state.listener);
 	};
 

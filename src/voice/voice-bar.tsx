@@ -5,7 +5,9 @@
 // light, the person's warm and the agent's cool: a glow behind the page, the
 // switch of each, and a strip of the last seconds of both. Once the agent
 // named voices, the one heard now shows by name above the words. The system's
-// media controls work it too, so that it needs no looking at.
+// media controls work it too, so that it needs no looking at. With turns
+// ended by hand the left switch records: one message at a time, sent or
+// deleted from under the words.
 import {
 	Check,
 	Copy,
@@ -17,6 +19,9 @@ import {
 	Play,
 	RotateCcw,
 	SkipForward,
+	Square,
+	Trash2,
+	Undo2,
 	Volume2,
 	VolumeX,
 	X,
@@ -60,7 +65,8 @@ export function VoiceBar({ voice }: { voice: Voice }) {
 	);
 }
 
-function mode({ listener, speaker }: VoiceState): string {
+function mode({ listener, speaker, autoEnd }: VoiceState): string {
+	if (!autoEnd) return speaker ? "Voice messages" : "Dictation";
 	if (listener && speaker) return "Conversation";
 	if (listener) return "Transcription";
 	if (speaker) return "Read aloud";
@@ -68,6 +74,7 @@ function mode({ listener, speaker }: VoiceState): string {
 }
 
 function doing(state: VoiceState): string {
+	if (!state.autoEnd && state.recording) return "recording";
 	if (state.hearing) return `hearing ${who(state)?.name ?? "you"}`;
 	if (state.reading !== null) return state.held ? "paused" : "speaking";
 	if (state.draft) return "your draft";
@@ -230,8 +237,9 @@ function Aura() {
 function Now({ voice, state }: { voice: Voice; state: VoiceState }) {
 	const base =
 		"w-full min-h-0 flex-1 overflow-y-auto text-2xl leading-snug font-light text-balance";
+	if (!state.autoEnd) return <Recorder voice={voice} state={state} />;
 	const said = Boolean(state.draft || state.hearing);
-	if (said && !state.autoEnd) {
+	if (said) {
 		return (
 			<div className="flex min-h-0 w-full flex-1 flex-col gap-3 text-2xl leading-snug font-light">
 				<textarea
@@ -274,14 +282,129 @@ function Now({ voice, state }: { voice: Voice; state: VoiceState }) {
 	);
 }
 
+/** Turns ended by hand: a message recorded, then sent or deleted. */
+function Recorder({ voice, state }: { voice: Voice; state: VoiceState }) {
+	const said = Boolean(state.draft || state.hearing);
+	if (!said && !state.recording) {
+		return (
+			<div className="flex min-h-0 w-full flex-1 flex-col items-center justify-center gap-6 text-center">
+				{state.ended && <Ended voice={voice} ended={state.ended} />}
+				<p className="text-2xl leading-snug font-light text-balance text-muted-foreground/70">
+					{state.ended
+						? "Tap the mic to record another."
+						: "Tap the mic to record a message."}
+				</p>
+			</div>
+		);
+	}
+	return (
+		<div className="flex min-h-0 w-full flex-1 flex-col gap-3 text-2xl leading-snug font-light">
+			{said && state.recording ? (
+				// Editing waits until the recording stops, so the words heard
+				// so far read on as one text.
+				<p className="min-h-0 flex-1 overflow-y-auto">
+					{state.draft}{" "}
+					<span className="text-muted-foreground">{state.hearing}</span>
+				</p>
+			) : said ? (
+				<>
+					<textarea
+						aria-label="Your message, to edit before sending"
+						className="min-h-0 flex-1 resize-none bg-transparent outline-none"
+						value={state.draft}
+						onChange={(event) => voice.setDraft(event.target.value)}
+					/>
+					{state.hearing && (
+						<p className="text-muted-foreground">{state.hearing}</p>
+					)}
+				</>
+			) : (
+				<p className="flex flex-1 items-center justify-center text-center text-balance text-muted-foreground/70">
+					Say your message.
+				</p>
+			)}
+			<div className="flex shrink-0 items-center gap-2 text-sm font-normal">
+				<p className="mr-auto flex items-center gap-2 text-muted-foreground">
+					{state.recording ? (
+						<>
+							<span className="size-2 animate-pulse rounded-full bg-red-500 shadow-[0_0_8px_var(--color-red-500)]" />
+							Recording
+						</>
+					) : (
+						"Tap the mic to add more"
+					)}
+				</p>
+				{said && (
+					<>
+						<button
+							type="button"
+							title="Delete this message (Escape)"
+							className="flex h-9 items-center gap-2 rounded-full px-4 text-foreground/80 transition hover:bg-white/10 hover:text-foreground"
+							onClick={() => voice.clear()}
+						>
+							<Trash2 className="size-4" />
+							Delete
+						</button>
+						<button
+							type="button"
+							title="Send it to your agent (Enter)"
+							className="flex h-9 items-center gap-2 rounded-full bg-you px-4 font-medium text-black shadow-[0_0_24px_-4px_var(--you)] transition hover:brightness-110"
+							onClick={() => voice.send()}
+						>
+							Send
+							<CornerDownLeft className="size-4 opacity-60" />
+						</button>
+					</>
+				)}
+			</div>
+		</div>
+	);
+}
+
+/** The message last ended by hand: sent, or deleted, with a way back. */
+function Ended({
+	voice,
+	ended,
+}: {
+	voice: Voice;
+	ended: { text: string; sent: boolean };
+}) {
+	return (
+		<div className="flex max-w-md flex-col items-center gap-2 text-sm">
+			<p className="flex items-center gap-1.5 text-xs tracking-widest text-muted-foreground uppercase">
+				{ended.sent ? (
+					<Check className="size-3.5" />
+				) : (
+					<Trash2 className="size-3.5" />
+				)}
+				{ended.sent ? "Sent" : "Deleted"}
+			</p>
+			<p
+				className={`line-clamp-3 text-base text-muted-foreground/80 ${ended.sent ? "" : "line-through decoration-muted-foreground/40"}`}
+			>
+				{ended.text}
+			</p>
+			{!ended.sent && (
+				<button
+					type="button"
+					title="Bring the message back"
+					className="flex h-8 items-center gap-1.5 rounded-full px-3 text-foreground/80 transition hover:bg-white/10 hover:text-foreground"
+					onClick={() => voice.undo()}
+				>
+					<Undo2 className="size-4" />
+					Undo
+				</button>
+			)}
+		</div>
+	);
+}
+
 function hint({ listener, speaker, autoEnd }: VoiceState): string {
 	if (listener && autoEnd) return "Speak, and your words go to your agent.";
-	if (listener) return "Speak, then send your words to your agent.";
 	if (speaker) return "Your agent's messages are read aloud as they arrive.";
 	return "Turn on listening, speaking, or both.";
 }
 
-/** The mode, what is going on in it, and sharing the trace. */
 /** Words heard while the agent spoke that didn't count, to send if they
  * were the person's. */
 function Missed({ voice, state }: { voice: Voice; state: VoiceState }) {
@@ -304,6 +427,7 @@ function Missed({ voice, state }: { voice: Voice; state: VoiceState }) {
 	);
 }
 
+/** The mode, what is going on in it, and sharing the trace. */
 function Status({ voice, state }: { voice: Voice; state: VoiceState }) {
 	const dot =
 		state.listener && state.speaker
@@ -400,25 +524,40 @@ function Languages({ voice, state }: { voice: Voice; state: VoiceState }) {
 
 /** The two parts: listening and speaking, apart, or joined while both are on. */
 function Bar({ voice, state }: { voice: Voice; state: VoiceState }) {
-	const joined = state.listener && state.speaker;
+	const manual = !state.autoEnd;
+	const listening = manual ? state.recording : state.listener;
+	const joined = listening && state.speaker;
 	const reading = state.reading !== null;
 	return (
 		<div
 			className={`flex w-full max-w-xl justify-center transition-[gap] duration-500 ${joined ? "gap-0" : "gap-2 sm:gap-3"}`}
 		>
-			<Part side="left" on={state.listener} joined={joined} color="--you">
-				<Switch
-					label={state.listener ? "Stop listening" : "Listen"}
-					on={state.listener}
-					busy={state.switching === "listener"}
-					color="--you"
-					level="--you-level"
-					onClick={() => void voice.setListener(!state.listener)}
-				>
-					{state.listener ? <Mic /> : <MicOff />}
-				</Switch>
+			<Part side="left" on={listening} joined={joined} color="--you">
+				{manual ? (
+					<Switch
+						label={state.recording ? "Stop recording" : "Record a message"}
+						on={state.recording}
+						busy={state.switching === "listener"}
+						color="--you"
+						level="--you-level"
+						onClick={() => void voice.record(!state.recording)}
+					>
+						{state.recording ? <Square className="fill-current" /> : <Mic />}
+					</Switch>
+				) : (
+					<Switch
+						label={state.listener ? "Stop listening" : "Listen"}
+						on={state.listener}
+						busy={state.switching === "listener"}
+						color="--you"
+						level="--you-level"
+						onClick={() => void voice.setListener(!state.listener)}
+					>
+						{state.listener ? <Mic /> : <MicOff />}
+					</Switch>
+				)}
 				<TurnEnd voice={voice} state={state} />
-				{state.draft || state.hearing ? (
+				{!manual && (state.draft || state.hearing) ? (
 					<Small
 						label="Drop what you said so far (Escape): it can still be copied"
 						onClick={() => voice.clear()}
@@ -541,12 +680,16 @@ function Switch(props: {
 function TurnEnd({ voice, state }: { voice: Voice; state: VoiceState }) {
 	const options = [
 		{ auto: true, label: "auto", title: "Your turn ends when you pause" },
-		{ auto: false, label: "manual", title: "Your turn ends when you send it" },
+		{
+			auto: false,
+			label: "manual",
+			title: "Record each message with the microphone, then send it",
+		},
 	];
 	return (
 		<fieldset
 			aria-label="How your turn ends"
-			className={`relative m-0 grid min-w-0 border-0 h-8 shrink-0 grid-cols-2 rounded-full bg-black/40 p-0.5 text-xs transition-opacity ${state.listener ? "" : "opacity-60"}`}
+			className={`relative m-0 grid min-w-0 border-0 h-8 shrink-0 grid-cols-2 rounded-full bg-black/40 p-0.5 text-xs transition-opacity ${state.listener || !state.autoEnd ? "" : "opacity-60"}`}
 		>
 			<span
 				aria-hidden
@@ -600,7 +743,7 @@ function Small(props: {
 	);
 }
 
-/** Space turns listening on and off, Enter sends what was said by hand,
+/** Space turns listening, or recording, on and off, Enter sends what was said by hand,
  * Escape drops it. Not while typing in the draft, except Escape, nor in a
  * field. */
 function useShortcuts(voice: Voice, state: VoiceState) {
@@ -610,12 +753,15 @@ function useShortcuts(voice: Voice, state: VoiceState) {
 			const typing = event.target instanceof HTMLTextAreaElement;
 			if (event.key === "Escape") voice.clear();
 			else if (typing || event.repeat) return;
-			else if (event.key === " ") void voice.setListener(!state.listener);
+			else if (event.key === " ")
+				void (state.autoEnd
+					? voice.setListener(!state.listener)
+					: voice.record(!state.recording));
 			else if (event.key === "Enter" && !state.autoEnd) voice.send();
 			else return;
 			event.preventDefault();
 		};
 		window.addEventListener("keydown", key);
 		return () => window.removeEventListener("keydown", key);
-	}, [voice, state.listener, state.autoEnd]);
+	}, [voice, state.listener, state.autoEnd, state.recording]);
 }

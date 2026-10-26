@@ -92,14 +92,18 @@ export class Listener {
 	/**
 	 * `floor`: how loud, in dBFS, a segment's loudest 0.1 s must be for it to
 	 * count, asked as it is heard. `echo`: whether words heard are the
-	 * speaker's own, which never count. Call it from a click, since it starts
-	 * the page's audio.
+	 * speaker's own, which never count. `gate`: whether what the microphone
+	 * hears goes on, asked for each chunk: the microphone stays open while
+	 * it is shut, so that opening it again needs no permission and takes no
+	 * time, and nothing it hears goes anywhere. Call it from a click, since
+	 * it starts the page's audio.
 	 */
 	static async open(
 		key: string,
 		hearing: Hearing,
 		floor: () => number,
 		echo: (text: string) => boolean,
+		gate: () => boolean,
 		/** What the person speaks, as `Scribe.open` takes it: none to detect it. */
 		languages: readonly string[],
 	): Promise<Listener> {
@@ -383,6 +387,7 @@ export class Listener {
 		try {
 			microphone = await Microphone.open(
 				(pcm) => {
+					if (!gate()) return;
 					hearing.audio(pcm);
 					unheard.push(pcm);
 					const heard = pcm.slice();
