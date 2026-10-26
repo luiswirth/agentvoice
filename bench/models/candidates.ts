@@ -69,12 +69,25 @@ function parakeet(backend: "webgpu" | "wasm"): Hearing {
 	};
 }
 
-function phonon(device: "cpu" | "webgpu"): Speaking {
+/** Phonon 40m German, gated, so served by the bench from `gated.ts`. */
+const PHONON_40M_DE = {
+	weights: { q8: "./models/phonon-40m-de/model.q8.gguf" },
+	tokenizer: "./models/phonon-40m-de/tokenizer.json",
+	config: "./models/phonon-40m-de/config.json",
+	voices: { default: "./models/phonon-40m-de/default-voice.safetensors" },
+	defaultVoice: "default",
+};
+
+function phonon(language: "de" | "en", device: "cpu" | "webgpu"): Speaking {
 	return {
 		kind: "speaking",
-		language: "en",
+		language,
 		async load() {
-			const tts = await PhononTTS.load({ lang: "en", device });
+			const tts = await PhononTTS.load({
+				lang: language,
+				device,
+				...(language === "de" ? { model: PHONON_40M_DE } : {}),
+			});
 			return {
 				sampleRate: tts.sampleRate,
 				speak: (text) => tts.stream(text),
@@ -88,8 +101,10 @@ export const candidates: Record<string, Candidate> = {
 	"moonshine-small-en": moonshine("en"),
 	"parakeet-webgpu-fp16": parakeet("webgpu"),
 	"parakeet-wasm-int8": parakeet("wasm"),
-	"phonon-31m-en-cpu": phonon("cpu"),
-	"phonon-31m-en-webgpu": phonon("webgpu"),
+	"phonon-31m-en-cpu": phonon("en", "cpu"),
+	"phonon-31m-en-webgpu": phonon("en", "webgpu"),
+	"phonon-40m-de-cpu": phonon("de", "cpu"),
+	"phonon-40m-de-webgpu": phonon("de", "webgpu"),
 };
 
 /** What the speaking candidates say: short and long, as an agent's replies are. */
