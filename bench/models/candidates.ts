@@ -34,15 +34,34 @@ function heartbeat(line: string) {
 	void fetch("./log", { method: "POST", body: line.slice(0, 300) });
 }
 
-function moonshine(language: "de" | "en"): Hearing {
+/** Moonshine Small Streaming German, which the package's catalog lacks: made
+ * by the bench from its Hugging Face checkpoint with Moonshine's own export, in
+ * `served.ts`. */
+const MOONSHINE_SMALL_DE = Object.fromEntries(
+	[
+		"frontend.ort",
+		"encoder.ort",
+		"adapter.ort",
+		"cross_kv.ort",
+		"decoder_kv.ort",
+		"streaming_config.json",
+		"tokenizer.bin",
+	].map((file) => [file, `./models/moonshine-small-de/${file}`]),
+);
+
+function moonshine(
+	language: "de" | "en",
+	files?: Record<string, string>,
+): Hearing {
 	return {
 		kind: "hearing",
 		languages: [language],
 		async load() {
-			const transcriber = await Transcriber.load({
-				language,
-				modelArch: ModelArch.SmallStreaming,
-			});
+			const modelArch = ModelArch.SmallStreaming;
+			const transcriber =
+				files === undefined
+					? await Transcriber.load({ language, modelArch })
+					: await Transcriber.loadFromUrls(files, { modelArch });
 			return async (pcm) =>
 				transcriber
 					.transcribe(pcm, { sampleRate: 16_000 })
@@ -118,6 +137,7 @@ function phonon(
 
 export const candidates: Record<string, Candidate> = {
 	"moonshine-small-en": moonshine("en"),
+	"moonshine-small-de": moonshine("de", MOONSHINE_SMALL_DE),
 	"parakeet-webgpu-fp16": parakeet("webgpu"),
 	"parakeet-wasm-int8": parakeet("wasm"),
 	"phonon-31m-en-cpu": phonon("en", "cpu"),

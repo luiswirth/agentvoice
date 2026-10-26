@@ -130,6 +130,27 @@ export const SERVED: Record<string, Model> = {
 	},
 };
 
+/** Moonshine Small Streaming German, which moonshine-wasm's catalog lacks:
+ * Moonshine's checkpoint for Transformers (MIT), made into the files the
+ * package loads by `moonshine-export.sh`, all at once. */
+SERVED["moonshine-small-de"] = {
+	repository: "moonshine-ai/moonshine-streaming-small-de",
+	files: {},
+	made: {
+		"encoder.ort": (directory) =>
+			execFileSync(
+				join(import.meta.dirname, "moonshine-export.sh"),
+				[
+					resolve(directory, "../../moonshine"),
+					"moonshine-ai/moonshine-streaming-small-de",
+					"56473ba32b22b484fdfc7eb03d34c393ff494197",
+					resolve(directory),
+				],
+				{ stdio: ["ignore", "ignore", "inherit"] },
+			),
+	},
+};
+
 /** Quantizes safetensors weights to q8 GGUF with phonon-tts's `quantize`. */
 function quantize(input: string, output: string) {
 	const sources = resolve(dirname(output), "../../xn-ptts");
