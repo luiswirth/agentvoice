@@ -69,9 +69,9 @@ try {
 }
 
 async function run() {
+	if (name === "clear") return clear();
 	const candidate = candidates[name];
 	if (candidate === undefined) throw new Error(`no candidate ${name}`);
-	if (name === "clear") return clear();
 	const stored = await usage();
 	const start = performance.now();
 	say(`loading ${name}`);
@@ -139,11 +139,20 @@ async function usage(): Promise<number> {
 async function clear() {
 	for (const key of await caches.keys()) await caches.delete(key);
 	for (const db of await indexedDB.databases())
-		if (db.name !== undefined) indexedDB.deleteDatabase(db.name);
+		if (db.name !== undefined) {
+			const request = indexedDB.deleteDatabase(db.name);
+			await new Promise((resolve, reject) => {
+				request.onsuccess = resolve;
+				request.onerror = () => reject(request.error);
+			});
+		}
 	const root = await navigator.storage.getDirectory();
 	for await (const [entry] of root as unknown as AsyncIterable<[string]>)
 		await root.removeEntry(entry, { recursive: true });
-	report.load = { ms: 0, stored: await usage() };
+	// Safari lowers its usage estimate only later, so what is left is counted.
+	const left =
+		(await caches.keys()).length + (await indexedDB.databases()).length;
+	if (left > 0) throw new Error(`${left} stores left after emptying`);
 }
 
 function join(chunks: Float32Array[]): Float32Array {

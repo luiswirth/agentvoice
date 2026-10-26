@@ -148,7 +148,7 @@ try {
 	// opens it, then from what that load stored; the bench leaves it empty.
 	for (const name of names) {
 		if (name === "clear") continue;
-		await open("clear", "before");
+		await empty("before");
 		for (const pass of ["first", "cached"]) {
 			reports.push(await open(name, pass));
 			// Kept as it comes, since a crash may take the bench down.
@@ -158,7 +158,7 @@ try {
 			);
 		}
 	}
-	await open("clear", "after");
+	await empty("after");
 } catch (error) {
 	console.error(`The bench stopped: ${(error as Error).message}`);
 } finally {
@@ -172,6 +172,14 @@ await writeFile(join(run, "reports.json"), JSON.stringify(reports, null, "\t"));
 console.log(summary(reports, all));
 console.log(`\nReports and audio in ${run}`);
 process.exit(0);
+
+/** Empties the browser, and fails loudly where it could not, since every
+ * first load after it would then measure the cache. */
+async function empty(pass: string) {
+	const report = await open("clear", pass);
+	if (report.error !== undefined)
+		throw new Error(`emptying the browser failed: ${report.error}`);
+}
 
 /** Opens the page on a candidate, in a new session where the last one ended,
  * and waits for its report, or for the page to crash, which ends the session. */
