@@ -69,7 +69,7 @@ function parakeet(backend: "webgpu" | "wasm"): Hearing {
 	};
 }
 
-/** Phonon 40m German, gated, so served by the bench from `gated.ts`. */
+/** Phonon 40m German, gated, so served by the bench from `served.ts`. */
 const PHONON_40M_DE = {
 	weights: { q8: "./models/phonon-40m-de/model.q8.gguf" },
 	tokenizer: "./models/phonon-40m-de/tokenizer.json",
@@ -78,7 +78,25 @@ const PHONON_40M_DE = {
 	defaultVoice: "default",
 };
 
-function phonon(language: "de" | "en", device: "cpu" | "webgpu"): Speaking {
+/** Pocket TTS German, which phonon-tts runs, served by the bench from
+ * `served.ts`: Kyutai's bf16 weights, and q8 made from them there. */
+const POCKET_TTS_DE = {
+	weights: {
+		f32: "./models/pocket-tts-de/model.safetensors",
+		q8: "./models/pocket-tts-de/model.q8.gguf",
+	},
+	tokenizer: "./models/pocket-tts-de/tokenizer.json",
+	config: "./models/pocket-tts-de/config.json",
+	voices: { alba: "./models/pocket-tts-de/alba.safetensors" },
+	defaultVoice: "alba",
+};
+
+function phonon(
+	language: "de" | "en",
+	device: "cpu" | "webgpu",
+	model?: typeof PHONON_40M_DE | typeof POCKET_TTS_DE,
+	quant: "q8" | "f32" = "q8",
+): Speaking {
 	return {
 		kind: "speaking",
 		language,
@@ -86,7 +104,8 @@ function phonon(language: "de" | "en", device: "cpu" | "webgpu"): Speaking {
 			const tts = await PhononTTS.load({
 				lang: language,
 				device,
-				...(language === "de" ? { model: PHONON_40M_DE } : {}),
+				...(model === undefined ? {} : { model }),
+				quant,
 			});
 			return {
 				sampleRate: tts.sampleRate,
@@ -103,8 +122,11 @@ export const candidates: Record<string, Candidate> = {
 	"parakeet-wasm-int8": parakeet("wasm"),
 	"phonon-31m-en-cpu": phonon("en", "cpu"),
 	"phonon-31m-en-webgpu": phonon("en", "webgpu"),
-	"phonon-40m-de-cpu": phonon("de", "cpu"),
-	"phonon-40m-de-webgpu": phonon("de", "webgpu"),
+	"phonon-40m-de-cpu": phonon("de", "cpu", PHONON_40M_DE),
+	"phonon-40m-de-webgpu": phonon("de", "webgpu", PHONON_40M_DE),
+	"pocket-tts-de-cpu": phonon("de", "cpu", POCKET_TTS_DE),
+	"pocket-tts-de-cpu-f32": phonon("de", "cpu", POCKET_TTS_DE, "f32"),
+	"pocket-tts-de-webgpu": phonon("de", "webgpu", POCKET_TTS_DE),
 };
 
 /** What the speaking candidates say: short and long, as an agent's replies are. */

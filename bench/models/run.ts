@@ -15,8 +15,8 @@ import { join } from "node:path";
 import { build, type Plugin, preview } from "vite";
 import { candidates } from "./candidates.ts";
 import { type Clip, clips } from "./clips.ts";
-import { gated } from "./gated.ts";
 import type { Report } from "./page.ts";
+import { served } from "./served.ts";
 
 const ROOT = import.meta.dirname;
 const CACHE = join(ROOT, "../.cache/models");
@@ -49,7 +49,7 @@ for (const name of names)
 		throw new Error(`no candidate ${name}`);
 
 const all = await clips(join(CACHE, "clips"));
-await gated(join(CACHE, "models"));
+await served(join(CACHE, "models"));
 const run = join(
 	CACHE,
 	"runs",
@@ -68,12 +68,13 @@ const bench: Plugin = {
 				/^.*?\/(clips|models|report|audio|log)/,
 				"/$1",
 			);
-			const served =
-				/^\/(clips|models)\/((?:[\w-][\w.-]*\/)?[\w-][\w.-]*)$/.exec(path);
-			if (request.method === "GET" && served) {
+			const file = /^\/(clips|models)\/((?:[\w-][\w.-]*\/)?[\w-][\w.-]*)$/.exec(
+				path,
+			);
+			if (request.method === "GET" && file) {
 				response.setHeader("Content-Type", "application/octet-stream");
 				response.end(
-					await readFile(join(CACHE, served[1] as string, served[2] as string)),
+					await readFile(join(CACHE, file[1] as string, file[2] as string)),
 				);
 			} else if (
 				request.method === "POST" &&
