@@ -6,6 +6,7 @@ import wasm from "onnxruntime-web/ort-wasm-simd-threaded.wasm?url";
 import * as ort from "onnxruntime-web/wasm";
 import { FBANK_BINS, fbank } from "./fbank.ts";
 import { CAMPLUS, fetchModel } from "./models.ts";
+import { capSharedMemory } from "./shared-memory.ts";
 
 export type ToSpeakers =
 	| { type: "audio"; pcm: ArrayBuffer }
@@ -19,6 +20,7 @@ export type FromSpeakers =
 	| { type: "probe"; embedding: Float32Array }
 	| { type: "failed"; error: string };
 
+capSharedMemory(1);
 ort.env.wasm.wasmPaths = { wasm };
 // Threads need a cross-origin isolated page.
 ort.env.wasm.numThreads = 1;

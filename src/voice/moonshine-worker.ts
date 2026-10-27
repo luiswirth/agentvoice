@@ -10,6 +10,7 @@ import {
 	type Transcript,
 } from "@moonshine-ai/moonshine-wasm";
 import { LISTEN_RATE, type Word } from "./engines.ts";
+import { capSharedMemory } from "./shared-memory.ts";
 
 export type ToMoonshine =
 	| { type: "audio"; pcm: ArrayBuffer }
@@ -31,6 +32,8 @@ const post = (message: FromMoonshine) => postMessage(message);
 
 /** The silence after a segment. */
 const TAIL = new Float32Array(LISTEN_RATE);
+
+capSharedMemory(1);
 
 const loaded = Transcriber.load({
 	language: "en",

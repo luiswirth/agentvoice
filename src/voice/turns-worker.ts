@@ -6,6 +6,7 @@
 import wasm from "onnxruntime-web/ort-wasm-simd-threaded.wasm?url";
 import * as ort from "onnxruntime-web/wasm";
 import { fetchModel, loadModels, SILERO, SMART_TURN } from "./models.ts";
+import { capSharedMemory } from "./shared-memory.ts";
 import { type TurnEvent, Turns } from "./turns.ts";
 
 export type ToTurns =
@@ -19,6 +20,7 @@ export type FromTurns =
 	| { type: "ready" }
 	| { type: "failed"; error: string };
 
+capSharedMemory(1);
 ort.env.wasm.wasmPaths = { wasm };
 // Threads need a cross-origin isolated page.
 ort.env.wasm.numThreads = 1;
