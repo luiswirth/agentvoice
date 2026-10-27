@@ -59,7 +59,7 @@ const browser = await chromium.launch({
 try {
 	const context = await browser.newContext();
 	await context.addInitScript(
-		([key, engine]) => {
+		([key, engine, recorded]) => {
 			localStorage.setItem("byoa-name", "person");
 			localStorage.setItem("elevenlabs-key", key as string);
 			localStorage.setItem(
@@ -71,13 +71,32 @@ try {
 			const open = navigator.mediaDevices.getUserMedia.bind(
 				navigator.mediaDevices,
 			);
+			// A recording already passed through the processing of the
+			// microphone it was made on, so it is heard without it again: else
+			// gain control makes it louder than the trace has it.
 			navigator.mediaDevices.getUserMedia = async (constraints) => {
-				const stream = await open(constraints);
+				const audio = constraints?.audio;
+				const stream = await open(
+					recorded && typeof audio === "object"
+						? {
+								...constraints,
+								audio: {
+									...audio,
+									echoCancellation: false,
+									noiseSuppression: false,
+									autoGainControl: false,
+								},
+							}
+						: constraints,
+				);
+				(window as { processing?: unknown }).processing ??= stream
+					.getAudioTracks()[0]
+					?.getSettings();
 				(window as { opened?: number }).opened ??= Date.now();
 				return stream;
 			};
 		},
-		[key, process.env.ENGINE ?? "elevenlabs"],
+		[key, process.env.ENGINE ?? "elevenlabs", scenario === null] as const,
 	);
 	const tab = await context.newPage();
 	tab.on("pageerror", (error) =>
@@ -101,6 +120,13 @@ try {
 		() => (window as { opened?: number }).opened,
 	);
 	if (opened === undefined) throw new Error("the microphone never opened");
+	const { echoCancellation, noiseSuppression, autoGainControl } =
+		(await tab.evaluate(
+			() => (window as { processing?: MediaTrackSettings }).processing,
+		)) ?? {};
+	console.log(
+		`the microphone's processing: echo cancellation ${echoCancellation}, noise suppression ${noiseSuppression}, gain control ${autoGainControl}`,
+	);
 	report(
 		agent.log,
 		opened,
