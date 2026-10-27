@@ -17,6 +17,7 @@ Once you have joined, say that you are there before you read on, with `curl -s -
 Then receive with `curl -s '<me>?wait=540&skip=application/vnd.byoa.voice.trace&skip=audio/'`, which leaves out the page's trace and audio files, such as the audio the trace shares, so that only what is said to you wakes you; receive without `skip` when you look into how voice works. Fetch entry `n`'s file with `curl -s -o <file> '<me>/<n>'`, and leave with `curl -s -X POST '<me>/leave'`.
 
 To start one yourself, `curl -s -X POST https://byoa.senses.sh/v1/s` prints a new session's link: join it first, then give the person `https://voice.senses.sh/#session=<link>`.
+Their joining is an entry, so a receive wakes you when they come. If nobody has joined after two receives, about 20 minutes, say once in your harness's chat that you stop waiting, and leave, which ends the session: start a new one when they ask.
 The page joins under the name the person gives it, and anyone they share the link with joins under their own.
 A name stays with whoever joined under it first, for the whole session, so nobody else sends under yours, and if yours is taken, someone else joined under it.
 
