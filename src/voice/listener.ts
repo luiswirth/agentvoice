@@ -96,13 +96,13 @@ export class Listener {
 	}
 
 	/**
-	 * `floor`: how loud, in dBFS, a segment's loudest 0.1 s must be for it to
-	 * count, asked as it is heard. `echo`: whether words heard are the
-	 * speaker's own, which never count. `gate`: whether what the microphone
-	 * hears goes on, asked for each chunk: the microphone stays open while
-	 * it is shut, so that opening it again needs no permission and takes no
-	 * time, and nothing it hears goes anywhere. Call it from a click, since
-	 * it starts the page's audio.
+	 * `floor`: how loud, in dBFS, a segment's speech must get in some 0.1 s
+	 * for it to count, asked as each 0.1 s is heard. `echo`: whether words
+	 * heard are the speaker's own, which never count. `gate`: whether what
+	 * the microphone hears goes on, asked for each chunk: the microphone
+	 * stays open while it is shut, so that opening it again needs no
+	 * permission and takes no time, and nothing it hears goes anywhere. Call
+	 * it from a click, since it starts the page's audio.
 	 */
 	static async open(
 		/** Opens the transcriber, which tells `heard` what it hears. */
@@ -115,8 +115,39 @@ export class Listener {
 		let listener: Listener | null = null;
 		/** Whether the segment in progress counts. */
 		let speaking = false;
-		/** The loudest 0.1 s of the segment in progress, in dBFS. */
-		let loudest = Number.NEGATIVE_INFINITY;
+		/** How loud each chunk the microphone heard is, in dBFS, against the
+		 * floor in force as it was heard, back to what speech may still claim. */
+		const levels: Level[] = [];
+		/** Where turn detection heard speech in the segments in progress, the
+		 * last without an end while speech goes on. */
+		let spoken: { from: number; to: number }[] = [];
+		/** The loudest chunk of the speech of the segments in progress, against
+		 * its floor: a segment counts only by its own speech, at the floor in
+		 * force as it was heard, not by a sound before it or a floor since. */
+		const loudest = (): Level | null => {
+			let top: Level | null = null;
+			for (const level of levels)
+				if (
+					spoken.some(({ from, to }) => level.to > from && level.from < to) &&
+					(top === null || above(level) > above(top))
+				)
+					top = level;
+			return top;
+		};
+		const loud = (): boolean => {
+			const top = loudest();
+			return top !== null && above(top) >= 0;
+		};
+		/** Where each segment still to come ends, in order, in seconds of what
+		 * turn detection heard. */
+		const ends: number[] = [];
+		/** Lets go of the speech of a segment that ended at `end`: what is still
+		 * going on, or started since, belongs to the next. */
+		const forget = (end: number) => {
+			spoken = spoken.filter(
+				({ from, to }) => from >= end || to === Number.POSITIVE_INFINITY,
+			);
+		};
 		/** What the transcriber committed of the segment in progress. */
 		let pieces: string[] = [];
 		/** Their words, timed. */
@@ -224,17 +255,25 @@ export class Listener {
 		const worker = new TurnsWorker();
 		const tell = (message: ToTurns, transfer: Transferable[] = []) =>
 			worker.postMessage(message, transfer);
-		const segment = () => {
+		/** Ends the segment that ended at `end`, in seconds of what turn
+		 * detection heard. */
+		const segment = (end: number) => {
 			const text = pieces.join(" ").trim();
 			const echoed = echo(text);
 			if (echoed) hearing.trace("echo", { text });
-			const counts = (speaking || loudest >= floor()) && !echoed;
-			if (!counts && !echoed && /\w/.test(text))
-				hearing.trace("quiet", { text, loudest, floor: floor() });
+			const counts = (speaking || loud()) && !echoed;
+			if (!counts && !echoed && /\w/.test(text)) {
+				const top = loudest();
+				hearing.trace("quiet", {
+					text,
+					loudest: top?.loudness ?? null,
+					floor: top?.floor ?? null,
+				});
+			}
 			if (!counts && /\w/.test(text)) hearing.missed(text, echoed);
 			const timed = words;
 			speaking = false;
-			loudest = Number.NEGATIVE_INFINITY;
+			forget(end);
 			pieces = [];
 			words = [];
 			const tagged = () => {
@@ -256,9 +295,13 @@ export class Listener {
 			turn = false;
 			const covered = settled;
 			settled = false;
+			ends.push(passed);
 			if (!covered && transcriber.commit()) commits.push("end");
 			else if (commits.length > 0) commits[commits.length - 1] = "end";
-			else return false;
+			else {
+				ends.pop();
+				return false;
+			}
 			return true;
 		};
 		const ready = new Promise<void>((resolve, reject) => {
@@ -292,11 +335,14 @@ export class Listener {
 						probed = null;
 						turn = true;
 						settled = false;
+						spoken.push({ from: data.at, to: Number.POSITIVE_INFINITY });
 						hearing.trace("vad.speech", { at: data.at });
-						if (loudest >= floor()) hearing.voiced(true);
+						if (loud()) hearing.voiced(true);
 						return;
 					case "silence":
 						voiced = false;
+						for (const stretch of spoken)
+							if (stretch.to === Number.POSITIVE_INFINITY) stretch.to = data.at;
 						if (open !== null) embed(open, data.at);
 						open = null;
 						since = null;
@@ -317,7 +363,7 @@ export class Listener {
 					case "ended":
 						hearing.trace("turn.end", { reason: data.reason });
 						transcribing = false;
-						if (!finish()) segment();
+						if (!finish()) segment(passed);
 						return;
 				}
 			};
@@ -336,7 +382,7 @@ export class Listener {
 						const heard = [...pieces, text].join(" ").trim();
 						tell({ type: "text", text: heard });
 						if (!/\w/.test(text)) return;
-						if (!speaking && (loudest < floor() || echo(heard))) return;
+						if (!speaking && (!loud() || echo(heard))) return;
 						if (!speaking) hearing.speaking();
 						speaking = true;
 						hearing.partial(heard);
@@ -365,7 +411,7 @@ export class Listener {
 							if (spelled) words.push(...timed);
 							else words.push({ text: text.trim(), start, end });
 						}
-						if (why === "end") segment();
+						if (why === "end") segment(ends.shift() ?? passed);
 						else if (turn) {
 							// What a pause settled replaces its partial.
 							const heard = pieces.join(" ");
@@ -408,7 +454,18 @@ export class Listener {
 						open += STRETCH;
 					}
 					const rms = root(pcm);
-					loudest = Math.max(loudest, 20 * Math.log10(rms));
+					levels.push({
+						from: clock - pcm.length / LISTEN_RATE,
+						to: clock,
+						loudness: 20 * Math.log10(rms),
+						floor: floor(),
+					});
+					// What turn detection may still hear as the start of speech.
+					const claimed = Math.min(
+						passed - KEPT,
+						...spoken.map(({ from }) => from),
+					);
+					while ((levels[0]?.to ?? claimed) < claimed) levels.shift();
 					hearing.level(Math.min(1, rms * 8));
 					const copy = pcm.slice();
 					tell({ type: "audio", pcm: copy.buffer }, [copy.buffer]);
@@ -435,7 +492,7 @@ export class Listener {
 			const coming = finish();
 			if (!coming) {
 				speaking = false;
-				loudest = Number.NEGATIVE_INFINITY;
+				forget(passed);
 				pieces = [];
 				words = [];
 			}
@@ -457,6 +514,18 @@ export class Listener {
 		this.worker.terminate();
 		this.speakers.terminate();
 	}
+}
+
+/** A chunk the microphone heard, from and to where in seconds, how loud it
+ * is, and the floor in force as it was heard, both in dBFS. */
+type Level = { from: number; to: number; loudness: number; floor: number };
+
+/** How far a chunk is above its floor, in dB: without a floor, every chunk
+ * is, a silent one too. */
+function above({ loudness, floor }: Level): number {
+	return floor === Number.NEGATIVE_INFINITY
+		? Number.POSITIVE_INFINITY
+		: loudness - floor;
 }
 
 /** The root mean square of a chunk, from 0 to 1. */
