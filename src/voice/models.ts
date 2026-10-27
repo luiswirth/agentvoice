@@ -1,9 +1,26 @@
 // The local models of turn detection, on ONNX Runtime Web: Silero VAD hears
 // whether the person speaks, Smart Turn whether they sound finished. Each is
 // fetched once, at a pinned revision, checked against its hash.
+import mjs from "onnxruntime-web/ort-wasm-simd-threaded.mjs?url";
+import wasm from "onnxruntime-web/ort-wasm-simd-threaded.wasm?url";
 import * as ort from "onnxruntime-web/wasm";
 import { logMel, MEL_BINS } from "./mel.ts";
 import { CONTEXT, type Models, WINDOW } from "./turns.ts";
+
+/**
+ * Sets up ONNX Runtime in a worker, before its first session. ONNX Runtime
+ * builds only with threads, so its memory is shared, and Safari reserves a
+ * shared memory's whole maximum up front: the iPhone runs out after a few.
+ * ONNX Runtime's maximum of 4 GiB is fixed in its build, so voice carries a
+ * patch of its glue (`patches/`) that lowers it to 256 MiB, which it loads
+ * rather than the glue in its bundle. The speaker model needs 93 MiB at most,
+ * turn detection 49 MiB, as measured in Chromium.
+ */
+export function setUpOnnxRuntime(): void {
+	ort.env.wasm.wasmPaths = { mjs, wasm };
+	// Threads need a cross-origin isolated page.
+	ort.env.wasm.numThreads = 1;
+}
 
 export type Model = { url: string; integrity: string };
 

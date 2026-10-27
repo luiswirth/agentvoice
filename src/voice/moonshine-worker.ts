@@ -10,7 +10,6 @@ import {
 	type Transcript,
 } from "@moonshine-ai/moonshine-wasm";
 import { LISTEN_RATE, type Word } from "./engines.ts";
-import { capSharedMemory } from "./shared-memory.ts";
 
 export type ToMoonshine =
 	| { type: "audio"; pcm: ArrayBuffer }
@@ -33,12 +32,28 @@ const post = (message: FromMoonshine) => postMessage(message);
 /** The silence after a segment. */
 const TAIL = new Float32Array(LISTEN_RATE);
 
-capSharedMemory(1);
+/**
+ * Moonshine's memory, in pages of 64 KiB. Its build reserves 4 GiB of shared
+ * memory, and Safari reserves a shared memory's whole maximum up front, so
+ * the iPhone runs out after a few. A segment of 30 s, the longest, grows it
+ * to about 830 MiB, as measured in Chromium; it starts at its build's 64 MiB.
+ */
+const MEMORY = { initial: 1024, maximum: 16384 };
 
 const loaded = Transcriber.load({
 	language: "en",
 	modelArch: ModelArch.SmallStreaming,
 	options: { vad_threshold: "0", vad_max_segment_duration: "30" },
+	moduleOptions: {
+		// Moonshine's own Emscripten module, given a memory of the size above.
+		factory: async (args) => {
+			const { default: create } = await import(
+				"@moonshine-ai/moonshine-wasm/moonshine.mjs"
+			);
+			const wasmMemory = new WebAssembly.Memory({ ...MEMORY, shared: true });
+			return create({ ...args, wasmMemory });
+		},
+	},
 }).then((transcriber) => {
 	const stream = transcriber.createStream();
 	stream.start();
