@@ -1,7 +1,7 @@
 // The speaker: reads the others' chat messages aloud as they arrive, and
 // knows how much of each was heard.
 import { Player } from "./audio.ts";
-import { type Piece, SPEECH_RATE, Speech } from "./elevenlabs.ts";
+import { type Piece, SPEECH_RATE, type Synthesizer } from "./engines.ts";
 import {
 	type Entry,
 	type Heard,
@@ -33,7 +33,7 @@ const ECHOED = 0.7;
 const RECENT = 10;
 
 export class Speaker {
-	private readonly speech: Speech;
+	private readonly speech: Synthesizer;
 	private readonly player = new Player();
 	private readonly session: Session;
 	private readonly name: string;
@@ -58,10 +58,10 @@ export class Speaker {
 	 * that arrived just before, as during a reload, except those this tab
 	 * already read, heard or dropped. None from further back: the person may
 	 * have heard or read them, and can have the last read again. */
-	constructor(session: Session, name: string, key: string, voice?: string) {
+	constructor(session: Session, name: string, speech: Synthesizer) {
 		this.session = session;
 		this.name = name;
-		this.speech = new Speech(key, voice);
+		this.speech = speech;
 		this.player.changed = () => this.settle();
 		const since = Number(sessionStorage.getItem(this.key) ?? 0);
 		const recent = Date.now() - RECENT * 1000;
@@ -227,20 +227,27 @@ export class Speaker {
 		const reading: Reading = { n: entry.n, line, chars: [], done: false };
 		this.readings.push(reading);
 		if (this.readings.length === 1) this.changed(entry.n);
-		// Each paragraph is a line of its own, timed on from the one before.
+		// Each paragraph is a line of its own, timed on from the one before:
+		// `start` is where the message's audio so far ends, `from` where the
+		// paragraph's began, which its characters are timed from.
 		let start = 0;
-		const lines = speech(entry.text).map((paragraph, i) =>
-			this.speech.say(paragraph, (piece: Piece) => {
-				if (this.dropped.has(line)) return;
-				// Paragraphs are heard apart, so their texts join with a space.
-				if (i > 0 && reading.chars.at(-1)?.char !== " ")
-					reading.chars.push({ char: " ", at: start });
+		const lines = speech(entry.text).map((paragraph, i) => {
+			let from: number | undefined;
+			return this.speech.say(paragraph, (piece: Piece) => {
+				if (this.dropped.has(line)) return false;
+				if (from === undefined) {
+					from = start;
+					// Paragraphs are heard apart, so their texts join with a space.
+					if (i > 0 && reading.chars.at(-1)?.char !== " ")
+						reading.chars.push({ char: " ", at: start });
+				}
 				for (const { char, at } of piece.chars)
-					reading.chars.push({ char, at: start + at });
+					reading.chars.push({ char, at: from + at });
 				this.player.play(line, start, piece.samples);
 				start += piece.samples.length / SPEECH_RATE;
-			}),
-		);
+				return true;
+			});
+		});
 		Promise.all(lines)
 			.catch((error: Error) => this.failed(error))
 			.finally(() => {

@@ -8,7 +8,7 @@
  * opened. */
 export const TRACE = "application/vnd.byoa.voice.trace+json";
 
-import { LISTEN_RATE } from "./elevenlabs.ts";
+import { LISTEN_RATE } from "./engines.ts";
 
 export type TraceEvent = { time: string; event: string } & Record<
 	string,

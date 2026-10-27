@@ -2,12 +2,19 @@
 // Scribe v2 Realtime hears, Eleven v4 Turbo speaks. Nothing here touches an
 // audio device, so it runs in Node as well.
 
+import {
+	type Heard,
+	LISTEN_RATE,
+	Offsets,
+	type Piece,
+	SPEECH_RATE,
+	type Synthesizer,
+	type Transcriber,
+	type Word,
+} from "./engines.ts";
+
 const API = "https://api.elevenlabs.io/v1";
 const SOCKETS = "wss://api.elevenlabs.io/v1";
-
-/** The rate of the audio Scribe hears, and of the speech that comes back. */
-export const LISTEN_RATE = 16_000;
-export const SPEECH_RATE = 24_000;
 
 /** Arthur, a library voice: "clear, engaging", an audiobook narrator. */
 export const VOICE = "C1npRmjB19a6yNkEucvx";
@@ -79,20 +86,6 @@ function unbase64(text: string): Uint8Array {
 	return Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
 }
 
-/** A word as Scribe times it, in seconds of the stream it was given, heard
- * or skipped, or the spacing between words. */
-export type Word = { text: string; start: number; end: number };
-
-export type Heard = {
-	/** What Scribe hears so far of the segment in progress, each replacing the last. */
-	partial(text: string): void;
-	/** A segment settled: one committed, or one Scribe committed on its own
-	 * after about 36 s of audio, with its words timed. */
-	committed(text: string, automatic: boolean, words: Word[]): void;
-	/** The session ended, with why if it failed. */
-	closed(error?: Error): void;
-};
-
 /** Scribe bills every second of audio it is sent, silence included, and
  * closes a session that is sent none for about 15 s. */
 const KEEPALIVE = 5 * LISTEN_RATE;
@@ -101,21 +94,20 @@ const ALIVE = new Int16Array(LISTEN_RATE / 100);
 
 /** A Scribe session over a stream, of which it hears what `hear` gives it
  * and skips the rest, so that only what is heard is paid for; its segments
- * end where `commit` settles them. */
-export class Scribe {
+ * end where `commit` settles them, or on their own after about 36 s. */
+export class Scribe implements Transcriber {
 	/** Samples sent since the last commit: Scribe refuses a commit of under 0.3 s, and closes. */
 	uncommitted = 0;
-	/** Samples sent in all, which Scribe bills. */
-	sent = 0;
 	/** Commits not yet answered. */
 	private commits = 0;
 	/** Samples skipped since the last sent. */
 	private quiet = 0;
-	/** Samples of the stream in all, heard or skipped. */
-	private stream = 0;
-	/** Where the stream is ahead of what was sent, from each sample sent on,
-	 * in order: Scribe times its words in what it was sent. */
-	private shifts: { from: number; shift: number }[] = [{ from: 0, shift: 0 }];
+	private readonly offsets = new Offsets();
+
+	/** Samples sent in all, which Scribe bills. */
+	get sent(): number {
+		return this.offsets.sent;
+	}
 
 	private readonly socket: WebSocket;
 
@@ -163,7 +155,7 @@ export class Scribe {
 					heard.committed(
 						message.text ?? "",
 						automatic,
-						words.map((word) => scribe.place(word)),
+						words.map((word) => scribe.offsets.place(word)),
 					);
 					return;
 				}
@@ -183,38 +175,24 @@ export class Scribe {
 
 	/** The stream's next 16-bit PCM at `LISTEN_RATE`, to transcribe. */
 	hear(pcm: Int16Array): void {
-		const shift = this.stream - this.sent;
-		if (shift !== this.shifts.at(-1)?.shift)
-			this.shifts.push({ from: this.sent, shift });
-		this.stream += pcm.length;
 		this.quiet = 0;
-		this.send(pcm);
+		if (this.send(pcm)) this.offsets.hear(pcm.length);
+		else this.offsets.skip(pcm.length);
 	}
 
 	/** The stream's next `samples`, not to transcribe. */
 	skip(samples: number): void {
-		this.stream += samples;
+		this.offsets.skip(samples);
 		this.quiet += samples;
 		if (this.quiet < KEEPALIVE) return;
 		this.quiet = 0;
-		this.send(ALIVE);
+		if (this.send(ALIVE)) this.offsets.pad(ALIVE.length);
 	}
 
-	/** A word Scribe timed in what it was sent, in the stream, by where it
-	 * ends, since Scribe may start one a little before the audio it is in.
-	 * Words come in order, so the shifts before a word's are done with. */
-	private place(word: Word): Word {
-		const at = word.end * LISTEN_RATE;
-		while ((this.shifts[1]?.from ?? Number.POSITIVE_INFINITY) <= at)
-			this.shifts.shift();
-		const shift = (this.shifts[0]?.shift ?? 0) / LISTEN_RATE;
-		return { ...word, start: word.start + shift, end: word.end + shift };
-	}
-
-	private send(pcm: Int16Array): void {
-		if (this.socket.readyState !== WebSocket.OPEN) return;
+	/** Whether it was sent. */
+	private send(pcm: Int16Array): boolean {
+		if (this.socket.readyState !== WebSocket.OPEN) return false;
 		this.uncommitted += pcm.length;
-		this.sent += pcm.length;
 		this.socket.send(
 			JSON.stringify({
 				message_type: "input_audio_chunk",
@@ -225,6 +203,7 @@ export class Scribe {
 				sample_rate: LISTEN_RATE,
 			}),
 		);
+		return true;
 	}
 
 	/** Settles the segment in progress, if it holds enough audio to; whether it did. */
@@ -248,17 +227,11 @@ export class Scribe {
 	}
 }
 
-/** A stretch of a line's audio, and the characters spoken in it, each with its start in seconds into the stretch. */
-export type Piece = {
-	samples: Float32Array;
-	chars: { char: string; at: number }[];
-};
-
 /**
  * Speaks lines with Eleven v4 Turbo, one after the other over one
  * connection, which is served only over the dialogue socket.
  */
-export class Speech {
+export class Speech implements Synthesizer {
 	private socket: WebSocket | null = null;
 	private queue: Promise<void> = Promise.resolve();
 	private readonly heartbeat: ReturnType<typeof setInterval>;
@@ -294,7 +267,7 @@ export class Speech {
 	}
 
 	/** Speaks a line, handing its audio to `piece` as it comes, after the lines before. */
-	say(line: string, piece: (piece: Piece) => void): Promise<void> {
+	say(line: string, piece: (piece: Piece) => boolean): Promise<void> {
 		const spoken = this.queue.then(() => this.speak(line, piece));
 		this.queue = spoken.catch(() => {});
 		return spoken;
@@ -302,12 +275,14 @@ export class Speech {
 
 	private async speak(
 		line: string,
-		piece: (piece: Piece) => void,
+		piece: (piece: Piece) => boolean,
 	): Promise<void> {
 		const socket = await this.connect();
 		await new Promise<void>((resolve, reject) => {
 			// An odd byte waits for the next chunk.
 			let held = new Uint8Array(0);
+			/** Seconds of the line's audio so far. */
+			let start = 0;
 			const done = (error?: Error) => {
 				clearTimeout(timer);
 				socket.removeEventListener("message", message);
@@ -339,13 +314,15 @@ export class Speech {
 					const samples = new Float32Array(whole / 2);
 					for (let i = 0; i < samples.length; i++)
 						samples[i] = view.getInt16(2 * i, true) / 32768;
+					// Each alignment is timed from the start of the audio it comes with.
 					const alignment = m.alignment;
 					const chars: Piece["chars"] = (alignment?.chars ?? []).map(
 						(char: string, i: number) => ({
 							char,
-							at: (alignment.char_start_times_ms?.[i] ?? 0) / 1000,
+							at: start + (alignment.char_start_times_ms?.[i] ?? 0) / 1000,
 						}),
 					);
+					start += samples.length / SPEECH_RATE;
 					piece({ samples, chars });
 				}
 				if (m.is_final_audio_for_turn || m.is_final) done();

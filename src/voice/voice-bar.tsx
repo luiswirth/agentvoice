@@ -438,7 +438,7 @@ function Status({ voice, state }: { voice: Voice; state: VoiceState }) {
 					? "var(--agent)"
 					: "var(--muted-foreground)";
 	return (
-		<div className="flex items-center gap-2 text-xs tracking-widest whitespace-nowrap text-muted-foreground uppercase sm:gap-3">
+		<div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs tracking-widest whitespace-nowrap text-muted-foreground uppercase sm:gap-x-3">
 			<p className="flex items-center gap-2">
 				<span
 					className="size-2 rounded-full transition-[background] duration-500"
@@ -451,7 +451,11 @@ function Status({ voice, state }: { voice: Voice; state: VoiceState }) {
 					</span>
 				)}
 			</p>
-			<Languages voice={voice} state={state} />
+			<EngineChoice voice={voice} state={state} part="hearing" />
+			{state.engines.hearing === "elevenlabs" && (
+				<Languages voice={voice} state={state} />
+			)}
+			<EngineChoice voice={voice} state={state} part="speaking" />
 			<button
 				type="button"
 				aria-pressed={state.sharing}
@@ -471,6 +475,32 @@ function Status({ voice, state }: { voice: Voice; state: VoiceState }) {
 				sounds
 			</button>
 		</div>
+	);
+}
+
+/** Where hearing or speaking runs: ElevenLabs, or this device, which a
+ * press switches between. */
+function EngineChoice({
+	voice,
+	state,
+	part,
+}: {
+	voice: Voice;
+	state: VoiceState;
+	part: "hearing" | "speaking";
+}) {
+	const local = state.engines[part] === "local";
+	const what = part === "hearing" ? "hear" : "speak";
+	return (
+		<button
+			type="button"
+			title={`Where ${part} runs: on ElevenLabs, with your key, or on this device, in English only. Press to switch.`}
+			aria-label={`${part === "hearing" ? "Hearing" : "Speaking"} on ${local ? "this device" : "ElevenLabs"}`}
+			className="rounded-full px-2 py-0.5 tracking-widest uppercase transition hover:bg-white/10 hover:text-foreground text-muted-foreground/60"
+			onClick={() => voice.setEngine(part, local ? "elevenlabs" : "local")}
+		>
+			{what} · {local ? "local" : "elevenlabs"}
+		</button>
 	);
 }
 

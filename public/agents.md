@@ -32,8 +32,9 @@ A name stays with whoever joined under it first, for the whole session, so nobod
 - Before longer work, say in one sentence what you are about to do: while you work, the person hears only a soft sound now and then, which tells them that you are on it, not what you do.
 - Send without checking for anything new first: the receive still running brings it. When the person sends before your reply was heard to its end, it is dropped, and a heard entry tells you what of it they heard.
 
-The page listens and speaks through ElevenLabs, with the person's own ElevenLabs key, which goes from their browser straight to ElevenLabs.
-When the page has no key, it posts a public key, from the person's name, and takes their key as the secret `elevenlabs`, encrypted to that public key, so that only their page can read it.
+The page listens and speaks through ElevenLabs, with the person's own ElevenLabs key, which goes from their browser straight to ElevenLabs,
+or on models on the person's device, which need no key and hear and speak only English: the person chooses for listening and speaking each.
+When the page has no key and needs one, it posts a public key, from the person's name, and takes their key as the secret `elevenlabs`, encrypted to that public key, so that only their page can read it.
 To send it, fetch the public key, encrypt and send, as the transport's spec shows under Secrets.
 A key said in your chat stays in your harness's transcript and goes to your model's provider;
 the person can also enter it in the page.

@@ -2,19 +2,26 @@
 // Whoever starts creates the session: the page, which then hands the agent
 // a prompt with its link, or the agent, which gives the person the page with
 // the link as `#session=<link>`. The ElevenLabs key comes encrypted from the
-// agent, or typed in, and stays in this browser.
+// agent, or typed in, and stays in this browser; voice running wholly on
+// this device needs none.
 import { Secrets, type Session } from "byoa/participant";
 import { Frame, Named, Onboard } from "byoa-web/onboard";
 import { useSession } from "byoa-web/react";
 import {
 	type ReactNode,
 	useEffect,
+	useReducer,
 	useState,
 	useSyncExternalStore,
 } from "react";
 import { Button } from "@/components/ui/button";
 import { checkKey, KeyRefused } from "./voice/elevenlabs.ts";
-import { Voice } from "./voice/voice.ts";
+import {
+	chooseEngines,
+	chosenEngines,
+	needsKey,
+	Voice,
+} from "./voice/voice.ts";
 import { VoiceBar } from "./voice/voice-bar.tsx";
 
 const KEY = "elevenlabs-key";
@@ -34,6 +41,8 @@ function Page({ name, rename }: { name: string; rename: () => void }) {
 	const [key, setKey] = useState(() => localStorage.getItem(KEY));
 	// Why ElevenLabs refused the last key, which asks for another.
 	const [refused, setRefused] = useState<string | null>(null);
+	// The engines are kept in this browser, where the voice bar changes them.
+	const [, rechosen] = useReducer((n: number) => n + 1, 0);
 
 	/** Keeps `candidate` unless ElevenLabs refuses it; a check that fails
 	 * for another reason, such as the network, can't tell, so it keeps it. */
@@ -105,12 +114,22 @@ function Page({ name, rename }: { name: string; rename: () => void }) {
 				description="Speak to the agent you already use, and hear its answers, here in your browser."
 				link={session.link}
 				person={name}
-				note="The voice runs on ElevenLabs, with your own account."
+				note="The voice runs on ElevenLabs, with your own account, or on this device."
 			/>
 		);
 	}
-	if (session && !key) {
-		return <KeyStep refused={refused} offer={offer} />;
+	if (session && !key && needsKey(chosenEngines())) {
+		return (
+			<KeyStep
+				refused={refused}
+				offer={offer}
+				local={() => {
+					chooseEngines({ hearing: "local", speaking: "local" });
+					setRefused(null);
+					rechosen();
+				}}
+			/>
+		);
 	}
 	return (
 		<main className="mx-auto flex h-dvh max-w-2xl flex-col gap-4 px-2 pt-4 pb-8 sm:px-4">
@@ -126,9 +145,7 @@ function Page({ name, rename }: { name: string; rename: () => void }) {
 					Leave
 				</Button>
 			</div>
-			{session && key && (
-				<Speech session={session} elevenlabs={key} forget={forget} />
-			)}
+			{session && <Speech session={session} elevenlabs={key} forget={forget} />}
 		</main>
 	);
 }
@@ -143,7 +160,7 @@ function Speech({
 	forget,
 }: {
 	session: Session;
-	elevenlabs: string;
+	elevenlabs: string | null;
 	forget: (why: string) => void;
 }) {
 	const [voice, setVoice] = useState<Voice | null>(null);
@@ -152,16 +169,23 @@ function Speech({
 		setVoice(voice);
 		return () => voice.close();
 	}, [session, elevenlabs]);
-	return voice && <Refusable voice={voice} forget={forget} />;
+	return (
+		voice && (
+			<Refusable voice={voice} forget={forget} keyed={elevenlabs !== null} />
+		)
+	);
 }
 
-/** The voice bar, and a way to another key once ElevenLabs refuses this one. */
+/** The voice bar, and a way to another key once ElevenLabs refuses this
+ * one, or to a key where there is none. */
 function Refusable({
 	voice,
 	forget,
+	keyed,
 }: {
 	voice: Voice;
 	forget: (why: string) => void;
+	keyed: boolean;
 }) {
 	const state = useSyncExternalStore(voice.watch, () => voice.state);
 	return (
@@ -170,7 +194,7 @@ function Refusable({
 			{state.refused && state.error && (
 				<div className="flex justify-center">
 					<Button variant="outline" onClick={() => forget(state.error ?? "")}>
-						Use another ElevenLabs key
+						{keyed ? "Use another ElevenLabs key" : "Enter an ElevenLabs key"}
 					</Button>
 				</div>
 			)}
@@ -178,13 +202,16 @@ function Refusable({
 	);
 }
 
-/** Asks for the ElevenLabs key, unless the agent sends it first. */
+/** Asks for the ElevenLabs key, unless the agent sends it first, or for
+ * voice to run on this device instead. */
 function KeyStep({
 	refused,
 	offer,
+	local,
 }: {
 	refused: string | null;
 	offer: (key: string) => Promise<void>;
+	local: () => void;
 }) {
 	const [draft, setDraft] = useState("");
 	const [checking, setChecking] = useState(false);
@@ -236,6 +263,17 @@ function KeyStep({
 					ElevenLabs, under Developers, API Keys
 				</a>
 				, with Speech to Text and Text to Speech allowed.
+			</p>
+			<p className="text-sm text-pretty text-muted-foreground">
+				Or{" "}
+				<button
+					type="button"
+					className="text-foreground underline underline-offset-4"
+					onClick={local}
+				>
+					run voice on this device
+				</button>
+				, with no key: it hears and speaks English, and loads about 230 MB once.
 			</p>
 		</Frame>
 	);

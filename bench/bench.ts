@@ -5,7 +5,7 @@
 //   just bench [scenario]
 //
 // It uses the ElevenLabs key in ~/secrets/elevenlabs-api-key.txt and the
-// public relay.
+// public relay. `ENGINE=local` has the page hear and speak on local models.
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -59,9 +59,13 @@ const browser = await chromium.launch({
 try {
 	const context = await browser.newContext();
 	await context.addInitScript(
-		([key]) => {
+		([key, engine]) => {
 			localStorage.setItem("byoa-name", "person");
 			localStorage.setItem("elevenlabs-key", key as string);
+			localStorage.setItem(
+				"voice-engines",
+				JSON.stringify({ hearing: engine, speaking: engine }),
+			);
 			localStorage.setItem("voice-sharing-trace", "true");
 			// The fake microphone plays its file from when it is opened.
 			const open = navigator.mediaDevices.getUserMedia.bind(
@@ -73,15 +77,25 @@ try {
 				return stream;
 			};
 		},
-		[key],
+		[key, process.env.ENGINE ?? "elevenlabs"],
 	);
 	const tab = await context.newPage();
-	tab.on("pageerror", (error) => console.error("page:", error.message));
+	tab.on("pageerror", (error) =>
+		console.error("page:", error.stack ?? error.message),
+	);
 	await tab.goto(
 		`${page}?relay=${encodeURIComponent(RELAY)}#session=${agent.link}`,
 	);
-	await tab.getByRole("button", { name: "Speak" }).click();
+	// The speaker is on from the start, and reads the agent's answers.
+	const speak = tab.getByRole("button", { name: "Speak", exact: true });
+	if (await speak.isVisible()) await speak.click();
 	await tab.getByRole("button", { name: "Listen" }).click();
+	// The microphone opens once the models are loaded, local ones taking a while.
+	await tab
+		.waitForFunction(() => (window as { opened?: number }).opened, null, {
+			timeout: 120_000,
+		})
+		.catch(() => {});
 	await tab.waitForTimeout((duration + 3) * 1000);
 	const opened = await tab.evaluate(
 		() => (window as { opened?: number }).opened,

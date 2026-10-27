@@ -3,7 +3,7 @@
 // context is resumed by a switch's click, and by the first gesture anywhere
 // on the page, for the speaker that is on from the start.
 import capture from "./capture.ts?worker&url";
-import { SPEECH_RATE } from "./elevenlabs.ts";
+import { SPEECH_RATE } from "./engines.ts";
 
 let context: { audio: AudioContext; loaded: Promise<void> } | null = null;
 

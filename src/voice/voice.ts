@@ -13,11 +13,14 @@
 // while it played, as its echo or too quiet, show for a while, to send. What happens is heard
 // as short cues, so that voice seems responsive while nothing is said.
 // With turns ended by hand, the person records each message deliberately,
-// and sends or deletes it.
+// and sends or deletes it. Hearing and speaking each run on ElevenLabs or
+// on local models, as the person chooses.
 import { Activity, type Progress } from "./activity.ts";
 import { holdAudioSession } from "./audio.ts";
-import { KeyRefused } from "./elevenlabs.ts";
+import { KeyRefused, Scribe, Speech } from "./elevenlabs.ts";
+import type { Engine, Heard, Synthesizer, Transcriber } from "./engines.ts";
 import { Listener } from "./listener.ts";
+import { Moonshine, Phonon } from "./local.ts";
 import { holdMedia } from "./media.ts";
 import {
 	HEARD,
@@ -80,7 +83,34 @@ export type VoiceState = Modes & {
 	/** Whether the error is ElevenLabs refusing the key, which another key
 	 * fixes. */
 	refused: boolean;
+	/** Where hearing and speaking run. Kept in this browser. */
+	engines: Engines;
 };
+
+export type Engines = { hearing: Engine; speaking: Engine };
+
+const ENGINES = "voice-engines";
+
+/** Where hearing and speaking run, as last chosen in this browser:
+ * ElevenLabs, until the person chooses otherwise. */
+export function chosenEngines(): Engines {
+	const chosen: Partial<Engines> = JSON.parse(
+		localStorage.getItem(ENGINES) ?? "{}",
+	);
+	return {
+		hearing: chosen.hearing ?? "elevenlabs",
+		speaking: chosen.speaking ?? "elevenlabs",
+	};
+}
+
+export function chooseEngines(engines: Engines): void {
+	localStorage.setItem(ENGINES, JSON.stringify(engines));
+}
+
+/** Whether either runs on ElevenLabs, which needs the person's key. */
+export function needsKey(engines: Engines): boolean {
+	return engines.hearing === "elevenlabs" || engines.speaking === "elevenlabs";
+}
 
 /** The state that shows `error`. */
 function failure(error: Error): Pick<VoiceState, "error" | "refused"> {
@@ -129,7 +159,7 @@ function transcripts(): string[] {
 export class Voice {
 	private readonly session: Session;
 	private readonly name: string;
-	private readonly key: string;
+	private readonly key: string | null;
 	private listener: Listener | null = null;
 	private speaker: Speaker | null = null;
 	/** What happens to the draft once the segment in progress ends: the
@@ -180,10 +210,12 @@ export class Voice {
 		missed: null,
 		error: null,
 		refused: false,
+		engines: chosenEngines(),
 	};
 
-	/** `name` is the person's in the session, `key` their ElevenLabs key. */
-	constructor(session: Session, name: string, key: string) {
+	/** `name` is the person's in the session, `key` their ElevenLabs key,
+	 * which only what runs on ElevenLabs needs. */
+	constructor(session: Session, name: string, key: string | null) {
 		this.session = session;
 		this.name = name;
 		this.key = key;
@@ -325,7 +357,7 @@ export class Voice {
 		this.floor = false;
 		try {
 			this.listener = await Listener.open(
-				this.key,
+				(heard) => this.transcribe(heard),
 				{
 					// The voice gets quieter at any speech, and stops only at
 					// words, so that a cough or a noise stops nothing.
@@ -397,7 +429,6 @@ export class Voice {
 				() => (this.speaker?.playing ? ECHO_FLOOR : Number.NEGATIVE_INFINITY),
 				(text) => this.speaker?.echoes(text) ?? false,
 				() => this.state.autoEnd || this.state.recording,
-				this.state.languages,
 			);
 			this.set({ listener: true, switching: null });
 			this.cue("listen");
@@ -414,6 +445,32 @@ export class Voice {
 		play("press");
 		localStorage.setItem(LANGUAGES, JSON.stringify(languages));
 		this.set({ languages });
+		if (this.state.engines.hearing === "elevenlabs") await this.reopen();
+	}
+
+	/** Chooses where hearing or speaking runs. Listening switches at its next
+	 * start, at once while nothing is being heard; reading aloud at once. */
+	async setEngine(part: keyof Engines, engine: Engine): Promise<void> {
+		if (this.state.engines[part] === engine) return;
+		this.trace.event("engine", { [part]: engine });
+		play("press");
+		const engines = { ...this.state.engines, [part]: engine };
+		chooseEngines(engines);
+		this.set({ engines, error: null, refused: false });
+		if (part === "hearing") return this.reopen();
+		if (!this.state.speaker || this.state.switching) return;
+		this.speaker?.close();
+		this.speaker = null;
+		this.set({ speaker: false });
+		this.restoring = true;
+		await this.setSpeaker(true);
+		this.restoring = false;
+		if (!this.state.speaker) await this.modes();
+	}
+
+	/** Opens listening again, if it is on and nothing is being heard, for
+	 * what it hears with to change. */
+	private async reopen(): Promise<void> {
 		if (!this.state.listener || this.state.hearing || this.state.switching)
 			return;
 		this.listener?.close();
@@ -430,7 +487,14 @@ export class Voice {
 	async setSpeaker(on: boolean): Promise<void> {
 		if (on === this.state.speaker || this.state.switching) return;
 		if (on) {
-			const speaker = new Speaker(this.session, this.name, this.key);
+			let speech: Synthesizer;
+			try {
+				speech = this.synthesizer();
+			} catch (error) {
+				this.set(failure(error as Error));
+				return;
+			}
+			const speaker = new Speaker(this.session, this.name, speech);
 			speaker.changed = (reading) => {
 				this.trace.event("reading", { n: reading });
 				// A message read right after another, so that the break
@@ -650,6 +714,29 @@ export class Voice {
 		this.trace.event("skip");
 		play("press");
 		this.speaker?.skip();
+	}
+
+	/** The ElevenLabs key, which a missing one refuses. */
+	private elevenlabs(): string {
+		if (this.key === null) throw new KeyRefused("ElevenLabs needs your key.");
+		return this.key;
+	}
+
+	private async transcribe(heard: Heard): Promise<Transcriber> {
+		if (this.state.engines.hearing === "local") return Moonshine.open(heard);
+		return Scribe.open(this.elevenlabs(), heard, this.state.languages);
+	}
+
+	private synthesizer(): Synthesizer {
+		if (this.state.engines.speaking === "elevenlabs")
+			return new Speech(this.elevenlabs());
+		const phonon = new Phonon();
+		phonon
+			.ready()
+			.catch((error: Error) =>
+				this.set(failure(new Error(`Phonon failed to load: ${error.message}`))),
+			);
+		return phonon;
 	}
 
 	close(): void {

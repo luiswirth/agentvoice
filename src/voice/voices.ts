@@ -3,7 +3,7 @@
 // otherwise if it is long enough, and the words of a segment are tagged by the voice of their
 // stretch, as `[voice 1] ...`. The page doesn't know who a voice is.
 // Embeddings are kept across reloads, so are voices' numbers.
-import type { Word } from "./elevenlabs.ts";
+import type { Word } from "./engines.ts";
 
 /** How close an embedding must be to a voice's mean to be that voice, as
  * the cosine: on Luis's recordings, his stretches of a second or more are

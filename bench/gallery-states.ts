@@ -23,6 +23,7 @@ export const base: VoiceState = {
 	missed: null,
 	error: null,
 	refused: false,
+	engines: { hearing: "elevenlabs", speaking: "elevenlabs" },
 };
 
 export const states: Record<string, Partial<VoiceState>> = {

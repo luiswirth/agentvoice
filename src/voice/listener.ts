@@ -1,11 +1,12 @@
 // The listener: what the person says, as text, from the microphone through
-// Scribe. Turn detection runs in the page, on local models, and ends a
+// a transcriber, ElevenLabs' or a local one. Turn detection runs in the
+// page, on local models, and ends a
 // segment once the person sounds done; whether a segment ends the person's
 // turn is for whoever uses the listener to decide. A segment counts only
 // once it is loud enough, and only if its words are not the speaker's own,
 // so that the speaker's echo, which the browser's echo cancellation never
 // removes entirely and at times not at all, is not taken for the person.
-// Scribe hears each chunk once turn detection has, so that a commit at what
+// The transcriber hears each chunk once turn detection has, so that a commit at what
 // turn detection marks lands where it marked it, and only from shortly
 // before speech starts until its turn ends, so that the silence between
 // turns is not paid for. Each stretch of speech is tagged by its voice, on a
@@ -13,7 +14,12 @@
 // which it waits for if the model is not done. While speech goes on, the
 // model also tells which known voice is heard now, if any.
 import { Microphone } from "./audio.ts";
-import { LISTEN_RATE, Scribe, type Word } from "./elevenlabs.ts";
+import {
+	type Heard,
+	LISTEN_RATE,
+	type Transcriber,
+	type Word,
+} from "./engines.ts";
 import type { FromSpeakers, ToSpeakers } from "./speakers-worker.ts";
 import SpeakersWorker from "./speakers-worker.ts?worker";
 import type { FromTurns, ToTurns } from "./turns-worker.ts";
@@ -36,7 +42,7 @@ export type Hearing = {
 	/** A segment's words that didn't count, as the speaker's echo or too quiet
 	 * while it played, which may still be the person's. */
 	missed(text: string, echoed: boolean): void;
-	/** What the microphone hears, as Scribe gets it, before it goes on. */
+	/** What the microphone hears, as the transcriber gets it, before it goes on. */
 	audio(pcm: Int16Array): void;
 	/** How loud the microphone is, from 0 to 1, every 0.1 s. */
 	level(level: number): void;
@@ -46,7 +52,7 @@ export type Hearing = {
 	trace(event: string, data: Record<string, unknown>): void;
 };
 
-/** How long before turn detection hears speech start Scribe hears it, in
+/** How long before turn detection hears speech start the transcriber hears it, in
  * seconds, so that a soft start, which voice activity hears late, is kept. */
 const PREROLL = 0.5;
 /** How much sound turn detection heard is kept for the next speech, in
@@ -69,7 +75,7 @@ type Commit = "piece" | "end";
 
 export class Listener {
 	private readonly microphone: Microphone;
-	private readonly scribe: Scribe;
+	private readonly transcriber: Transcriber;
 	private readonly worker: Worker;
 	private readonly speakers: Worker;
 	private readonly finishTurn: () => boolean;
@@ -77,13 +83,13 @@ export class Listener {
 
 	private constructor(
 		microphone: Microphone,
-		scribe: Scribe,
+		transcriber: Transcriber,
 		worker: Worker,
 		speakers: Worker,
 		finishTurn: () => boolean,
 	) {
 		this.microphone = microphone;
-		this.scribe = scribe;
+		this.transcriber = transcriber;
 		this.worker = worker;
 		this.speakers = speakers;
 		this.finishTurn = finishTurn;
@@ -99,20 +105,19 @@ export class Listener {
 	 * it starts the page's audio.
 	 */
 	static async open(
-		key: string,
+		/** Opens the transcriber, which tells `heard` what it hears. */
+		transcribe: (heard: Heard) => Promise<Transcriber>,
 		hearing: Hearing,
 		floor: () => number,
 		echo: (text: string) => boolean,
 		gate: () => boolean,
-		/** What the person speaks, as `Scribe.open` takes it: none to detect it. */
-		languages: readonly string[],
 	): Promise<Listener> {
 		let listener: Listener | null = null;
 		/** Whether the segment in progress counts. */
 		let speaking = false;
 		/** The loudest 0.1 s of the segment in progress, in dBFS. */
 		let loudest = Number.NEGATIVE_INFINITY;
-		/** What Scribe committed of the segment in progress. */
+		/** What the transcriber committed of the segment in progress. */
 		let pieces: string[] = [];
 		/** Their words, timed. */
 		let words: Word[] = [];
@@ -188,28 +193,28 @@ export class Listener {
 		let settled = false;
 		/** The chunks turn detection has not heard yet, in order. */
 		const unheard: Int16Array[] = [];
-		/** How many of the chunks turn detection is still to hear Scribe heard
+		/** How many of the chunks turn detection is still to hear the transcriber heard
 		 * already, as the person ended the turn by hand. */
 		let early = 0;
 		/** Whether turn detection hears speech. */
 		let voiced = false;
-		/** Whether Scribe hears what turn detection heard: from speech until
-		 * the turn it starts ends, pauses included, since Scribe gives a word's
+		/** Whether the transcriber hears what turn detection heard: from speech until
+		 * the turn it starts ends, pauses included, since the transcriber gives a word's
 		 * text only once it heard some of what follows. */
 		let transcribing = false;
 		/** Seconds of audio turn detection heard. */
 		let passed = 0;
 		/** The sound turn detection heard last, while it heard no speech, with
-		 * where each chunk starts, for Scribe to hear once speech starts. */
+		 * where each chunk starts, for the transcriber to hear once speech starts. */
 		const kept: { pcm: Int16Array; at: number }[] = [];
-		/** Gives Scribe the chunk turn detection heard next, or keeps it. */
+		/** Gives the transcriber the chunk turn detection heard next, or keeps it. */
 		const hear = (pcm: Int16Array) => {
 			const at = passed;
 			passed += pcm.length / LISTEN_RATE;
-			if (transcribing) return scribe.hear(pcm);
+			if (transcribing) return transcriber.hear(pcm);
 			kept.push({ pcm, at });
 			while ((kept[0]?.at ?? passed) < passed - KEPT)
-				scribe.skip(kept.shift()?.pcm.length ?? 0);
+				transcriber.skip(kept.shift()?.pcm.length ?? 0);
 		};
 		const fail = (error: Error) => {
 			if (listener === null || listener.closing) return;
@@ -246,12 +251,12 @@ export class Listener {
 			if (!counts || embedding.length === 0) tagged();
 			else embedded.then(tagged);
 		};
-		/** Ends the segment in progress once Scribe settled it; whether it is still to come. */
+		/** Ends the segment in progress once the transcriber settled it; whether it is still to come. */
 		const finish = (): boolean => {
 			turn = false;
 			const covered = settled;
 			settled = false;
-			if (!covered && scribe.commit()) commits.push("end");
+			if (!covered && transcriber.commit()) commits.push("end");
 			else if (commits.length > 0) commits[commits.length - 1] = "end";
 			else return false;
 			return true;
@@ -280,8 +285,8 @@ export class Listener {
 						transcribing = true;
 						for (const { pcm, at } of kept.splice(0))
 							if (at + pcm.length / LISTEN_RATE > data.at - PREROLL)
-								scribe.hear(pcm);
-							else scribe.skip(pcm.length);
+								transcriber.hear(pcm);
+							else transcriber.skip(pcm.length);
 						open = data.at;
 						since = data.at;
 						probed = null;
@@ -304,7 +309,7 @@ export class Listener {
 						});
 					case "ending":
 						hearing.trace("turn.ending", { reason: data.reason });
-						if (turn && scribe.commit()) {
+						if (turn && transcriber.commit()) {
 							commits.push("piece");
 							settled = true;
 						}
@@ -321,61 +326,57 @@ export class Listener {
 				fail(new Error(`Turn detection failed: ${event.message}`));
 			};
 		});
-		let scribe: Scribe;
+		let transcriber: Transcriber;
 		try {
-			[scribe] = await Promise.all([
-				Scribe.open(
-					key,
-					{
-						partial: (text) => {
-							// It belongs to a segment being committed.
-							if (commits.length > 0) return;
-							const heard = [...pieces, text].join(" ").trim();
-							tell({ type: "text", text: heard });
-							if (!/\w/.test(text)) return;
-							if (!speaking && (loudest < floor() || echo(heard))) return;
-							if (!speaking) hearing.speaking();
-							speaking = true;
-							hearing.partial(heard);
-						},
-						committed: (text, automatic, timed) => {
-							const why = automatic ? "piece" : (commits.shift() ?? "piece");
-							// Where the words don't spell the text, the text is one word,
-							// so that the tags never lose any of it.
-							const spelled =
-								timed
-									.map((w) => w.text)
-									.join("")
-									.trim() === text.trim();
-							hearing.trace("committed", {
-								why,
-								text,
-								spelled,
-								sent: scribe.sent / LISTEN_RATE,
-							});
-							if (text.trim()) {
-								pieces.push(text.trim());
-								const start = timed[0]?.start ?? clock;
-								const end = timed.at(-1)?.end ?? clock;
-								if (words.length > 0)
-									words.push({ text: " ", start, end: start });
-								if (spelled) words.push(...timed);
-								else words.push({ text: text.trim(), start, end });
-							}
-							if (why === "end") segment();
-							else if (turn) {
-								// What a pause settled replaces its partial.
-								const heard = pieces.join(" ");
-								tell({ type: "text", text: heard });
-								if (speaking) hearing.partial(heard);
-							}
-						},
-						closed: (error) => {
-							if (error) fail(error);
-						},
+			[transcriber] = await Promise.all([
+				transcribe({
+					partial: (text) => {
+						// It belongs to a segment being committed.
+						if (commits.length > 0) return;
+						const heard = [...pieces, text].join(" ").trim();
+						tell({ type: "text", text: heard });
+						if (!/\w/.test(text)) return;
+						if (!speaking && (loudest < floor() || echo(heard))) return;
+						if (!speaking) hearing.speaking();
+						speaking = true;
+						hearing.partial(heard);
 					},
-					languages,
-				),
+					committed: (text, automatic, timed) => {
+						const why = automatic ? "piece" : (commits.shift() ?? "piece");
+						// Where the words don't spell the text, the text is one word,
+						// so that the tags never lose any of it.
+						const spelled =
+							timed
+								.map((w) => w.text)
+								.join("")
+								.trim() === text.trim();
+						hearing.trace("committed", {
+							why,
+							text,
+							spelled,
+							sent: transcriber.sent / LISTEN_RATE,
+						});
+						if (text.trim()) {
+							pieces.push(text.trim());
+							const start = timed[0]?.start ?? clock;
+							const end = timed.at(-1)?.end ?? clock;
+							if (words.length > 0)
+								words.push({ text: " ", start, end: start });
+							if (spelled) words.push(...timed);
+							else words.push({ text: text.trim(), start, end });
+						}
+						if (why === "end") segment();
+						else if (turn) {
+							// What a pause settled replaces its partial.
+							const heard = pieces.join(" ");
+							tell({ type: "text", text: heard });
+							if (speaking) hearing.partial(heard);
+						}
+					},
+					closed: (error) => {
+						if (error) fail(error);
+					},
+				}),
 				ready,
 			]);
 		} catch (error) {
@@ -415,12 +416,12 @@ export class Listener {
 				() => fail(new Error("The microphone was cut off.")),
 			);
 		} catch (error) {
-			scribe.close();
+			transcriber.close();
 			worker.terminate();
 			speakers.terminate();
 			throw error;
 		}
-		listener = new Listener(microphone, scribe, worker, speakers, () => {
+		listener = new Listener(microphone, transcriber, worker, speakers, () => {
 			tell({ type: "end" });
 			if (open !== null) embed(open, clock);
 			open = null;
@@ -452,7 +453,7 @@ export class Listener {
 	close(): void {
 		this.closing = true;
 		this.microphone.close();
-		this.scribe.close();
+		this.transcriber.close();
 		this.worker.terminate();
 		this.speakers.terminate();
 	}
