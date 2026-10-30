@@ -11,7 +11,7 @@ const headers = {
 
 export default defineConfig({
 	base: "./",
-	// Moonshine waits at its top level, which only a module worker can.
+	// The workers import modules.
 	worker: { format: "es" },
 	server: { headers },
 	preview: { headers },

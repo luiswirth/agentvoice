@@ -1,6 +1,6 @@
-# Cross-origin isolation, which Moonshine's threads need, and Phonon's and
-# ONNX Runtime's use. Everything the page loads from another origin is
-# fetched with CORS: ElevenLabs, the relay, and the models.
+# Cross-origin isolation, which ONNX Runtime's shared memory needs.
+# Everything the page loads from another origin is fetched with CORS:
+# ElevenLabs, the relay, and the models.
 /*
   Cross-Origin-Opener-Policy: same-origin
   Cross-Origin-Embedder-Policy: require-corp

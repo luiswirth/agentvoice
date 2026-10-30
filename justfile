@@ -16,12 +16,6 @@ bench scenario="turns":
     pnpm build
     CHROMIUM="$(command -v chromium)" pnpm exec tsx bench/bench.ts {{ scenario }}
 
-# Loads each candidate model of fully local voice in Safari on the Mac or the
-# iPhone, through WebDriver, and measures its size, load time, speed and
-# errors, into bench/.cache/models/runs/.
-bench-models device="mac" *candidates:
-    pnpm exec tsx bench/models/run.ts {{ device }} {{ candidates }}
-
 # Joins the audio a page shared into the session at `link` into one WAV, for
 # `just bench` to replay.
 recording link out="recording.wav":
