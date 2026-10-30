@@ -2,7 +2,7 @@
 // log and the presence: who joins and leaves, whether they have read the
 // person's last message, and whether they answered it. From reading it until
 // answering, an agent is taken to be working on it.
-import { type Entry, JOIN, LEAVE, type Presence } from "byoa/participant";
+import { type Entry, JOIN, LEAVE, type Presence } from "polylogue/participant";
 import { HEARD, MODES, type Session, spoken } from "./protocol.ts";
 import { TRACE } from "./trace.ts";
 

@@ -3,7 +3,7 @@
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
 
-@source "../node_modules/byoa-web/onboard";
+@source "../node_modules/polylogue-web/onboard";
 
 @custom-variant dark (&:is(.dark *));
 

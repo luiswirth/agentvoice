@@ -1,7 +1,7 @@
-// Voice's protocol, on chat's, on the byoa transport: entries of its own,
+// Voice's protocol, on chat's, on the polylogue transport: entries of its own,
 // and nothing changed below.
 
-import type { Session as Client, Entry } from "byoa/participant";
+import type { Session as Client, Entry } from "polylogue/participant";
 
 export type { Entry };
 
@@ -10,17 +10,17 @@ export type { Entry };
 export type Session = Pick<Client, "send" | "subscribe" | "log">;
 
 /** Which of the person's listener and speaker are on: sent as either changes. */
-export const MODES = "application/vnd.byoa.voice.modes+json";
+export const MODES = "application/vnd.polylogue.voice.modes+json";
 export type Modes = { listener: boolean; speaker: boolean };
 
 /** What was heard of a message dropped as the person cut in, empty if none: sent before what cut it off. */
-export const HEARD = "application/vnd.byoa.voice.heard+json";
+export const HEARD = "application/vnd.polylogue.voice.heard+json";
 export type Heard = { n: number; text: string };
 
 /** Who the voices are, by the number of their tag, as the agent names them:
  * the latest one holds. A named voice can cut in, and once any is named, an
  * unnamed one can't. */
-export const NAMES = "application/vnd.byoa.voice.names+json";
+export const NAMES = "application/vnd.polylogue.voice.names+json";
 export type Names = Record<string, string>;
 
 /** The names an entry holds: none where it is no object of names. */

@@ -1,12 +1,12 @@
-// A page to talk with an agent by voice, on a session of the byoa transport.
+// A page to talk with an agent by voice, on a session of the polylogue transport.
 // Whoever starts creates the session: the page, which then hands the agent
 // a prompt with its link, or the agent, which gives the person the page with
 // the link as `#session=<link>`. The ElevenLabs key comes encrypted from the
 // agent, or typed in, and stays in this browser; voice running wholly on
 // this device needs none.
-import { Secrets, type Session } from "byoa/participant";
-import { Frame, Named, Onboard } from "byoa-web/onboard";
-import { useSession } from "byoa-web/react";
+import { Secrets, type Session } from "polylogue/participant";
+import { Frame, Named, Onboard } from "polylogue-web/onboard";
+import { useSession } from "polylogue-web/react";
 import {
 	type ReactNode,
 	useEffect,

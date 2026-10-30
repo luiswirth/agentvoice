@@ -1,10 +1,10 @@
 // What the page tells of the others, against the real relay: an agent as
 // agents.md has it, with plain requests and a receive from its read position,
 // joins, reads the person's message, works, sends a file, answers, and leaves.
-import { create, Session } from "byoa/participant";
+import { create, Session } from "polylogue/participant";
 import { Activity } from "../src/voice/activity.ts";
 
-const RELAY = "https://byoa.agentic.lwirth.com";
+const RELAY = "https://polylogue.agentic.lwirth.com";
 const start = Date.now();
 const log = (what: string) =>
 	console.log(`${((Date.now() - start) / 1000).toFixed(2)}s ${what}`);

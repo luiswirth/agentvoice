@@ -3,7 +3,7 @@
 //
 //   just recording <session link> [out.wav]
 import { writeFile } from "node:fs/promises";
-import { Session } from "byoa/participant";
+import { Session } from "polylogue/participant";
 
 const [link, out = "recording.wav"] = process.argv.slice(2);
 if (!link) throw new Error("usage: recording.ts <session link> [out.wav]");

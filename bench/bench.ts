@@ -9,14 +9,14 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { create, type Entry, Session } from "byoa/participant";
 import { chromium } from "playwright-core";
+import { create, type Entry, Session } from "polylogue/participant";
 import { preview } from "vite";
 import { scenarios } from "./scenarios.ts";
 import { speech, type Timeline } from "./speech.ts";
 
-const RELAY = "https://byoa.agentic.lwirth.com";
-const TRACE = "application/vnd.byoa.voice.trace+json";
+const RELAY = "https://polylogue.agentic.lwirth.com";
+const TRACE = "application/vnd.polylogue.voice.trace+json";
 
 // A scenario by name, or a recording the page shared, a WAV, to replay.
 const name = process.argv[2] ?? "turns";
@@ -60,7 +60,7 @@ try {
 	const context = await browser.newContext();
 	await context.addInitScript(
 		([key, engine, recorded]) => {
-			localStorage.setItem("byoa-name", "person");
+			localStorage.setItem("polylogue-name", "person");
 			localStorage.setItem("elevenlabs-key", key as string);
 			localStorage.setItem(
 				"voice-engines",

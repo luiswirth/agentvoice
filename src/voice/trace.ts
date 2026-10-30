@@ -6,7 +6,7 @@
 
 /** A trace of what voice did since the last one was sent, or since the page
  * opened. */
-export const TRACE = "application/vnd.byoa.voice.trace+json";
+export const TRACE = "application/vnd.polylogue.voice.trace+json";
 
 import { LISTEN_RATE } from "./engines.ts";
 
