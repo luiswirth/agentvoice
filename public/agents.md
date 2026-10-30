@@ -36,6 +36,7 @@ A name stays with whoever joined under it first, for the whole session, so nobod
 The page listens and speaks through ElevenLabs, with the person's own ElevenLabs key, which goes from their browser straight to ElevenLabs,
 or on models on the person's device, which need no key and hear and speak only English: the person chooses for listening and speaking each.
 When the page has no key and needs one, it posts a public key, from the person's name, and takes their key as the secret `elevenlabs`, encrypted to that public key, so that only their page can read it.
+Each page posts its own, so where the person joined on several, send the key to each of them.
 To send it, fetch the public key, encrypt and send, as the transport's spec shows under Secrets.
 A key said in your chat stays in your harness's transcript and goes to your model's provider;
 the person can also enter it in the page.
