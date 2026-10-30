@@ -25,7 +25,7 @@ import {
 import { VoiceBar } from "./voice/voice-bar.tsx";
 
 const KEY = "elevenlabs-key";
-const SERVICE = "voice.senses.sh";
+const SERVICE = "voice.agentic.lwirth.com";
 
 export function App() {
 	return (

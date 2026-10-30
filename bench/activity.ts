@@ -4,7 +4,7 @@
 import { create, Session } from "byoa/participant";
 import { Activity } from "../src/voice/activity.ts";
 
-const RELAY = "https://byoa.senses.sh";
+const RELAY = "https://byoa.agentic.lwirth.com";
 const start = Date.now();
 const log = (what: string) =>
 	console.log(`${((Date.now() - start) / 1000).toFixed(2)}s ${what}`);

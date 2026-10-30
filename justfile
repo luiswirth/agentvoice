@@ -27,9 +27,9 @@ bench-models device="mac" *candidates:
 recording link out="recording.wav":
     pnpm exec tsx bench/recording.ts {{ link }} {{ out }}
 
-# Builds the page and serves it at voice.senses.sh.
+# Builds the page and serves it at voice.agentic.lwirth.com.
 deploy: ci
-    pnpm exec wrangler deploy --domain voice.senses.sh
+    pnpm exec wrangler deploy --domain voice.agentic.lwirth.com
 
 # Screenshots of the voice bar in each state of bench/gallery-states.ts, on a
 # Mac's window and an iPhone's, into bench/.cache/gallery/.
