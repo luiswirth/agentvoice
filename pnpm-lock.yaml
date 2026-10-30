@@ -31,10 +31,10 @@ importers:
         version: 1.30.0(patch_hash=486aaa1ab01a7e27ce6ec974d994976a8f8f5884306fe71c43be574a33919053)
       polylogue:
         specifier: github:luiswirth/polylogue
-        version: https://codeload.github.com/luiswirth/polylogue/tar.gz/727979fadeaba23af9adeff6320a7c6edba835a3
+        version: https://codeload.github.com/luiswirth/polylogue/tar.gz/13d4e5028c5722d0e2d6e9a63fe90a10e657738a
       polylogue-web:
         specifier: github:luiswirth/polylogue-web
-        version: https://codeload.github.com/luiswirth/polylogue-web/tar.gz/f6a079d384d0ee3dc62a076561dd78ee01eed5c5(polylogue@https://codeload.github.com/luiswirth/polylogue/tar.gz/727979fadeaba23af9adeff6320a7c6edba835a3)(react@19.3.1)
+        version: https://codeload.github.com/luiswirth/polylogue-web/tar.gz/407aea6b6f91368befba7f353f45498b331921c3(polylogue@https://codeload.github.com/luiswirth/polylogue/tar.gz/13d4e5028c5722d0e2d6e9a63fe90a10e657738a)(react@19.3.1)
       react:
         specifier: ^19.3.1
         version: 19.3.1
@@ -2073,15 +2073,15 @@ packages:
     engines: {node: '>=20'}
     hasBin: true
 
-  polylogue-web@https://codeload.github.com/luiswirth/polylogue-web/tar.gz/f6a079d384d0ee3dc62a076561dd78ee01eed5c5:
-    resolution: {gitHosted: true, integrity: sha512-ksG3Th6ga7f8msCw0kpdnrpVhNrdYOHF8Ij8Ff0b9wWsNESycMPtqp88vM5ERv53OWnnWmGMUESKUQQB43qUhA==, tarball: https://codeload.github.com/luiswirth/polylogue-web/tar.gz/f6a079d384d0ee3dc62a076561dd78ee01eed5c5}
+  polylogue-web@https://codeload.github.com/luiswirth/polylogue-web/tar.gz/407aea6b6f91368befba7f353f45498b331921c3:
+    resolution: {gitHosted: true, integrity: sha512-M3Q8Bz5u/elBqZaL4Q+AOO3G7Jns/jvAQHXCHaTsJDuxe7uiTDxrEO4AO5st+DtcoXKozUdG/sw+7Y7YaSOk0Q==, tarball: https://codeload.github.com/luiswirth/polylogue-web/tar.gz/407aea6b6f91368befba7f353f45498b331921c3}
     version: 0.0.0
     peerDependencies:
       polylogue: github:luiswirth/polylogue
       react: '>=19'
 
-  polylogue@https://codeload.github.com/luiswirth/polylogue/tar.gz/727979fadeaba23af9adeff6320a7c6edba835a3:
-    resolution: {gitHosted: true, integrity: sha512-YFJbwJd9zNNZ3b4L3TtMklDJLOp30JbU3D9nqFt/ac9Cpy25MDd6WEbQ82WHSm0DYtU855DZySsZ7ITz9TlY5w==, tarball: https://codeload.github.com/luiswirth/polylogue/tar.gz/727979fadeaba23af9adeff6320a7c6edba835a3}
+  polylogue@https://codeload.github.com/luiswirth/polylogue/tar.gz/13d4e5028c5722d0e2d6e9a63fe90a10e657738a:
+    resolution: {gitHosted: true, integrity: sha512-5U5GympZphZ7b7cIHF7uvgCBP8m0P2eGM571ugFfYOysWH4C0+eiqciVHAXTsUnTul1SOyoPvPYGumM5Wa3qmw==, tarball: https://codeload.github.com/luiswirth/polylogue/tar.gz/13d4e5028c5722d0e2d6e9a63fe90a10e657738a}
     version: 0.0.0
 
   postcss-selector-parser@7.1.7:
@@ -4180,12 +4180,12 @@ snapshots:
 
   playwright-core@1.64.1: {}
 
-  polylogue-web@https://codeload.github.com/luiswirth/polylogue-web/tar.gz/f6a079d384d0ee3dc62a076561dd78ee01eed5c5(polylogue@https://codeload.github.com/luiswirth/polylogue/tar.gz/727979fadeaba23af9adeff6320a7c6edba835a3)(react@19.3.1):
+  polylogue-web@https://codeload.github.com/luiswirth/polylogue-web/tar.gz/407aea6b6f91368befba7f353f45498b331921c3(polylogue@https://codeload.github.com/luiswirth/polylogue/tar.gz/13d4e5028c5722d0e2d6e9a63fe90a10e657738a)(react@19.3.1):
     dependencies:
-      polylogue: https://codeload.github.com/luiswirth/polylogue/tar.gz/727979fadeaba23af9adeff6320a7c6edba835a3
+      polylogue: https://codeload.github.com/luiswirth/polylogue/tar.gz/13d4e5028c5722d0e2d6e9a63fe90a10e657738a
       react: 19.3.1
 
-  polylogue@https://codeload.github.com/luiswirth/polylogue/tar.gz/727979fadeaba23af9adeff6320a7c6edba835a3: {}
+  polylogue@https://codeload.github.com/luiswirth/polylogue/tar.gz/13d4e5028c5722d0e2d6e9a63fe90a10e657738a: {}
 
   postcss-selector-parser@7.1.7:
     dependencies:
