@@ -28,8 +28,23 @@ recording link out="recording.wav":
     pnpm exec tsx bench/recording.ts {{ link }} {{ out }}
 
 # Builds the page and serves it at voice.agentics.lwirth.com.
-deploy: ci
+deploy: pinned ci
     pnpm exec wrangler deploy --domain voice.agentics.lwirth.com
+
+# Moves the lock to the newest commits of polylogue and polylogue-web.
+bump:
+    pnpm update polylogue polylogue-web
+
+# Fails where the lock pins polylogue or polylogue-web behind its newest
+# commit, which the page would otherwise be built against unnoticed.
+pinned:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for repo in polylogue polylogue-web; do
+        head=$(git ls-remote "https://github.com/luiswirth/$repo" HEAD | cut -f1)
+        grep -q "luiswirth/$repo/tar.gz/$head" pnpm-lock.yaml \
+            || { echo "$repo is pinned behind $head: run just bump" >&2; exit 1; }
+    done
 
 # Screenshots of the voice bar in each state of bench/gallery-states.ts, on a
 # Mac's window and an iPhone's, into bench/.cache/gallery/.
