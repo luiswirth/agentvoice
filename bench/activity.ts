@@ -4,7 +4,7 @@
 import { create, Session } from "polylogue/participant";
 import { Activity } from "../src/voice/activity.ts";
 
-const RELAY = "https://polylogue.agentic.lwirth.com";
+const RELAY = "https://polylogue.agentics.lwirth.com";
 const start = Date.now();
 const log = (what: string) =>
 	console.log(`${((Date.now() - start) / 1000).toFixed(2)}s ${what}`);

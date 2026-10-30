@@ -41,7 +41,7 @@ export function showMedia(title: string, mode: string): void {
 	navigator.mediaSession.metadata = new MediaMetadata({
 		title,
 		artist: mode,
-		album: "voice.agentic.lwirth.com",
+		album: "voice.agentics.lwirth.com",
 	});
 }
 

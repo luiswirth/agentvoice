@@ -15,7 +15,7 @@ import { preview } from "vite";
 import { scenarios } from "./scenarios.ts";
 import { speech, type Timeline } from "./speech.ts";
 
-const RELAY = "https://polylogue.agentic.lwirth.com";
+const RELAY = "https://polylogue.agentics.lwirth.com";
 const TRACE = "application/vnd.polylogue.voice.trace+json";
 
 // A scenario by name, or a recording the page shared, a WAV, to replay.

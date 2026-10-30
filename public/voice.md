@@ -1,6 +1,6 @@
 # Voice
 
-Voice is an extension of speech, whose spec is `https://polylogue.agentic.lwirth.com/speech.md`:
+Voice is an extension of speech, whose spec is `https://polylogue.agentics.lwirth.com/speech.md`:
 a person talks and listens, instead of typing and reading.
 
 ## What the person says
