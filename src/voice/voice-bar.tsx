@@ -65,8 +65,8 @@ export type Present = {
 	engine: boolean;
 };
 
-/** The session as the page sees it. */
-/** A message said in the session, by the person or another. */
+/** A message said in the session, by the person or an agent: another
+ * person's words never show, as the page never reads them out. */
 export type Turn = {
 	n: number;
 	from: string;
@@ -75,6 +75,7 @@ export type Turn = {
 	text: string;
 };
 
+/** The session as the page sees it. */
 export type Room = {
 	/** The others in it now. */
 	people: Present[];
@@ -295,14 +296,12 @@ function Aura({
 	);
 }
 
-/** The middle of the page: the person's words once there are any, else who
- * has the floor. */
 /** How many turns of each side the stage shows: the last few, fading out,
  * never the whole conversation, which the harness keeps. */
 const SHOWN = 4;
 
 /** The middle of the page: what the person said on the left, sent ones
- * faded, with the words not sent yet below them; what the others said on the
+ * faded, with the words not sent yet below them; what the agents said on the
  * right, the one read now lit, with how much of it was heard. Before anything
  * was said, and while the browser holds the sound, who has the floor. */
 function Stage({
@@ -1074,7 +1073,7 @@ function Settings(props: {
 				{props.link && (
 					<Row
 						title="Session link"
-						detail="Keep it secret: whoever holds it can talk to your agent."
+						detail="It is like a password: share it only with people you trust."
 					>
 						<CopyLink link={props.link} />
 					</Row>

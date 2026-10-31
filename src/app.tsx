@@ -15,7 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { checkKey, KeyRefused } from "./voice/elevenlabs.ts";
 import type { Tier } from "./voice/engines.ts";
-import { spoken } from "./voice/protocol.ts";
+import { agent as isAgent, spoken } from "./voice/protocol.ts";
 import {
 	chooseTier,
 	chosenTier,
@@ -260,12 +260,17 @@ function Page({ name, rename }: { name: string; rename: () => void }) {
 						session && room
 							? {
 									people: room.people,
-									turns: entries.filter(spoken).map((entry) => ({
-										n: entry.n,
-										from: entry.from,
-										mine: entry.from === name,
-										text: entry.text,
-									})),
+									turns: entries
+										.filter(spoken)
+										.filter(
+											(entry) => entry.from === name || isAgent(entry.from),
+										)
+										.map((entry) => ({
+											n: entry.n,
+											from: entry.from,
+											mine: entry.from === name,
+											text: entry.text,
+										})),
 									link: session.link,
 									leave: () => void leave(),
 								}

@@ -108,7 +108,17 @@ try {
 				const back = new Session(session.link, "luis/claude-again");
 				await back.join();
 				await back.send("I'm back.");
+				// Another person typing in the session: the page is its
+				// person's ears toward the agents, so the stage leaves it out.
+				const tristan = new Session(session.link, "tristan");
+				await tristan.join();
+				await tristan.send("Typed by tristan.");
 				await shot(tab, screen, "8-local-back");
+				console.log(
+					"another person shown:",
+					await tab.getByText("Typed by tristan.").count(),
+				);
+				await tristan.leave();
 				const mic = tab.getByRole("button", { name: /listen/i });
 				console.log("listening again:", await mic.getAttribute("aria-pressed"));
 				await back.leave();
