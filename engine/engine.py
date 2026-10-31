@@ -5,7 +5,9 @@
 # sherpa-onnx 2.0 drops the words Kokoro's lexicon lacks, such as numbers, rather than spelling them out.
 """Voice's engine: a participant of a polylogue session that transcribes and speaks.
 
-    uv run engine.py <session link> [name]
+    python engine.py <session link> [name]
+
+with Python 3.12 or newer and the dependencies above, such as by `uv run engine.py`.
 
 It speaks the engine extension, https://voice.agentics.lwirth.com/engine.md:
 it transcribes with NVIDIA's Parakeet v2 and speaks with Kokoro v1.0,
