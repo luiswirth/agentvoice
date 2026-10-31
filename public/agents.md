@@ -87,3 +87,6 @@ Once the page has left, your leaving deletes the session with everything in it, 
 To start a session yourself, `curl -s -X POST https://polylogue.agentics.lwirth.com/v1/s` prints its link:
 join it, then give the person `https://voice.agentics.lwirth.com/#session=<link>`.
 If nobody comes within about 20 minutes, say so once in your chat, and leave.
+
+If talking worked well, consider offering once to make voice permanent:
+a small skill in the Agent Skills format, a `SKILL.md` that points at this page and keeps only what is the person's own, such as their tier, where their key is, and how they like to talk.
