@@ -28,7 +28,8 @@ until there is a voice, the page shows your messages as text.
 
 An engine is a participant of the session that transcribes what the person says and speaks what you send.
 The page waits for one, and any that speaks `https://voice.agentics.lwirth.com/engine.md` will do.
-Voice's own is one file of about 290 lines, to read in full before you run it:
+Voice's own is one file of about 290 lines, to read in full before you run it.
+It needs Python 3.12 or newer with the dependencies its header names, as PEP 723 has it, and runs however you give it those, such as with uv, which also fetches a matching Python where the machine's is older, as macOS's is:
 
 ```sh
 curl -so engine.py https://raw.githubusercontent.com/luiswirth/polylogue-voice/4c854cc/engine/engine.py
@@ -42,8 +43,6 @@ keeps nothing but those models, in `~/.cache/polylogue-voice-engine`, for its ne
 reaches only the session and Hugging Face; and runs no commands.
 What it can't show is what sherpa-onnx does, which is compiled code from PyPI.
 
-It needs Python 3.12 or newer with the dependencies its header names, as PEP 723 has it, and you may run it any way that gives it those.
-`uv run` does, and also fetches a matching Python where the machine's is older, as macOS's is.
 On NixOS, if the import fails for want of `libstdc++.so.6`, run it with `LD_LIBRARY_PATH=$(nix build --no-link --print-out-paths nixpkgs#stdenv.cc.cc.lib)/lib`.
 If you'd rather not run it, say so: the person can switch to ElevenLabs on the page.
 The models are about 1 GB, fetched once, so the first start takes a minute or two, and later ones seconds; the page shows the person how far it is.
