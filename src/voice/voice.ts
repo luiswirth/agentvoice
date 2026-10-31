@@ -16,8 +16,9 @@
 // didn't count, as its echo, too quiet or such a backchannel while it
 // played, show for a while, to send. The listener only perceives, and this decides. What happens is heard
 // as short cues, so that voice seems responsive while nothing is said.
-// With turns ended by hand, the person records each message deliberately,
-// and sends or deletes it. Transcription and speech synthesis run on
+// Ending turns only decides whether a turn goes out by itself: the listener
+// only ever listens or stops, and with turns ended by hand what is said
+// gathers in the draft until the person sends it. Transcription and speech synthesis run on
 // ElevenLabs or on an engine in the session, the tier the person chooses.
 import { Activity, type Progress } from "./activity.ts";
 import { holdAudioSession } from "./audio.ts";
@@ -42,12 +43,9 @@ import { TRACE, Trace } from "./trace.ts";
 export type VoiceState = Modes & {
 	/** Whether a turn ends by itself, after a pause. Kept in this browser. */
 	autoEnd: boolean;
-	/** Whether the person is recording a message, while turns end by hand:
-	 * only then does what the listener hears go on. */
-	recording: boolean;
-	/** The message the person last ended by hand, sent or deleted, until they
-	 * record the next. */
-	ended: { text: string; sent: boolean } | null;
+	/** The draft the person last deleted, to bring back, until they send or
+	 * say more. */
+	dropped: string | null;
 	/** A switch whose click is still under way. */
 	switching: "listener" | "speaker" | null;
 	/** What is heard of the segment in progress. */
@@ -196,8 +194,12 @@ export class Voice {
 	private listener: Listener | null = null;
 	private speaker: Speaker | null = null;
 	/** What happens to the draft once the segment in progress ends: the
-	 * person sent or dropped it while still being heard. */
-	private ending: "send" | "drop" | null = null;
+	 * person sent or dropped it while still being heard, or stopped listening,
+	 * which keeps it. */
+	private ending: "send" | "drop" | "keep" | null = null;
+	/** Whether listening is off, with the listener still finishing the
+	 * segment in progress, whose words go to the draft. */
+	private stopping = false;
 	/** Whether the segment in progress has words, and whether they took the floor. */
 	private words = false;
 	private floor = false;
@@ -234,8 +236,7 @@ export class Voice {
 		listener: false,
 		speaker: false,
 		autoEnd: localStorage.getItem(AUTO_END) !== "false",
-		recording: false,
-		ended: null,
+		dropped: null,
 		switching: null,
 		hearing: "",
 		draft: "",
@@ -345,9 +346,7 @@ export class Voice {
 		// The modes go out once both are on, not one at a time.
 		this.restoring = true;
 		const speaker = (kept.speaker ?? true) && this.setSpeaker(true);
-		// Turns ended by hand record only when asked, so listening stays off.
-		const listener =
-			kept.listener && this.state.autoEnd && this.setListener(true);
+		const listener = kept.listener && this.setListener(true);
 		void Promise.all([speaker, listener]).then(() => {
 			this.restoring = false;
 			return this.modes();
@@ -399,16 +398,19 @@ export class Voice {
 	async setListener(on: boolean): Promise<void> {
 		if (on === this.state.listener || this.state.switching) return;
 		if (!on) {
-			this.listener?.close();
-			this.listener = null;
-			this.set({
-				listener: false,
-				recording: false,
-				hearing: "",
-				level: 0,
-				voice: undefined,
-			});
+			// Words in progress still go to the draft, unsent: the microphone
+			// hears nothing more, and the listener closes once they are in.
+			if (this.finishing("keep")) this.stopping = true;
+			else this.closeListener();
+			this.set({ listener: false, level: 0 });
 			this.cue("unlisten");
+			return this.modes();
+		}
+		if (this.stopping) {
+			// Still finishing: it listens on, and the words go in as they would.
+			this.stopping = false;
+			this.set({ listener: true, error: null });
+			this.cue("listen");
 			return this.modes();
 		}
 		this.set({ switching: "listener", error: null, refused: false });
@@ -451,6 +453,7 @@ export class Voice {
 					failed: (error) => {
 						this.trace.event("failed", { error: error.message });
 						this.listener = null;
+						this.stopping = false;
 						this.set({
 							listener: false,
 							hearing: "",
@@ -463,7 +466,7 @@ export class Voice {
 				},
 				() => (this.speaker?.playing ? ECHO_FLOOR : Number.NEGATIVE_INFINITY),
 				() => this.speaker?.playing ?? false,
-				() => this.state.autoEnd || this.state.recording,
+				() => !this.stopping,
 			);
 			this.set({ listener: true, switching: null });
 			this.cue("listen");
@@ -660,51 +663,30 @@ export class Voice {
 		await this.modes();
 	}
 
+	/** Whether turns end by themselves: only what happens at the end of the
+	 * next one changes, so a draft already there waits to be sent. */
 	setAutoEnd(autoEnd: boolean): void {
 		if (autoEnd === this.state.autoEnd) return;
 		this.trace.event("autoEnd", { on: autoEnd });
 		play("press");
 		localStorage.setItem(AUTO_END, String(autoEnd));
-		const { listener, recording, draft, hearing } = this.state;
-		if (autoEnd) {
-			// Listening on by itself was never asked for: only a recording
-			// goes on, as the conversation.
-			this.set({ autoEnd, recording: false, ended: null });
-			if (listener && !recording) void this.setListener(false);
-			else if (draft && !hearing) this.send();
-		} else {
-			// What is being said goes on as a recording; else nothing is
-			// recorded until the person asks.
-			const said = Boolean(draft || hearing);
-			this.set({ autoEnd, recording: listener && said, level: 0 });
-		}
+		this.set({ autoEnd });
 	}
 
-	/** Starts or stops recording a message, while turns end by hand. The
-	 * microphone opens at the first recording and stays open, so that the
-	 * next starts at once, without asking for it again. Call it from a click. */
-	async record(on: boolean): Promise<void> {
-		if (on === this.state.recording || this.state.switching) return;
-		this.trace.event("record", { on });
-		if (!on) {
-			this.set({ recording: false, level: 0 });
-			this.listener?.finish();
-			play("unlisten");
-			return;
-		}
-		this.set({ recording: true, ended: null, error: null });
-		if (this.listener) play("listen");
-		else await this.setListener(true);
-		if (!this.state.listener) this.set({ recording: false });
-	}
-
-	/** Brings back the message last deleted, to send or record on. */
+	/** Brings back the draft last deleted, ahead of what was said since. */
 	undo(): void {
-		const ended = this.state.ended;
-		if (!ended || ended.sent) return;
-		this.trace.event("undo", { text: ended.text });
+		const dropped = this.state.dropped;
+		if (!dropped) return;
+		this.trace.event("undo", { text: dropped });
 		play("press");
-		this.set({ ended: null, draft: join(this.state.draft, ended.text) });
+		this.set({ dropped: null, draft: join(dropped, this.state.draft) });
+	}
+
+	private closeListener(): void {
+		this.stopping = false;
+		this.listener?.close();
+		this.listener = null;
+		this.set({ hearing: "", level: 0, voice: undefined });
 	}
 
 	/** Pauses the speaker for the words in progress, once they may take the floor. */
@@ -728,14 +710,9 @@ export class Voice {
 	/** Sends the draft, with what is still being heard once it is, dropping
 	 * what was not heard of the agent's messages unless `interrupt` is off. */
 	send(interrupt = true): void {
-		const manual = !this.state.autoEnd;
-		// Sending ends the recording at once: nothing heard after goes in.
-		if (manual && this.state.recording)
-			this.set({ recording: false, level: 0 });
 		if (this.finishing("send")) return;
 		const text = join(this.state.draft, this.state.hearing);
-		this.set({ draft: "", hearing: "" });
-		if (manual && text) this.set({ ended: { text, sent: true } });
+		this.set({ draft: "", hearing: "", dropped: null });
 		if (!text) {
 			this.speaker?.resume();
 			return;
@@ -778,15 +755,12 @@ export class Voice {
 	/** Drops the draft, with what is still being heard once it is, and the
 	 * speaker reads on. */
 	clear(): void {
-		const manual = !this.state.autoEnd;
-		if (manual && this.state.recording)
-			this.set({ recording: false, level: 0 });
 		if (this.finishing("drop")) return;
 		const text = join(this.state.draft, this.state.hearing);
 		this.trace.event("drop", { text });
-		if (manual && text) this.set({ ended: { text, sent: false } });
 		if (text) {
 			this.keep(text);
+			this.set({ dropped: text });
 			play("dropped");
 		}
 		this.set({ draft: "", hearing: "" });
@@ -849,9 +823,10 @@ export class Voice {
 
 	/** Ends the segment in progress, if one is, and leaves `ending` for when
 	 * it has. */
-	private finishing(ending: "send" | "drop"): boolean {
+	private finishing(ending: "send" | "drop" | "keep"): boolean {
 		if (!this.state.hearing || !this.listener?.finish()) return false;
-		this.ending = ending;
+		// Sending or dropping, once asked for, is not undone by stopping.
+		if (ending !== "keep" || !this.ending) this.ending = ending;
 		return true;
 	}
 
@@ -908,10 +883,12 @@ export class Voice {
 			hearing: "",
 			draft: join(this.state.draft, text),
 			voice: undefined,
+			...(text && { dropped: null }),
 		});
+		if (this.stopping) this.closeListener();
 		if (ending === "drop") this.clear();
 		else if (ending === "send") this.send();
-		else if (this.state.autoEnd) this.send(floor);
+		else if (ending === null && this.state.autoEnd) this.send(floor);
 		else if (!this.state.draft) this.speaker?.resume();
 		else if (!floor) this.speaker?.duck(false);
 	}
@@ -919,10 +896,9 @@ export class Voice {
 	/** Play and pause from the system's media controls: sends a draft, else
 	 * pauses or resumes reading, else turns listening on or off. */
 	mediaToggle = (): void => {
-		const { autoEnd, recording, draft, hearing } = this.state;
-		if (!autoEnd && (recording || draft || hearing)) this.send();
+		const { draft, hearing } = this.state;
+		if (draft || hearing) this.send();
 		else if (this.state.reading !== null) this.hold(!this.state.held);
-		else if (!autoEnd) void this.record(true);
 		else void this.setListener(!this.state.listener);
 	};
 

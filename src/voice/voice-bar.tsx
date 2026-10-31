@@ -1,16 +1,17 @@
-// Voice as a playback bar of two parts, as a media player's: listening on the
-// left, speaking on the right, the same parts mirrored, each a pill that joins
-// the other into one as both are on, a conversation. Each part has one switch,
-// glowing as loud as its voice, and the controls that act on what it holds:
-// the person's words not yet sent, the agent's message being read.
+// Voice as a playback bar, as a media player's: one fixed piece of two halves,
+// listening on the left and speaking on the right, mirrored. Each half has one
+// switch at its end and the controls that act on what it holds: the person's
+// words not yet sent, the agent's message being read. A switch that is on is
+// lit quietly, and brightly only as loud as its voice really sounds. Beside
+// listening, auto-send only decides whether a turn goes out by itself as the
+// person pauses: the microphone always just listens or stops.
 //
 // The page is mostly open in the background, so it shows one thing loud: who
 // has the floor, as a word and as light, the person's warm and the agent's
-// cool. Once the person speaks, their words take its place, large: the
-// agent's words belong to its harness. What is set once, such as the tier,
-// waits behind the settings. The system's media controls work it too, so that
-// it needs no looking at. With turns ended by hand the left switch records:
-// one message at a time, sent or deleted from under the words.
+// cool. Once the person speaks, their words take its place, large, as one
+// text, with what happens to them below: the agent's words belong to its
+// harness. What is set once, such as the tier, waits behind the settings. The
+// system's media controls work it too, so that it needs no looking at.
 import {
 	Check,
 	Copy,
@@ -22,7 +23,6 @@ import {
 	RotateCcw,
 	SkipForward,
 	SlidersHorizontal,
-	Square,
 	Trash2,
 	Undo2,
 	Volume2,
@@ -66,7 +66,11 @@ export function VoiceBar({
 			ref={root}
 			className="relative flex min-h-0 flex-1 flex-col items-center gap-4"
 		>
-			<Aura working={state.progress === "working" && state.reading === null} />
+			<Aura
+				you={state.listener}
+				agent={state.speaker}
+				working={state.progress === "working" && state.reading === null}
+			/>
 			<header className="flex w-full shrink-0 items-center gap-3">
 				<p className="flex-1 truncate text-xs tracking-[0.2em] text-muted-foreground/70 uppercase">
 					{mode(state)}
@@ -78,7 +82,7 @@ export function VoiceBar({
 						title="Settings"
 						aria-label="Settings"
 						aria-haspopup="dialog"
-						className="grid size-10 place-items-center rounded-full text-muted-foreground transition hover:bg-white/10 hover:text-foreground [&_svg]:size-[18px]"
+						className="grid size-11 place-items-center rounded-full text-muted-foreground transition hover:bg-white/10 hover:text-foreground [&_svg]:size-[18px]"
 						onClick={() => setSettings(true)}
 					>
 						<SlidersHorizontal />
@@ -105,12 +109,11 @@ export function VoiceBar({
 	);
 }
 
-function mode({ listener, speaker, autoEnd }: VoiceState): string {
-	if (!autoEnd) return speaker ? "Voice messages" : "Dictation";
+function mode({ listener, speaker }: VoiceState): string {
 	if (listener && speaker) return "Conversation";
-	if (listener) return "Transcription";
+	if (listener) return "Dictation";
 	if (speaker) return "Read aloud";
-	return "Off";
+	return "Voice off";
 }
 
 function said(state: VoiceState): string {
@@ -127,8 +130,6 @@ function floor(state: VoiceState): {
 	hint: string;
 	breathing?: boolean;
 } {
-	if (!state.autoEnd && state.recording)
-		return { word: "Recording", tone: "you", hint: "Say your message." };
 	if (state.hearing)
 		return {
 			word: `Hearing ${who(state)?.name ?? "you"}`,
@@ -141,7 +142,9 @@ function floor(state: VoiceState): {
 			: {
 					word: "Speaking",
 					tone: "agent",
-					hint: "Speak to cut in: your agent pauses for you.",
+					hint: state.listener
+						? "Speak to cut in: your agent pauses for you."
+						: "Press pause to hold it.",
 				};
 	if (state.progress === "working")
 		return {
@@ -152,17 +155,13 @@ function floor(state: VoiceState): {
 		};
 	if (state.progress === "sent")
 		return { word: "Sent", tone: "agent", hint: "Waiting for your agent." };
-	if (state.listener && state.autoEnd)
+	if (state.listener)
 		return {
 			word: "Listening",
 			tone: "you",
-			hint: "Speak, and your words go to your agent as you pause.",
-		};
-	if (!state.autoEnd)
-		return {
-			word: "Ready",
-			tone: "none",
-			hint: "Tap the microphone to record a message.",
+			hint: state.autoEnd
+				? "Speak, and your words go to your agent as you pause."
+				: "Speak, and send your words when you're done.",
 		};
 	if (state.speaker)
 		return {
@@ -245,13 +244,26 @@ function useLevels(voice: Voice, root: RefObject<HTMLDivElement | null>) {
 	}, [voice, root]);
 }
 
-/** Both voices as light behind the page, each brighter as it is louder, the
- * agent's breathing while it works. */
-function Aura({ working }: { working: boolean }) {
-	const glow = (color: string, level: string, at: string): CSSProperties => ({
+/** Both voices as light behind the page, faint while on and brighter as
+ * each is louder, the agent's breathing while it works. */
+function Aura({
+	you,
+	agent,
+	working,
+}: {
+	you: boolean;
+	agent: boolean;
+	working: boolean;
+}) {
+	const glow = (
+		color: string,
+		level: string,
+		at: string,
+		on: boolean,
+	): CSSProperties => ({
 		left: at,
 		background: `radial-gradient(closest-side, color-mix(in oklch, var(${color}) 45%, transparent), transparent)`,
-		opacity: `calc(0.25 + var(${level}, 0) * 0.75)`,
+		opacity: `calc(${on ? 0.12 : 0} + var(${level}, 0) * 0.75)`,
 		transform: `translate(-50%, 50%) scale(calc(0.85 + var(${level}, 0) * 0.35))`,
 	});
 	return (
@@ -261,26 +273,26 @@ function Aura({ working }: { working: boolean }) {
 		>
 			<div
 				className="absolute bottom-0 h-[70vh] w-[90vmax]"
-				style={glow("--you", "--you-level", "25%")}
+				style={glow("--you", "--you-level", "25%", you)}
 			/>
 			<div
 				className={`absolute bottom-0 h-[70vh] w-[90vmax] ${working ? "animate-[breathe_2.4s_ease-in-out_infinite]" : ""}`}
-				style={glow("--agent", "--agent-level", "75%")}
+				style={glow("--agent", "--agent-level", "75%", agent || working)}
 			/>
 		</div>
 	);
 }
 
 /** The middle of the page: the person's words once there are any, else who
- * has the floor. */
+ * has the floor, with the words last deleted to bring back. */
 function Stage({ voice, state }: { voice: Voice; state: VoiceState }) {
-	if (!state.autoEnd) return <Recorder voice={voice} state={state} />;
-	if (state.draft || state.hearing) {
+	if (state.draft || state.hearing)
 		return (
-			<Words voice={voice} state={state} editable>
+			<Words voice={voice} state={state}>
 				<Actions>
+					<Status state={state} />
 					<Action
-						label="Delete it (Escape): it can still be copied"
+						label="Delete it (Escape): Undo brings it back"
 						onClick={() => voice.clear()}
 					>
 						<Trash2 />
@@ -290,8 +302,11 @@ function Stage({ voice, state }: { voice: Voice; state: VoiceState }) {
 				</Actions>
 			</Words>
 		);
-	}
-	return <Floor state={state} />;
+	return (
+		<Floor state={state}>
+			{state.dropped && <Dropped voice={voice} text={state.dropped} />}
+		</Floor>
+	);
 }
 
 /** Who has the floor, large enough to read from across the room. */
@@ -330,49 +345,70 @@ function Floor({
 	);
 }
 
-/** The person's words, large, editable once nothing more is being heard
- * into them, with what acts on them underneath. */
+/** The person's words, large, as one text: what is still being heard follows
+ * the draft, quieter, and the draft can be edited once nothing more is being
+ * heard into it. What acts on them is underneath. */
 function Words({
 	voice,
 	state,
-	editable,
 	children,
 }: {
 	voice: Voice;
 	state: VoiceState;
-	editable: boolean;
 	children: ReactNode;
 }) {
 	return (
-		<div className="flex min-h-0 w-full flex-1 flex-col gap-3 pt-4 text-2xl leading-snug font-light sm:text-3xl">
-			{editable ? (
-				<>
-					<textarea
-						aria-label="What you said, to edit before sending"
-						className="min-h-0 flex-1 resize-none bg-transparent text-balance outline-none"
-						value={state.draft}
-						onChange={(event) => voice.setDraft(event.target.value)}
-					/>
-					{state.hearing && (
-						<p className="text-muted-foreground">{state.hearing}</p>
-					)}
-				</>
-			) : (
-				// Editing waits until the recording stops, so the words heard so
-				// far read on as one text.
-				<p className="min-h-0 flex-1 overflow-y-auto">
-					{state.draft}{" "}
-					<span className="text-muted-foreground">{state.hearing}</span>
+		<div className="flex min-h-0 w-full max-w-2xl flex-1 flex-col gap-3 pt-4 text-2xl leading-snug font-light sm:text-3xl">
+			{state.hearing ? (
+				<p className="min-h-0 flex-1 overflow-y-auto text-pretty">
+					{state.draft && <>{state.draft} </>}
+					<span className="text-foreground/55">{state.hearing}</span>
 				</p>
+			) : (
+				<textarea
+					aria-label="What you said, to edit before sending"
+					className="min-h-0 flex-1 resize-none bg-transparent text-pretty outline-none"
+					value={state.draft}
+					onChange={(event) => voice.setDraft(event.target.value)}
+				/>
 			)}
 			{children}
 		</div>
 	);
 }
 
+/** What happens to the words: whether more are heard into them, and whether
+ * they go out by themselves. */
+function Status({ state }: { state: VoiceState }) {
+	const text = !state.listener
+		? state.hearing
+			? "Finishing your words…"
+			: "Microphone off"
+		: state.autoEnd
+			? "Sends as you pause"
+			: "Listening";
+	return (
+		<p className="mr-auto flex min-w-0 items-center gap-2 text-muted-foreground">
+			<span
+				aria-hidden
+				className={`size-2 shrink-0 rounded-full ${state.listener ? "bg-you" : "bg-white/25"}`}
+				style={
+					state.listener
+						? {
+								boxShadow:
+									"0 0 calc(2px + var(--you-level, 0) * 10px) var(--you)",
+							}
+						: undefined
+				}
+			/>
+			<span className="truncate">{text}</span>
+		</p>
+	);
+}
+
 function Actions({ children }: { children: ReactNode }) {
 	return (
-		<div className="flex shrink-0 items-center justify-end gap-2 text-sm font-normal">
+		<div className="flex shrink-0 items-center justify-end gap-1 text-sm font-normal sm:gap-2">
 			{children}
 		</div>
 	);
@@ -391,7 +427,7 @@ function Action({
 		<button
 			type="button"
 			title={label}
-			className="flex h-10 items-center gap-2 rounded-full px-4 text-foreground/80 transition hover:bg-white/10 hover:text-foreground [&_svg]:size-4"
+			className="flex h-11 shrink-0 items-center gap-2 rounded-full px-4 text-foreground/80 transition hover:bg-white/10 hover:text-foreground sm:h-10 [&_svg]:size-4"
 			onClick={onClick}
 		>
 			{children}
@@ -404,7 +440,7 @@ function SendButton({ voice }: { voice: Voice }) {
 		<button
 			type="button"
 			title="Send it to your agent (Enter)"
-			className="flex h-10 items-center gap-2 rounded-full bg-you px-5 font-medium text-black shadow-[0_0_24px_-4px_var(--you)] transition hover:brightness-110"
+			className="flex h-11 shrink-0 items-center gap-2 rounded-full bg-you px-5 font-medium text-black shadow-[0_0_24px_-4px_var(--you)] transition hover:brightness-110 sm:h-10"
 			onClick={() => voice.send()}
 		>
 			Send
@@ -413,77 +449,26 @@ function SendButton({ voice }: { voice: Voice }) {
 	);
 }
 
-/** Turns ended by hand: a message recorded, then sent or deleted. */
-function Recorder({ voice, state }: { voice: Voice; state: VoiceState }) {
-	const words = Boolean(state.draft || state.hearing);
-	if (!words)
-		return (
-			<Floor state={state}>
-				{state.ended && !state.recording && (
-					<Ended voice={voice} ended={state.ended} />
-				)}
-			</Floor>
-		);
-	return (
-		<Words voice={voice} state={state} editable={!state.recording}>
-			<Actions>
-				<p className="mr-auto flex items-center gap-2 text-muted-foreground">
-					{state.recording ? (
-						<>
-							<span className="size-2 animate-pulse rounded-full bg-red-500 shadow-[0_0_8px_var(--color-red-500)]" />
-							Recording
-						</>
-					) : (
-						"Tap the microphone to add more"
-					)}
-				</p>
-				<Action
-					label="Delete this message (Escape)"
-					onClick={() => voice.clear()}
-				>
-					<Trash2 />
-					Delete
-				</Action>
-				<SendButton voice={voice} />
-			</Actions>
-		</Words>
-	);
-}
-
-/** The message last ended by hand: sent, or deleted, with a way back. */
-function Ended({
-	voice,
-	ended,
-}: {
-	voice: Voice;
-	ended: { text: string; sent: boolean };
-}) {
+/** The words last deleted, with a way back. */
+function Dropped({ voice, text }: { voice: Voice; text: string }) {
 	return (
 		<div className="mb-6 flex max-w-md flex-col items-center gap-2 text-sm">
 			<p className="flex items-center gap-1.5 text-xs tracking-widest text-muted-foreground uppercase">
-				{ended.sent ? (
-					<Check className="size-3.5" />
-				) : (
-					<Trash2 className="size-3.5" />
-				)}
-				{ended.sent ? "Sent" : "Deleted"}
+				<Trash2 className="size-3.5" />
+				Deleted
 			</p>
-			<p
-				className={`line-clamp-3 text-base text-muted-foreground/80 ${ended.sent ? "" : "line-through decoration-muted-foreground/40"}`}
+			<p className="line-clamp-3 text-base text-muted-foreground/80 line-through decoration-muted-foreground/40">
+				{text}
+			</p>
+			<button
+				type="button"
+				title="Bring your words back"
+				className="flex h-11 items-center gap-1.5 rounded-full px-4 text-foreground/80 transition hover:bg-white/10 hover:text-foreground sm:h-9"
+				onClick={() => voice.undo()}
 			>
-				{ended.text}
-			</p>
-			{!ended.sent && (
-				<button
-					type="button"
-					title="Bring the message back"
-					className="flex h-8 items-center gap-1.5 rounded-full px-3 text-foreground/80 transition hover:bg-white/10 hover:text-foreground"
-					onClick={() => voice.undo()}
-				>
-					<Undo2 className="size-4" />
-					Undo
-				</button>
-			)}
+				<Undo2 className="size-4" />
+				Undo
+			</button>
 		</div>
 	);
 }
@@ -505,7 +490,7 @@ function Missed({ voice, state }: { voice: Voice; state: VoiceState }) {
 			<button
 				type="button"
 				title="Send it to your agent, as yours"
-				className="shrink-0 rounded-full px-3 py-1 font-medium text-foreground transition hover:bg-white/10"
+				className="h-11 shrink-0 rounded-full px-4 font-medium text-foreground transition hover:bg-white/10 sm:h-8"
 				onClick={() => voice.sendMissed()}
 			>
 				Send
@@ -514,41 +499,23 @@ function Missed({ voice, state }: { voice: Voice; state: VoiceState }) {
 	);
 }
 
-/** The two parts: listening and speaking, apart, or joined while both are
- * on. Each control keeps its place and its meaning in every state. */
+/** The bar: one piece, listening on the left and speaking on the right, split
+ * by a fine line. Each control keeps its place and its meaning in every state. */
 function Bar({ voice, state }: { voice: Voice; state: VoiceState }) {
-	const manual = !state.autoEnd;
-	const listening = manual ? state.recording : state.listener;
-	const joined = listening && state.speaker;
 	const reading = state.reading !== null;
 	return (
-		<div
-			className={`flex w-full max-w-xl shrink-0 justify-center transition-[gap] duration-500 ${joined ? "gap-0" : "gap-2 sm:gap-3"}`}
-		>
-			<Part side="left" on={listening} joined={joined} color="--you">
-				{manual ? (
-					<Switch
-						label={state.recording ? "Stop recording" : "Record a message"}
-						on={state.recording}
-						busy={state.switching === "listener"}
-						color="--you"
-						level="--you-level"
-						onClick={() => void voice.record(!state.recording)}
-					>
-						{state.recording ? <Square className="fill-current" /> : <Mic />}
-					</Switch>
-				) : (
-					<Switch
-						label={state.listener ? "Stop listening" : "Listen"}
-						on={state.listener}
-						busy={state.switching === "listener"}
-						color="--you"
-						level="--you-level"
-						onClick={() => void voice.setListener(!state.listener)}
-					>
-						{state.listener ? <Mic /> : <MicOff />}
-					</Switch>
-				)}
+		<div className="flex max-w-full shrink-0 items-center rounded-full border border-white/10 bg-neutral-950/50 p-1 shadow-2xl shadow-black/60 backdrop-blur-xl sm:p-1.5">
+			<Half side="left" on={state.listener} color="--you">
+				<Switch
+					label={state.listener ? "Stop listening (Space)" : "Listen (Space)"}
+					on={state.listener}
+					busy={state.switching === "listener"}
+					color="--you"
+					level="--you-level"
+					onClick={() => void voice.setListener(!state.listener)}
+				>
+					{state.listener ? <Mic /> : <MicOff />}
+				</Switch>
 				<AutoSend voice={voice} state={state} />
 				<Small
 					label="Copy your last transcript"
@@ -558,8 +525,12 @@ function Bar({ voice, state }: { voice: Voice; state: VoiceState }) {
 				>
 					<Copy />
 				</Small>
-			</Part>
-			<Part side="right" on={state.speaker} joined={joined} color="--agent">
+			</Half>
+			<span
+				aria-hidden
+				className="mx-0.5 h-7 w-px shrink-0 bg-white/10 sm:mx-1"
+			/>
+			<Half side="right" on={state.speaker} color="--agent">
 				<Small
 					label="Read the last message again"
 					disabled={!state.message}
@@ -578,7 +549,7 @@ function Bar({ voice, state }: { voice: Voice; state: VoiceState }) {
 					<SkipForward />
 				</Small>
 				<Switch
-					label={state.speaker ? "Stop speaking" : "Speak"}
+					label={state.speaker ? "Stop reading aloud" : "Read aloud"}
 					on={state.speaker}
 					busy={state.switching === "speaker"}
 					color="--agent"
@@ -588,33 +559,26 @@ function Bar({ voice, state }: { voice: Voice; state: VoiceState }) {
 				>
 					{state.speaker ? <Volume2 /> : <VolumeX />}
 				</Switch>
-			</Part>
+			</Half>
 		</div>
 	);
 }
 
-/** A part of the bar, tinted by its voice while on, its inner edge squared
- * while joined to the other. */
-function Part(props: {
+/** A half of the bar, faintly tinted by its voice while on. */
+function Half(props: {
 	side: "left" | "right";
 	on: boolean;
-	joined: boolean;
 	color: string;
 	children: ReactNode;
 }) {
-	const inner = props.joined ? "6px" : "999px";
 	const left = props.side === "left";
 	return (
 		<div
-			className={`flex shrink-0 items-center gap-0.5 border p-1 sm:gap-1 sm:p-1.5 ${left ? "pr-1.5 sm:pr-2" : "pl-1.5 sm:pl-2"} shadow-2xl shadow-black/60 backdrop-blur-xl transition-all duration-500 ${props.on ? "bg-white/[0.08]" : "border-white/10 bg-white/[0.03]"}`}
+			className={`flex shrink-0 items-center gap-0.5 rounded-full transition-colors duration-300 sm:gap-1 ${left ? "pr-1" : "pl-1"}`}
 			style={{
-				borderRadius: left
-					? `999px ${inner} ${inner} 999px`
-					: `${inner} 999px 999px ${inner}`,
-				...(props.on && {
-					borderColor: `color-mix(in oklch, var(${props.color}) 30%, transparent)`,
-				}),
-				...(props.joined && left && { borderRightColor: "transparent" }),
+				background: props.on
+					? `linear-gradient(to ${left ? "right" : "left"}, color-mix(in oklch, var(${props.color}) 12%, transparent), transparent)`
+					: undefined,
 			}}
 		>
 			{props.children}
@@ -622,8 +586,8 @@ function Part(props: {
 	);
 }
 
-/** Turning listening or speaking on and off: filled with its voice's colour
- * while on, and glowing as loud as it sounds. */
+/** Turning listening or speaking on and off: lit quietly in its voice's
+ * colour while on, and glowing only as loud as it sounds. */
 function Switch(props: {
 	label: string;
 	on: boolean;
@@ -645,12 +609,13 @@ function Switch(props: {
 			aria-pressed={props.on}
 			disabled={props.busy}
 			onClick={props.onClick}
-			className={`grid size-12 shrink-0 place-items-center rounded-full transition-colors duration-300 [&_svg]:size-5 ${props.on ? "text-black" : "bg-white/10 text-foreground/70 hover:bg-white/15 hover:text-foreground"} ${props.busy ? "animate-pulse" : ""} ${props.working ? "animate-[working_2.4s_ease-in-out_infinite]" : ""}`}
+			className={`grid size-12 shrink-0 place-items-center rounded-full transition-colors duration-150 [&_svg]:size-5 ${props.on ? "" : "bg-white/[0.07] text-foreground/60 hover:bg-white/15 hover:text-foreground"} ${props.busy ? "animate-pulse" : ""} ${props.working ? "animate-[working_2.4s_ease-in-out_infinite]" : ""}`}
 			style={
 				props.on
 					? {
-							background: `var(${props.color})`,
-							boxShadow: `0 0 0 calc(var(${props.level}, 0) * 10px) ${tint(35)}, 0 0 calc(12px + var(${props.level}, 0) * 36px) ${tint(55)}`,
+							color: `color-mix(in oklch, var(${props.color}) 80%, white)`,
+							background: tint(22),
+							boxShadow: `inset 0 0 0 1px ${tint(55)}, 0 0 0 calc(var(${props.level}, 0) * 8px) ${tint(30)}, 0 0 calc(var(${props.level}, 0) * 40px) ${tint(60)}`,
 						}
 					: undefined
 			}
@@ -660,9 +625,9 @@ function Switch(props: {
 	);
 }
 
-/** Whether a turn ends by itself at a pause: a setting of listening, so it
- * looks like one, a labelled switch rather than a button that acts. Off, the
- * person records each message and sends it. */
+/** Whether a turn goes out by itself as the person pauses: a setting of
+ * listening, so it looks like one, a labelled switch rather than a button
+ * that acts. Off, the words wait in the draft until the person sends them. */
 function AutoSend({ voice, state }: { voice: Voice; state: VoiceState }) {
 	return (
 		<button
@@ -671,16 +636,16 @@ function AutoSend({ voice, state }: { voice: Voice; state: VoiceState }) {
 			aria-checked={state.autoEnd}
 			title={
 				state.autoEnd
-					? "Auto-send is on: your turn ends when you pause. Turn it off to record each message and send it yourself."
-					: "Auto-send is off: record each message, then send it. Turn it on to have your turn end when you pause."
+					? "Auto-send is on: your words go to your agent as you pause."
+					: "Auto-send is off: your words wait until you send them."
 			}
-			className="flex h-9 shrink-0 items-center gap-2 rounded-full px-2.5 text-xs text-muted-foreground transition hover:bg-white/10 hover:text-foreground sm:px-3"
+			className="flex h-11 shrink-0 flex-col items-center justify-center gap-1 rounded-full px-2 text-[10px] leading-none text-muted-foreground transition hover:bg-white/10 hover:text-foreground sm:h-9 sm:flex-row sm:gap-2 sm:px-3 sm:text-xs"
 			onClick={() => voice.setAutoEnd(!state.autoEnd)}
 		>
 			<span>auto-send</span>
 			<span
 				aria-hidden
-				className={`relative h-4 w-7 shrink-0 rounded-full transition-colors duration-300 ${state.autoEnd ? "bg-you/80" : "bg-white/15"}`}
+				className={`relative h-4 w-7 shrink-0 rounded-full transition-colors duration-300 ${state.autoEnd ? (state.listener ? "bg-you/80" : "bg-you/35") : "bg-white/15"}`}
 			>
 				<span
 					className="absolute top-0.5 left-0.5 size-3 rounded-full bg-white shadow transition-transform duration-300 ease-out"
@@ -715,7 +680,7 @@ function Small(props: {
 					() => props.done && setDone(true),
 				)
 			}
-			className="grid size-9 shrink-0 place-items-center rounded-full text-foreground/80 transition hover:bg-white/10 hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent [&_svg]:size-[18px]"
+			className="grid size-11 shrink-0 place-items-center rounded-full text-foreground/80 transition hover:bg-white/10 hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent sm:size-9 [&_svg]:size-[18px]"
 		>
 			{done ? props.done : props.children}
 		</button>
@@ -997,10 +962,11 @@ function Languages({ voice, state }: { voice: Voice; state: VoiceState }) {
 	);
 }
 
-/** Space turns listening, or recording, on and off, Enter sends what was said by hand,
- * Escape drops it. Not while typing in the draft, except Escape, nor in a
- * field, nor while the settings are open. */
+/** Space turns listening on and off, Enter sends the words, Escape drops
+ * them. Not while typing in the draft, except Escape, nor in a field, nor
+ * while the settings are open. */
 function useShortcuts(voice: Voice, state: VoiceState, settings: boolean) {
+	const words = Boolean(state.draft || state.hearing);
 	useEffect(() => {
 		if (settings) return;
 		const key = (event: KeyboardEvent) => {
@@ -1008,15 +974,12 @@ function useShortcuts(voice: Voice, state: VoiceState, settings: boolean) {
 			const typing = event.target instanceof HTMLTextAreaElement;
 			if (event.key === "Escape") voice.clear();
 			else if (typing || event.repeat) return;
-			else if (event.key === " ")
-				void (state.autoEnd
-					? voice.setListener(!state.listener)
-					: voice.record(!state.recording));
-			else if (event.key === "Enter" && !state.autoEnd) voice.send();
+			else if (event.key === " ") void voice.setListener(!state.listener);
+			else if (event.key === "Enter" && words) voice.send();
 			else return;
 			event.preventDefault();
 		};
 		window.addEventListener("keydown", key);
 		return () => window.removeEventListener("keydown", key);
-	}, [voice, state.listener, state.autoEnd, state.recording, settings]);
+	}, [voice, state.listener, words, settings]);
 }

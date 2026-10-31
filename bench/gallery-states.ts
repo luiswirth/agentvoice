@@ -5,8 +5,7 @@ export const base: VoiceState = {
 	listener: false,
 	speaker: false,
 	autoEnd: true,
-	recording: false,
-	ended: null,
+	dropped: null,
 	switching: null,
 	hearing: "",
 	draft: "",
@@ -68,18 +67,11 @@ export const states: Record<string, Partial<VoiceState>> = {
 		draft: "I think we should look at the turn detection first.",
 		hearing: "And then deploy it",
 	},
-	"manual-idle": { speaker: true, autoEnd: false },
-	"manual-recording": {
-		listener: true,
-		speaker: true,
-		autoEnd: false,
-		recording: true,
-	},
+	"manual-idle": { listener: true, speaker: true, autoEnd: false },
 	"manual-speaking": {
 		listener: true,
 		speaker: true,
 		autoEnd: false,
-		recording: true,
 		draft: "I think we should look at the turn detection first,",
 		hearing: "and then deploy it tonight.",
 	},
@@ -90,23 +82,22 @@ export const states: Record<string, Partial<VoiceState>> = {
 		draft:
 			"I think we should look at the turn detection first, and then deploy it tonight.",
 	},
-	"manual-sent": {
-		listener: true,
+	"mic-off-draft": {
 		speaker: true,
-		autoEnd: false,
-		ended: {
-			text: "I think we should look at the turn detection first, and then deploy it tonight.",
-			sent: true,
-		},
+		draft:
+			"I think we should look at the turn detection first, and then deploy it tonight.",
 	},
-	"manual-deleted": {
+	deleted: {
 		listener: true,
 		speaker: true,
-		autoEnd: false,
-		ended: {
-			text: "I think we should look at the turn detection first, and then deploy it tonight.",
-			sent: false,
-		},
+		dropped:
+			"I think we should look at the turn detection first, and then deploy it tonight.",
+	},
+	"read-aloud-paused": {
+		speaker: true,
+		reading: 1,
+		held: true,
+		message: "Hi.",
 	},
 	"agent-sent": { listener: true, speaker: true, progress: "sent" },
 	settings: {
