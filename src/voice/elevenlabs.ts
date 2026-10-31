@@ -19,6 +19,19 @@ const SOCKETS = "wss://api.elevenlabs.io/v1";
 /** Arthur, a library voice: "clear, engaging", an audiobook narrator. */
 export const VOICE = "C1npRmjB19a6yNkEucvx";
 
+/** Premade voices that sound apart, from the one before and from Arthur, for
+ * the agents after the first: Alice, George, Sarah, Charlie, Lily, Brian and
+ * Matilda. */
+const APART = [
+	"Xb7hH8MSUJpSbSDYk0k2",
+	"JBFqnCBsd6RMkjVDRZzb",
+	"EXAVITQu4vr4xnSDxMaL",
+	"IKne3meq5aSn9XLyUdCD",
+	"pFZP5JQG7iQjIQuC4Bku",
+	"nPczCjzI2devNBz1zQrb",
+	"XrExE9yKIg1WjnnlVkGX",
+];
+
 /** ElevenLabs refused the key itself, which another key fixes: it is
  * invalid, out of credits, or lacks a permission voice needs. */
 export class KeyRefused extends Error {}
@@ -242,11 +255,12 @@ export class Speech implements Synthesizer {
 	private readonly heartbeat: ReturnType<typeof setInterval>;
 
 	private readonly key: string;
-	private readonly voice: string;
+	/** The voices in the order the agents get them, `voice` first. */
+	private readonly voices: string[];
 
 	constructor(key: string, voice = VOICE) {
 		this.key = key;
-		this.voice = voice;
+		this.voices = [...new Set([voice, ...APART])];
 		// The server closes a connection that hears nothing for 20 s.
 		this.heartbeat = setInterval(() => {
 			if (this.socket?.readyState === WebSocket.OPEN)
@@ -267,13 +281,18 @@ export class Speech implements Synthesizer {
 		this.socket = socket;
 		await opened(socket);
 		// The key goes in the first message, never in the URL.
-		socket.send(JSON.stringify({ voices: [this.voice], xi_api_key: this.key }));
+		socket.send(JSON.stringify({ voices: this.voices, xi_api_key: this.key }));
 		return socket;
 	}
 
 	/** Speaks a line, handing its audio to `piece` as it comes, after the lines before. */
-	say(line: string, piece: (piece: Piece) => boolean): Promise<void> {
-		const spoken = this.queue.then(() => this.speak(line, piece));
+	say(
+		line: string,
+		piece: (piece: Piece) => boolean,
+		voice = 0,
+	): Promise<void> {
+		const id = this.voices[voice % this.voices.length] ?? VOICE;
+		const spoken = this.queue.then(() => this.speak(line, piece, id));
 		this.queue = spoken.catch(() => {});
 		return spoken;
 	}
@@ -281,6 +300,7 @@ export class Speech implements Synthesizer {
 	private async speak(
 		line: string,
 		piece: (piece: Piece) => boolean,
+		voice: string,
 	): Promise<void> {
 		const socket = await this.connect();
 		await new Promise<void>((resolve, reject) => {
@@ -338,7 +358,7 @@ export class Speech implements Synthesizer {
 			patience();
 			socket.send(
 				JSON.stringify({
-					inputs: [{ text: line, voice_id: this.voice }],
+					inputs: [{ text: line, voice_id: voice }],
 					flush: true,
 				}),
 			);

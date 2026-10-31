@@ -25,9 +25,15 @@ import { audioBlocked, holdAudioSession, watchAudio } from "./audio.ts";
 import { KeyRefused, Scribe, Speech } from "./elevenlabs.ts";
 import type { Heard, Synthesizer, Tier, Transcriber } from "./engines.ts";
 import { Listener, type Segment } from "./listener.ts";
-import { Engines, LocalSynthesizer, LocalTranscriber } from "./local.ts";
+import {
+	Engines,
+	LocalSynthesizer,
+	LocalTranscriber,
+	voiceOrder,
+} from "./local.ts";
 import { holdMedia } from "./media.ts";
 import {
+	agent,
 	MODES,
 	type Modes,
 	NAMES,
@@ -59,7 +65,7 @@ export type VoiceState = Modes & {
 	reading: number | null;
 	/** Whether the person paused reading aloud. */
 	held: boolean;
-	/** The others' last message, which the speaker reads or can read again. */
+	/** The agents' last message, which the speaker reads or can read again. */
 	message: string | null;
 	/** The person's last transcript, sent or dropped. */
 	last: string | null;
@@ -288,8 +294,10 @@ export class Voice {
 		const message = () =>
 			this.set({
 				message:
-					session.log.findLast((entry) => entry.from !== name && spoken(entry))
-						?.text ?? null,
+					session.log.findLast(
+						(entry) =>
+							entry.from !== name && agent(entry.from) && spoken(entry),
+					)?.text ?? null,
 			});
 		const named = () => {
 			const entry = session.log.findLast((e) => e.type.startsWith(NAMES));
@@ -934,9 +942,8 @@ export class Voice {
 
 	private synthesizer(): Synthesizer {
 		if (this.state.tier === "local")
-			return new LocalSynthesizer(
-				this.engines,
-				() => this.state.engineVoice ?? undefined,
+			return new LocalSynthesizer(this.engines, () =>
+				voiceOrder(this.state.engineVoice, this.state.engineVoices),
 			);
 		return new Speech(this.elevenlabs());
 	}

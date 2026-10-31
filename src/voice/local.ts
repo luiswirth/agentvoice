@@ -442,6 +442,33 @@ const sentences = new Intl.Segmenter("en", { granularity: "sentence" });
  * end isn't heard. */
 const PAUSE = 0.4;
 
+/** Kokoro's voices that sound most apart, from the one before and from
+ * af_heart, its default: for the agents after the first. */
+const APART = [
+	"am_michael",
+	"bf_emma",
+	"am_fenrir",
+	"bm_george",
+	"af_bella",
+	"am_puck",
+	"af_nicole",
+	"bm_fable",
+];
+
+/** The engine's `offered` voices in the order the agents get them: the
+ * `chosen` one first, then those that sound most apart, then the rest, each
+ * once and over again. */
+export function voiceOrder(chosen: string | null, offered: string[]): string[] {
+	const first = chosen !== null && offered.includes(chosen) ? [chosen] : [];
+	return [
+		...new Set([
+			...first,
+			...APART.filter((voice) => offered.includes(voice)),
+			...offered,
+		]),
+	];
+}
+
 /** Speaks through the engine a sentence at a time, so that the first plays
  * while the rest is made. The engine gets one sentence at a time, the next as
  * soon as the last is back: so it never idles while there is more to say, and
@@ -455,15 +482,27 @@ export class LocalSynthesizer implements Synthesizer {
 	private pending = 0;
 	private closed = false;
 	private readonly engines: Engines;
-	/** The voice each sentence is asked in, as chosen when it is asked. */
-	private readonly voice: () => string | undefined;
+	/** The engine's voices in their order, as chosen when a sentence is
+	 * asked. */
+	private readonly voices: () => string[];
 
-	constructor(engines: Engines, voice: () => string | undefined) {
+	constructor(engines: Engines, voices: () => string[]) {
 		this.engines = engines;
-		this.voice = voice;
+		this.voices = voices;
 	}
 
-	say(line: string, piece: (piece: Piece) => boolean): Promise<void> {
+	/** The engine's `n`th voice, over again past the last: none before it
+	 * offered any, for its default. */
+	private voice(n: number): string | undefined {
+		const voices = this.voices();
+		return voices[n % voices.length];
+	}
+
+	say(
+		line: string,
+		piece: (piece: Piece) => boolean,
+		voice = 0,
+	): Promise<void> {
 		const texts = [...sentences.segment(line)]
 			.map(({ segment }) => segment.trim())
 			.filter((text) => /[\p{L}\p{N}]/u.test(text));
@@ -475,7 +514,10 @@ export class LocalSynthesizer implements Synthesizer {
 			const audio = this.asking.then(() =>
 				wanted && !this.closed
 					? this.engines
-							.ask(JSON.stringify({ text, voice: this.voice() }), SYNTHESIZE)
+							.ask(
+								JSON.stringify({ text, voice: this.voice(voice) }),
+								SYNTHESIZE,
+							)
 							.then((entry) => this.engines.payload(entry))
 					: null,
 			);

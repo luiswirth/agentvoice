@@ -46,6 +46,14 @@ export function names(text: string | undefined): Names {
 	}
 }
 
+/** Whether a participant is an agent, which joins under its person's name,
+ * as `luis/claude`, as public/agents.md has it: the page is the person's ears
+ * and mouth toward the agents, so it reads out only theirs, never another
+ * person's. */
+export function agent(name: string): boolean {
+	return name.includes("/");
+}
+
 /** Whether an entry is a chat message the speaker reads: never a file, which
  * speech makes of any entry with a filename. */
 export function spoken(entry: Entry): entry is Entry & { text: string } {

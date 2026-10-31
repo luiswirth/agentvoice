@@ -4,6 +4,7 @@
 import { Player } from "./audio.ts";
 import { type Piece, SPEECH_RATE, type Synthesizer } from "./engines.ts";
 import {
+	agent,
 	type Entry,
 	type Heard,
 	type Session,
@@ -72,7 +73,19 @@ export class Speaker {
 	}
 
 	private wanted(entry: Entry): entry is Entry & { text: string } {
-		return entry.from !== this.name && spoken(entry);
+		return entry.from !== this.name && agent(entry.from) && spoken(entry);
+	}
+
+	/** Which of the tier's voices reads the agent `from`: each its own, in
+	 * the order the agents first spoke in the session, which a reload keeps,
+	 * since the log holds the session from its start. */
+	private voiceOf(from: string): number {
+		const agents: string[] = [];
+		for (const entry of this.session.log)
+			if (this.wanted(entry) && !agents.includes(entry.from))
+				agents.push(entry.from);
+		const n = agents.indexOf(from);
+		return n < 0 ? agents.length : n;
 	}
 
 	/** Whether it has something to speak with. */
@@ -262,25 +275,30 @@ export class Speaker {
 			length = 0;
 			this.played(samples);
 		};
+		const voice = this.voiceOf(entry.from);
 		const lines = paragraphs.map((paragraph, i) => {
 			let from: number | undefined;
-			return synthesizer.say(paragraph, (piece: Piece) => {
-				if (this.dropped.has(line)) return false;
-				if (from === undefined) {
-					from = start;
-					// Paragraphs are heard apart, so their texts join with a space.
-					if (i > 0 && reading.chars.at(-1)?.char !== " ")
-						reading.chars.push({ char: " ", at: start });
-				}
-				for (const { char, at } of piece.chars)
-					reading.chars.push({ char, at: from + at });
-				this.player.play(line, start, piece.samples);
-				start += piece.samples.length / SPEECH_RATE;
-				unsent.push(piece.samples);
-				length += piece.samples.length;
-				give(GIVEN.most);
-				return true;
-			});
+			return synthesizer.say(
+				paragraph,
+				(piece: Piece) => {
+					if (this.dropped.has(line)) return false;
+					if (from === undefined) {
+						from = start;
+						// Paragraphs are heard apart, so their texts join with a space.
+						if (i > 0 && reading.chars.at(-1)?.char !== " ")
+							reading.chars.push({ char: " ", at: start });
+					}
+					for (const { char, at } of piece.chars)
+						reading.chars.push({ char, at: from + at });
+					this.player.play(line, start, piece.samples);
+					start += piece.samples.length / SPEECH_RATE;
+					unsent.push(piece.samples);
+					length += piece.samples.length;
+					give(GIVEN.most);
+					return true;
+				},
+				voice,
+			);
 		});
 		Promise.all(lines)
 			.catch((error: Error) => this.failed(error))

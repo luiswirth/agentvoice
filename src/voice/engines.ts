@@ -95,7 +95,13 @@ export type Piece = {
 export interface Synthesizer {
 	/** Speaks a line, handing its audio to `piece` as it comes, after the
 	 * lines before; `piece` returns whether the line is still wanted, and the
-	 * rest of one that is not may go unmade. */
-	say(line: string, piece: (piece: Piece) => boolean): Promise<void>;
+	 * rest of one that is not may go unmade. `voice` is which of the tier's
+	 * voices speaks it: 0 the one the person chose, each further one apart
+	 * from those before. */
+	say(
+		line: string,
+		piece: (piece: Piece) => boolean,
+		voice?: number,
+	): Promise<void>;
 	close(): void;
 }
