@@ -70,9 +70,9 @@ try {
 			} else if (tier === "local") {
 				await tab.evaluate(() => localStorage.setItem("voice-tier", "local"));
 			}
-			// Copying the prompt goes on to waiting for the agent.
+			// Copying the prompt only copies it: the page stays until the agent joins.
 			await tab.getByRole("button", { name: /copy the prompt/i }).click();
-			await shot(tab, screen, `3-${tier}-waiting`);
+			await shot(tab, screen, `3-${tier}-copied`);
 			const session = await agent(tab);
 			await session.send("I'm here.");
 			await shot(tab, screen, `4-${tier}-joined`);
