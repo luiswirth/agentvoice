@@ -176,7 +176,22 @@ function Page({ name, rename }: { name: string; rename: () => void }) {
 				description="Speak to the agent you already use, and hear its answers, here in your browser. First choose where the speech models run."
 				link={session.link}
 				choice={{
-					options: TIERS,
+					// The key can be entered as ElevenLabs is chosen, before the
+					// agent comes.
+					options: TIERS.map((option) =>
+						option.id === "elevenlabs"
+							? {
+									...option,
+									detail: key ? (
+										<p className="px-2 text-sm text-muted-foreground">
+											Your ElevenLabs key is kept in this browser.
+										</p>
+									) : (
+										<KeyStep refused={refused} offer={offer} />
+									),
+								}
+							: option,
+					),
 					chosen: tier,
 					choose: (id) => choose(id as Tier),
 				}}
