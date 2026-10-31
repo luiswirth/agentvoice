@@ -9,7 +9,6 @@ import { useSession } from "polylogue-web/react";
 import {
 	type ReactNode,
 	useEffect,
-	useRef,
 	useState,
 	useSyncExternalStore,
 } from "react";
@@ -161,7 +160,10 @@ function Page({ name, rename }: { name: string; rename: () => void }) {
 	const [copied, setCopied] = useCopied(session?.link);
 	const others = entries.some((entry) => entry.from !== name);
 	const waiting = copied || others;
-	useMicWhile(voice, talking);
+	// Listening runs only while talking.
+	useEffect(() => {
+		voice?.standby(!talking);
+	}, [voice, talking]);
 	if (problem) {
 		return taken ? (
 			<Frame
@@ -321,27 +323,6 @@ function useCopied(
 			changed((n) => n + 1);
 		},
 	];
-}
-
-/** Listening runs only while talking: it stops as the page leaves talking,
- * and comes back as it returns, if it was on, as after a reload. */
-function useMicWhile(voice: Voice | null, talking: boolean) {
-	const held = useRef(false);
-	useEffect(() => {
-		if (!voice) return;
-		const apply = () => {
-			if (!talking && voice.state.listener && !voice.state.switching) {
-				held.current = true;
-				void voice.setListener(false);
-			} else if (talking && held.current) {
-				held.current = false;
-				void voice.setListener(true);
-			}
-		};
-		apply();
-		// Listening kept from before a reload turns on by itself.
-		return talking ? undefined : voice.watch(apply);
-	}, [voice, talking]);
 }
 
 function useVoiceState(voice: Voice | null): VoiceState | null {
