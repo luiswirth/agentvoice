@@ -99,7 +99,9 @@ try {
 				// The agent leaving takes the page back to waiting, with the
 				// engine still in the session, and its coming back to talking,
 				// listening again if it was.
-				await tab.getByRole("button", { name: /^Listen/ }).click();
+				// A tab starts listening once there is someone to talk with.
+				const listen = tab.getByRole("button", { name: /^Listen \(/ });
+				if (await listen.count()) await listen.click();
 				await tab.waitForTimeout(500);
 				await session.leave();
 				await shot(tab, screen, "7-local-left");
@@ -107,7 +109,7 @@ try {
 				await back.join();
 				await back.send("I'm back.");
 				await shot(tab, screen, "8-local-back");
-				const mic = tab.getByRole("button", { name: /listening/i });
+				const mic = tab.getByRole("button", { name: /listen/i });
 				console.log("listening again:", await mic.getAttribute("aria-pressed"));
 				await back.leave();
 				await engine.leave();

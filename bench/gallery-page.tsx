@@ -58,6 +58,36 @@ const room: Room = {
 			? [{ name: "luis/claude/engine", receiving: true, engine: true }]
 			: []),
 	],
+	// A conversation so far, but in the state named off, before anything was said.
+	turns:
+		name === "off"
+			? []
+			: [
+					{
+						n: 1,
+						from: "luis",
+						mine: true,
+						text: "[voice 1] Can you check why the turn ends too early?",
+					},
+					{
+						n: 2,
+						from: "luis/claude",
+						mine: false,
+						text: "Yes. The pause it waits for is 0.6 seconds, and Smart Turn ends most turns before that.",
+					},
+					{
+						n: 3,
+						from: "luis",
+						mine: true,
+						text: "[voice 1] Okay, and what would you change?",
+					},
+					{
+						n: 4,
+						from: "luis/claude",
+						mine: false,
+						text: "I'd wait longer after an unfinished sentence, and keep the rest as it is. Should I measure it first?",
+					},
+				],
 	link: "https://polylogue.agentics.lwirth.com/s/abc123",
 	leave: () => {},
 };

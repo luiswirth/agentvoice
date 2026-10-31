@@ -66,9 +66,20 @@ export type Present = {
 };
 
 /** The session as the page sees it. */
+/** A message said in the session, by the person or another. */
+export type Turn = {
+	n: number;
+	from: string;
+	/** Whether the person said it. */
+	mine: boolean;
+	text: string;
+};
+
 export type Room = {
 	/** The others in it now. */
 	people: Present[];
+	/** What was said in it, oldest first: the stage shows the last few. */
+	turns: Turn[];
 	link: string;
 	leave: () => void;
 };
@@ -102,13 +113,17 @@ export function VoiceBar({
 				agent={state.speaker}
 				working={state.progress === "working" && state.reading === null}
 			/>
-			<Stage voice={voice} state={state} />
+			<Stage voice={voice} state={state} turns={room?.turns ?? []} />
 			<section
 				aria-label="Player"
 				className="flex w-full max-w-[30rem] shrink-0 flex-col rounded-[2rem] border border-white/10 bg-neutral-950/55 p-2 shadow-2xl shadow-black/60 backdrop-blur-xl"
 			>
 				<header className="flex h-10 items-center gap-1 pl-3">
-					<People people={room?.people ?? []} progress={state.progress} />
+					<People
+						people={room?.people ?? []}
+						progress={state.progress}
+						elevenlabs={state.tier === "elevenlabs" ? state.ready : null}
+					/>
 					{room && <Leave leave={room.leave} />}
 					<button
 						type="button"
@@ -282,14 +297,124 @@ function Aura({
 
 /** The middle of the page: the person's words once there are any, else who
  * has the floor. */
-function Stage({ voice, state }: { voice: Voice; state: VoiceState }) {
-	if (state.draft || state.hearing)
-		return <Words voice={voice} state={state} />;
-	return <Floor state={state} />;
+/** How many turns of each side the stage shows: the last few, fading out,
+ * never the whole conversation, which the harness keeps. */
+const SHOWN = 4;
+
+/** The middle of the page: what the person said on the left, sent ones
+ * faded, with the words not sent yet below them; what the others said on the
+ * right, the one read now lit, with how much of it was heard. Before anything
+ * was said, and while the browser holds the sound, who has the floor. */
+function Stage({
+	voice,
+	state,
+	turns,
+}: {
+	voice: Voice;
+	state: VoiceState;
+	turns: Turn[];
+}) {
+	const mine = turns.filter((turn) => turn.mine).slice(-SHOWN);
+	const theirs = turns.filter((turn) => !turn.mine).slice(-SHOWN);
+	const live = Boolean(state.draft || state.hearing);
+	if (state.blocked || (!live && mine.length === 0 && theirs.length === 0))
+		return <Floor state={state} />;
+	// Names show once more than one other spoke.
+	const named = new Set(theirs.map((turn) => turn.from)).size > 1;
+	return (
+		<div className="grid min-h-0 w-full flex-1 grid-cols-2 gap-5 pt-6 text-[15px] leading-snug font-light sm:gap-16 sm:pt-12 sm:text-xl">
+			<Column>
+				{mine.map((turn, i) => (
+					<p
+						key={turn.n}
+						className="text-pretty text-foreground/40"
+						style={{ opacity: fade(i, mine.length + (live ? 1 : 0)) }}
+					>
+						{unvoiced(turn.text)}
+					</p>
+				))}
+				{live && <Words voice={voice} state={state} />}
+			</Column>
+			<Column>
+				{theirs.map((turn, i) => {
+					const reading = turn.n === state.reading;
+					return (
+						<div
+							key={turn.n}
+							className="flex flex-col gap-1.5"
+							style={{ opacity: reading ? 1 : fade(i, theirs.length) }}
+						>
+							{named && (
+								<span className="text-xs tracking-widest text-agent/80 uppercase">
+									{label(turn.from)}
+								</span>
+							)}
+							<p
+								className={`text-pretty whitespace-pre-line transition-colors duration-500 ${reading ? "text-foreground" : "text-foreground/60"}`}
+								style={
+									reading
+										? {
+												color: "color-mix(in oklch, var(--agent) 25%, white)",
+											}
+										: undefined
+								}
+							>
+								{turn.text}
+							</p>
+							{reading && <Reading held={state.held} />}
+						</div>
+					);
+				})}
+			</Column>
+		</div>
+	);
 }
 
-/** Who has the floor, large enough to read from across the room, with how
- * much of the agent's message was heard while it is read. */
+/** A side of the stage, newest at the bottom, nearest the card, the older
+ * fading out at the top. */
+function Column({ children }: { children: ReactNode }) {
+	return (
+		<div className="flex min-h-0 flex-col justify-end gap-5 overflow-hidden [mask-image:linear-gradient(to_bottom,transparent,black_35%)] sm:gap-7">
+			{children}
+		</div>
+	);
+}
+
+/** How visible the `i`th of `count` turns is: the newest fully, each older
+ * one less. */
+function fade(i: number, count: number): number {
+	return 1 - (count - 1 - i) * 0.22;
+}
+
+/** A message of the person's without its voice tags, which are for the
+ * agent. */
+function unvoiced(text: string): string {
+	return text.replace(/\[voice \d+\]\s*/g, "").trim();
+}
+
+/** How much of the message read now was heard, as a line that fills. */
+function Reading({ held }: { held: boolean }) {
+	return (
+		<div className="mt-1 flex items-center gap-3">
+			<div
+				aria-hidden
+				className="h-0.5 flex-1 overflow-hidden rounded-full bg-white/10"
+			>
+				<div
+					className="h-full origin-left rounded-full bg-agent shadow-[0_0_8px_var(--agent)]"
+					style={{ transform: "scaleX(var(--agent-progress, 0))" }}
+				/>
+			</div>
+			{held && (
+				<span className="text-xs tracking-widest text-muted-foreground uppercase">
+					Paused
+				</span>
+			)}
+		</div>
+	);
+}
+
+/** Who has the floor, large enough to read from across the room. */
 function Floor({ state }: { state: VoiceState }) {
 	const { word, tone, hint } = floor(state);
 	const color =
@@ -311,17 +436,6 @@ function Floor({ state }: { state: VoiceState }) {
 			>
 				{word}
 			</p>
-			{state.reading !== null && !state.blocked && (
-				<div
-					aria-hidden
-					className="h-0.5 w-48 animate-[arrive_0.4s_ease-out] overflow-hidden rounded-full bg-white/10"
-				>
-					<div
-						className="h-full origin-left rounded-full bg-agent shadow-[0_0_8px_var(--agent)]"
-						style={{ transform: "scaleX(var(--agent-progress, 0))" }}
-					/>
-				</div>
-			)}
 			<p className="max-w-sm text-base text-balance text-muted-foreground/70">
 				{hint}
 			</p>
@@ -329,25 +443,29 @@ function Floor({ state }: { state: VoiceState }) {
 	);
 }
 
-/** The person's words, large, as one text: what is still being heard follows
- * the draft, quieter, and the draft can be edited once nothing more is being
- * heard into it. */
+/** The person's words not sent yet: what is still being heard follows the
+ * draft, quieter, and the draft can be edited once nothing more is being
+ * heard into it, in a field as tall as its text. */
 function Words({ voice, state }: { voice: Voice; state: VoiceState }) {
+	if (state.hearing)
+		return (
+			<p className="text-pretty">
+				{state.draft && <>{state.draft} </>}
+				<span className="text-foreground/55">{state.hearing}</span>
+			</p>
+		);
 	return (
-		<div className="flex min-h-0 w-full max-w-2xl flex-1 flex-col pt-10 text-2xl sm:pt-16 leading-snug font-light sm:text-3xl">
-			{state.hearing ? (
-				<p className="min-h-0 flex-1 overflow-y-auto text-pretty">
-					{state.draft && <>{state.draft} </>}
-					<span className="text-foreground/55">{state.hearing}</span>
-				</p>
-			) : (
-				<textarea
-					aria-label="What you said, to edit before sending"
-					className="min-h-0 flex-1 resize-none bg-transparent text-pretty outline-none"
-					value={state.draft}
-					onChange={(event) => voice.setDraft(event.target.value)}
-				/>
-			)}
+		<div
+			className="grid after:invisible after:whitespace-pre-wrap after:content-[attr(data-text)_\'_\'] after:[grid-area:1/1]"
+			data-text={state.draft}
+		>
+			<textarea
+				aria-label="What you said, to edit before sending"
+				rows={1}
+				className="resize-none overflow-hidden bg-transparent text-pretty outline-none [grid-area:1/1]"
+				value={state.draft}
+				onChange={(event) => voice.setDraft(event.target.value)}
+			/>
 		</div>
 	);
 }
@@ -358,8 +476,17 @@ function Words({ voice, state }: { voice: Voice; state: VoiceState }) {
  * sent, or just deleted, with the way back; else only where words would go. */
 function Line({ voice, state }: { voice: Voice; state: VoiceState }) {
 	const words = Boolean(state.draft || state.hearing);
-	let text: ReactNode = <Status state={state} />;
-	let actions: ReactNode = null;
+	let text: ReactNode = <Heard voice={voice} state={state} />;
+	let wave = true;
+	let actions: ReactNode = (
+		<Wave
+			level={() => voice.speakerLevel()}
+			on={state.speaker}
+			color="--agent"
+			label="Your agent's voice"
+		/>
+	);
+	if (words || state.missed || state.dropped) wave = false;
 	if (words)
 		actions = (
 			<>
@@ -412,50 +539,108 @@ function Line({ voice, state }: { voice: Voice; state: VoiceState }) {
 	return (
 		<div className="flex h-12 w-full shrink-0 items-center gap-2 pr-1 pl-3 text-sm">
 			{text}
-			<div className="flex shrink-0 items-center gap-1 sm:gap-2">{actions}</div>
+			<div
+				className={`flex items-center justify-end gap-1 sm:gap-2 ${wave ? "min-w-0 flex-1" : "shrink-0"}`}
+			>
+				{actions}
+			</div>
 		</div>
 	);
 }
 
-/** Where the person's words go: whether more are heard into them, and
- * whether they go out by themselves; and once the agent named any voice,
- * whose voice is heard now, by name, or by number where it can't cut in. */
-function Status({ state }: { state: VoiceState }) {
-	const voice = state.hearing ? who(state) : null;
-	const where = !state.listener
-		? state.hearing
-			? "Finishing your words…"
-			: "Microphone off"
-		: state.autoEnd
-			? "Sends as you pause"
-			: "Waits for Send";
-	const lit = state.listener && (voice?.named ?? true);
+/** The person's side of the line: their microphone as a running wave, as
+ * in a call, so they see that they are heard; and once the agent named any
+ * voice, whose voice is heard now, by name, or by number where it can't cut
+ * in. */
+function Heard({ voice, state }: { voice: Voice; state: VoiceState }) {
+	const named = state.hearing ? who(state) : null;
 	return (
-		<p
-			aria-live="polite"
-			className="mr-auto flex min-w-0 items-center gap-2 text-muted-foreground"
-		>
-			<span
-				aria-hidden
-				className={`size-2 shrink-0 rounded-full ${lit ? "bg-you" : "bg-white/25"}`}
-				style={
-					lit
-						? {
-								boxShadow:
-									"0 0 calc(2px + var(--you-level, 0) * 10px) var(--you)",
-							}
-						: undefined
-				}
-			/>
-			{voice && (
+		<div className="flex min-w-0 flex-1 items-center gap-2">
+			{named && (
 				<span
-					className={`shrink-0 text-xs tracking-widest uppercase ${voice.named ? "text-foreground" : "text-muted-foreground/70"}`}
+					className={`shrink-0 text-xs tracking-widest uppercase ${named.named ? "text-foreground" : "text-muted-foreground/70"}`}
 				>
-					{voice.name}
+					{named.name}
 				</span>
 			)}
-			<span className="truncate">{where}</span>
-		</p>
+			<Wave
+				level={() => (voice.state.listener ? voice.state.level : 0)}
+				on={state.listener}
+				color="--you"
+				label={state.listener ? "Your microphone" : "Microphone off"}
+			/>
+		</div>
+	);
+}
+
+/** A voice's loudness over the last seconds, as bars running from right to
+ * left, in its colour while on and a faint flat line while off. */
+function Wave({
+	level,
+	on,
+	color,
+	label,
+}: {
+	/** How loud it is now, from 0 to 1, read every frame. */
+	level: () => number;
+	on: boolean;
+	color: string;
+	label: string;
+}) {
+	const canvas = useRef<HTMLCanvasElement>(null);
+	const read = useRef(level);
+	read.current = level;
+	const lit = useRef(on);
+	lit.current = on;
+	useEffect(() => {
+		const element = canvas.current;
+		const context = element?.getContext("2d");
+		if (!element || !context) return;
+		/** One bar every this many CSS pixels, and a new one this often. */
+		const STEP = 3;
+		const EVERY = 50;
+		// Silence before the wave started, so that it runs across all of it.
+		const bars: number[] = new Array(256).fill(0);
+		let peak = 0;
+		let last = performance.now();
+		let frame = requestAnimationFrame(function tick(now) {
+			frame = requestAnimationFrame(tick);
+			peak = Math.max(peak, read.current());
+			if (now - last < EVERY) return;
+			last = now;
+			const scale = devicePixelRatio;
+			const width = element.clientWidth;
+			const height = element.clientHeight;
+			if (element.width !== Math.round(width * scale)) {
+				element.width = Math.round(width * scale);
+				element.height = Math.round(height * scale);
+			}
+			bars.push(peak);
+			peak = 0;
+			const count = Math.ceil(width / STEP);
+			if (bars.length > count) bars.splice(0, bars.length - count);
+			context.setTransform(scale, 0, 0, scale, 0, 0);
+			context.clearRect(0, 0, width, height);
+			context.fillStyle = lit.current
+				? getComputedStyle(element).getPropertyValue(color)
+				: "rgb(255 255 255 / 0.15)";
+			for (let i = 0; i < bars.length; i++) {
+				const bar = Math.max(1, Math.min(1, (bars[i] ?? 0) * 1.6) * height);
+				const x = width - (bars.length - i) * STEP;
+				context.globalAlpha = lit.current ? 0.35 + 0.65 * (i / count) : 1;
+				context.fillRect(x, (height - bar) / 2, STEP - 1, bar);
+			}
+		});
+		return () => cancelAnimationFrame(frame);
+	}, [color]);
+	return (
+		<canvas
+			ref={canvas}
+			role="img"
+			aria-label={label}
+			title={label}
+			className="h-6 min-w-0 flex-1"
+		/>
 	);
 }
 
@@ -517,9 +702,13 @@ function label(name: string): string {
 function People({
 	people,
 	progress,
+	elevenlabs,
 }: {
 	people: Present[];
 	progress: Progress;
+	/** On the ElevenLabs tier, whether it is ready, which shows it as the
+	 * local tier's engine shows: null on the local tier. */
+	elevenlabs: boolean | null;
 }) {
 	return (
 		<ul className="flex min-w-0 flex-1 items-center gap-4 overflow-hidden">
@@ -529,7 +718,7 @@ function People({
 			{people.map((person) => (
 				<li
 					key={person.name}
-					title={`${person.name}${person.engine ? ", the speech engine" : ""}: ${
+					title={`${person.name}${person.engine ? ", the local speech engine" : ""}: ${
 						person.receiving
 							? "here, listening"
 							: `busy${person.since ? ` since ${new Date(person.since).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}`
@@ -548,7 +737,7 @@ function People({
 					)}
 					<span className="truncate">
 						{person.engine ? (
-							<span className="text-muted-foreground">engine</span>
+							<span className="text-muted-foreground">local</span>
 						) : (
 							label(person.name)
 						)}
@@ -562,6 +751,17 @@ function People({
 					)}
 				</li>
 			))}
+			{elevenlabs !== null && (
+				<li
+					title={`ElevenLabs: ${elevenlabs ? "ready" : "no key yet"}`}
+					className="flex shrink-0 items-center gap-2 text-sm text-muted-foreground"
+				>
+					<Cpu
+						className={`size-3.5 shrink-0 ${elevenlabs ? "text-agent" : "text-muted-foreground"}`}
+					/>
+					ElevenLabs
+				</li>
+			)}
 		</ul>
 	);
 }

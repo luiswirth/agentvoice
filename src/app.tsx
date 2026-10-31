@@ -250,7 +250,7 @@ function Page({ name, rename }: { name: string; rename: () => void }) {
 		);
 	}
 	return (
-		<main className="mx-auto flex h-dvh max-w-2xl flex-col gap-4 px-3 pt-3 pb-6 sm:px-4 sm:pb-8">
+		<main className="mx-auto flex h-dvh max-w-6xl flex-col gap-4 px-3 pt-3 pb-6 sm:px-4 sm:pb-8">
 			{voice && (
 				<Refusable
 					voice={voice}
@@ -260,6 +260,12 @@ function Page({ name, rename }: { name: string; rename: () => void }) {
 						session && room
 							? {
 									people: room.people,
+									turns: entries.filter(spoken).map((entry) => ({
+										n: entry.n,
+										from: entry.from,
+										mine: entry.from === name,
+										text: entry.text,
+									})),
 									link: session.link,
 									leave: () => void leave(),
 								}

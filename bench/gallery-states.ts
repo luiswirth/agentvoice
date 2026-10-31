@@ -32,20 +32,20 @@ export const base: VoiceState = {
 
 export const states: Record<string, Partial<VoiceState>> = {
 	off: {},
-	"read-aloud": { speaker: true, reading: 1 },
+	"read-aloud": { speaker: true, reading: 4 },
 	transcription: {
 		listener: true,
 		hearing: "so the plan is that we measure it before we",
 	},
 	conversation: { listener: true, speaker: true },
 	"agent-working": { listener: true, speaker: true, progress: "working" },
-	blocked: { speaker: true, reading: 1, blocked: true },
+	blocked: { speaker: true, reading: 4, blocked: true },
 	languages: { listener: true, languages: ["en", "de"] },
-	"agent-speaking": { listener: true, speaker: true, reading: 1 },
+	"agent-speaking": { listener: true, speaker: true, reading: 4 },
 	missed: {
 		listener: true,
 		speaker: true,
-		reading: 1,
+		reading: 4,
 		missed: { text: "Yes.", why: "echo" },
 	},
 	named: {
@@ -58,7 +58,7 @@ export const states: Record<string, Partial<VoiceState>> = {
 	unnamed: {
 		listener: true,
 		speaker: true,
-		reading: 1,
+		reading: 4,
 		names: { "1": "Luis" },
 		voice: 2,
 		hearing: "and in other news today",
@@ -97,7 +97,7 @@ export const states: Record<string, Partial<VoiceState>> = {
 	},
 	"read-aloud-paused": {
 		speaker: true,
-		reading: 1,
+		reading: 4,
 		held: true,
 		message: "Hi.",
 	},
