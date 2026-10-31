@@ -1,24 +1,27 @@
-// Voice as a playback bar of two parts: listening on the left, speaking on
-// the right, each a pill of its own, which join into one as both are on, a
-// conversation. Above them, large, what the person is saying and has not yet
-// sent: the agent's words belong to its harness. The two voices show as
-// light, the person's warm and the agent's cool: a glow behind the page, the
-// switch of each, and a strip of the last seconds of both. Once the agent
-// named voices, the one heard now shows by name above the words. The system's
-// media controls work it too, so that it needs no looking at. With turns
-// ended by hand the left switch records: one message at a time, sent or
-// deleted from under the words.
+// Voice as a playback bar of two parts, as a media player's: listening on the
+// left, speaking on the right, the same parts mirrored, each a pill that joins
+// the other into one as both are on, a conversation. Each part has one switch,
+// glowing as loud as its voice, and the controls that act on what it holds:
+// the person's words not yet sent, the agent's message being read.
+//
+// The page is mostly open in the background, so it shows one thing loud: who
+// has the floor, as a word and as light, the person's warm and the agent's
+// cool. Once the person speaks, their words take its place, large: the
+// agent's words belong to its harness. What is set once, such as the tier,
+// waits behind the settings. The system's media controls work it too, so that
+// it needs no looking at. With turns ended by hand the left switch records:
+// one message at a time, sent or deleted from under the words.
 import {
 	Check,
 	Copy,
 	CornerDownLeft,
-	Globe,
 	Mic,
 	MicOff,
 	Pause,
 	Play,
 	RotateCcw,
 	SkipForward,
+	SlidersHorizontal,
 	Square,
 	Trash2,
 	Undo2,
@@ -38,29 +41,66 @@ import {
 import { showMedia } from "./media.ts";
 import type { Voice, VoiceState } from "./voice.ts";
 
-export function VoiceBar({ voice }: { voice: Voice }) {
+export function VoiceBar({
+	voice,
+	leave,
+	changeKey,
+}: {
+	voice: Voice;
+	/** Leaves the session, from the settings. */
+	leave?: (() => void) | undefined;
+	/** Asks for another ElevenLabs key, from the settings. */
+	changeKey?: (() => void) | undefined;
+}) {
 	const state = useSyncExternalStore(voice.watch, () => voice.state);
 	const root = useRef<HTMLDivElement>(null);
-	const strip = useRef<HTMLCanvasElement>(null);
-	useLevels(voice, root, strip);
-	useShortcuts(voice, state);
+	const [settings, setSettings] = useState(false);
+	useLevels(voice, root);
+	useShortcuts(voice, state, settings);
+	const now = floor(state);
 	useEffect(() => {
-		showMedia(now(state) || doing(state) || "voice", mode(state));
-	}, [state]);
+		showMedia(said(state) || now.word, mode(state));
+	}, [state, now.word]);
 	return (
-		<div ref={root} className="flex min-h-0 flex-1 flex-col items-center gap-4">
-			<Aura />
-			<Who state={state} />
-			<Now voice={voice} state={state} />
-			{state.error && <p className="text-sm text-destructive">{state.error}</p>}
+		<div
+			ref={root}
+			className="relative flex min-h-0 flex-1 flex-col items-center gap-4"
+		>
+			<Aura working={state.progress === "working" && state.reading === null} />
+			<header className="flex w-full shrink-0 items-center gap-3">
+				<p className="flex-1 truncate text-xs tracking-[0.2em] text-muted-foreground/70 uppercase">
+					{mode(state)}
+				</p>
+				<Who state={state} />
+				<div className="flex flex-1 justify-end">
+					<button
+						type="button"
+						title="Settings"
+						aria-label="Settings"
+						aria-haspopup="dialog"
+						className="grid size-10 place-items-center rounded-full text-muted-foreground transition hover:bg-white/10 hover:text-foreground [&_svg]:size-[18px]"
+						onClick={() => setSettings(true)}
+					>
+						<SlidersHorizontal />
+					</button>
+				</div>
+			</header>
+			<Stage voice={voice} state={state} />
+			{state.error && (
+				<p className="max-w-xl text-center text-sm text-pretty text-destructive">
+					{state.error}
+				</p>
+			)}
 			<Missed voice={voice} state={state} />
-			<Status voice={voice} state={state} />
-			<canvas
-				ref={strip}
-				aria-hidden
-				className="h-10 w-full max-w-xl shrink-0"
-			/>
 			<Bar voice={voice} state={state} />
+			<Settings
+				open={settings}
+				close={() => setSettings(false)}
+				voice={voice}
+				state={state}
+				leave={leave}
+				changeKey={changeKey}
+			/>
 		</div>
 	);
 }
@@ -73,20 +113,68 @@ function mode({ listener, speaker, autoEnd }: VoiceState): string {
 	return "Off";
 }
 
-function doing(state: VoiceState): string {
-	if (!state.autoEnd && state.recording) return "recording";
-	if (state.hearing) return `hearing ${who(state)?.name ?? "you"}`;
-	if (state.reading !== null) return state.held ? "paused" : "speaking";
-	if (state.draft) return "your draft";
-	if (state.progress === "working") return "agent working";
-	if (state.progress === "sent") return "sent";
-	if (state.listener) return "listening";
-	if (state.speaker) return "waiting";
-	return "";
+function said(state: VoiceState): string {
+	return [state.draft, state.hearing].filter(Boolean).join(" ");
 }
 
-function now(state: VoiceState): string {
-	return [state.draft, state.hearing].filter(Boolean).join(" ");
+type Tone = "you" | "agent" | "none";
+
+/** Who has the floor, as one word, in the colour of whoever has it, with a
+ * line on what that means. */
+function floor(state: VoiceState): {
+	word: string;
+	tone: Tone;
+	hint: string;
+	breathing?: boolean;
+} {
+	if (!state.autoEnd && state.recording)
+		return { word: "Recording", tone: "you", hint: "Say your message." };
+	if (state.hearing)
+		return {
+			word: `Hearing ${who(state)?.name ?? "you"}`,
+			tone: "you",
+			hint: "",
+		};
+	if (state.reading !== null)
+		return state.held
+			? { word: "Paused", tone: "agent", hint: "Press play to hear the rest." }
+			: {
+					word: "Speaking",
+					tone: "agent",
+					hint: "Speak to cut in: your agent pauses for you.",
+				};
+	if (state.progress === "working")
+		return {
+			word: "Thinking",
+			tone: "agent",
+			hint: "Your agent is working on your message.",
+			breathing: true,
+		};
+	if (state.progress === "sent")
+		return { word: "Sent", tone: "agent", hint: "Waiting for your agent." };
+	if (state.listener && state.autoEnd)
+		return {
+			word: "Listening",
+			tone: "you",
+			hint: "Speak, and your words go to your agent as you pause.",
+		};
+	if (!state.autoEnd)
+		return {
+			word: "Ready",
+			tone: "none",
+			hint: "Tap the microphone to record a message.",
+		};
+	if (state.speaker)
+		return {
+			word: "Ready",
+			tone: "agent",
+			hint: "Your agent's messages are read aloud as they arrive.",
+		};
+	return {
+		word: "Off",
+		tone: "none",
+		hint: "Turn on listening, speaking, or both.",
+	};
 }
 
 /** Who is heard now, once the agent named any voice: by name, or by number
@@ -138,77 +226,28 @@ function Who({ state }: { state: VoiceState }) {
 }
 
 /** The levels of both voices, eased, as the CSS variables `--you-level` and
- * `--agent-level` on `root`, and their last seconds drawn on `strip`. */
-function useLevels(
-	voice: Voice,
-	root: RefObject<HTMLDivElement | null>,
-	strip: RefObject<HTMLCanvasElement | null>,
-) {
+ * `--agent-level` on `root`. */
+function useLevels(voice: Voice, root: RefObject<HTMLDivElement | null>) {
 	useEffect(() => {
 		// Rises fast and falls slowly, as a meter does.
 		const ease = (from: number, to: number) =>
 			from + (to - from) * (to > from ? 0.5 : 0.1);
-		const history: Level[] = [];
 		let you = 0;
 		let agent = 0;
-		let pushed = 0;
-		let frame = requestAnimationFrame(function tick(time) {
+		let frame = requestAnimationFrame(function tick() {
 			frame = requestAnimationFrame(tick);
 			you = ease(you, voice.state.listener ? voice.state.level : 0);
 			agent = ease(agent, voice.speakerLevel());
 			root.current?.style.setProperty("--you-level", you.toFixed(3));
 			root.current?.style.setProperty("--agent-level", agent.toFixed(3));
-			if (time - pushed < STEP) return;
-			pushed = time;
-			history.push({ you, agent });
-			if (history.length > 400) history.shift();
-			if (strip.current) draw(strip.current, history);
 		});
 		return () => cancelAnimationFrame(frame);
-	}, [voice, root, strip]);
+	}, [voice, root]);
 }
 
-type Level = { you: number; agent: number };
-
-/** Milliseconds per bar of the strip. */
-const STEP = 70;
-
-/** The strip: a bar per step, the newest on the right, each in the colour of
- * whichever voice was louder, fading into the past. */
-function draw(canvas: HTMLCanvasElement, history: Level[]) {
-	const scale = devicePixelRatio;
-	const width = canvas.clientWidth * scale;
-	const height = canvas.clientHeight * scale;
-	if (canvas.width !== width || canvas.height !== height) {
-		canvas.width = width;
-		canvas.height = height;
-	}
-	const context = canvas.getContext("2d");
-	if (context === null) return;
-	const colors = getComputedStyle(canvas);
-	const you = colors.getPropertyValue("--you");
-	const agent = colors.getPropertyValue("--agent");
-	context.clearRect(0, 0, width, height);
-	const bar = 3 * scale;
-	const pitch = 6 * scale;
-	const bars = Math.floor(width / pitch);
-	for (let i = 0; i < bars; i++) {
-		const level = history[history.length - 1 - i];
-		const x = width - (i + 1) * pitch + (pitch - bar) / 2;
-		const louder = Math.max(level?.you ?? 0, level?.agent ?? 0);
-		context.globalAlpha = (1 - i / bars) ** 1.5;
-		// Silence draws nothing, so that no line runs through.
-		if (level === undefined || louder < 0.03) continue;
-		const h = Math.max(2 * scale, Math.min(1, louder * 1.4) * height);
-		context.fillStyle = level.you >= level.agent ? you : agent;
-		context.beginPath();
-		context.roundRect(x, (height - h) / 2, bar, h, bar / 2);
-		context.fill();
-	}
-}
-
-/** Both voices as light behind the page, each brighter as it is louder. */
-function Aura() {
+/** Both voices as light behind the page, each brighter as it is louder, the
+ * agent's breathing while it works. */
+function Aura({ working }: { working: boolean }) {
 	const glow = (color: string, level: string, at: string): CSSProperties => ({
 		left: at,
 		background: `radial-gradient(closest-side, color-mix(in oklch, var(${color}) 45%, transparent), transparent)`,
@@ -225,92 +264,92 @@ function Aura() {
 				style={glow("--you", "--you-level", "25%")}
 			/>
 			<div
-				className="absolute bottom-0 h-[70vh] w-[90vmax]"
+				className={`absolute bottom-0 h-[70vh] w-[90vmax] ${working ? "animate-[breathe_2.4s_ease-in-out_infinite]" : ""}`}
 				style={glow("--agent", "--agent-level", "75%")}
 			/>
 		</div>
 	);
 }
 
-/** What is happening now, large: the person's words, to send or drop by
- * hand when turns don't end by themselves. */
-function Now({ voice, state }: { voice: Voice; state: VoiceState }) {
-	const base =
-		"w-full min-h-0 flex-1 overflow-y-auto text-2xl leading-snug font-light text-balance";
+/** The middle of the page: the person's words once there are any, else who
+ * has the floor. */
+function Stage({ voice, state }: { voice: Voice; state: VoiceState }) {
 	if (!state.autoEnd) return <Recorder voice={voice} state={state} />;
-	const said = Boolean(state.draft || state.hearing);
-	if (said) {
+	if (state.draft || state.hearing) {
 		return (
-			<div className="flex min-h-0 w-full flex-1 flex-col gap-3 text-2xl leading-snug font-light">
-				<textarea
-					aria-label="What you said, to edit before sending"
-					className="min-h-0 flex-1 resize-none bg-transparent outline-none"
-					value={state.draft}
-					onChange={(event) => voice.setDraft(event.target.value)}
-				/>
-				{state.hearing && (
-					<p className="text-muted-foreground">{state.hearing}</p>
-				)}
-				<div className="flex shrink-0 justify-end gap-2 text-sm font-normal">
-					<button
-						type="button"
-						title="Send it to your agent (Enter)"
-						className="flex h-9 items-center gap-2 rounded-full bg-you px-4 font-medium text-black shadow-[0_0_24px_-4px_var(--you)] transition hover:brightness-110"
-						onClick={() => voice.send()}
+			<Words voice={voice} state={state} editable>
+				<Actions>
+					<Action
+						label="Drop it (Escape): it can still be copied"
+						onClick={() => voice.clear()}
 					>
-						Send
-						<CornerDownLeft className="size-4 opacity-60" />
-					</button>
-				</div>
-			</div>
+						<X />
+						Drop
+					</Action>
+					<SendButton voice={voice} />
+				</Actions>
+			</Words>
 		);
 	}
-	if (said) {
-		return (
-			<p className={base}>
-				{state.draft}{" "}
-				<span className="text-muted-foreground">{state.hearing}</span>
-			</p>
-		);
-	}
+	return <Floor state={state} />;
+}
+
+/** Who has the floor, large enough to read from across the room. */
+function Floor({
+	state,
+	children,
+}: {
+	state: VoiceState;
+	children?: ReactNode;
+}) {
+	const { word, tone, hint, breathing } = floor(state);
+	const color =
+		tone === "none"
+			? "var(--muted-foreground)"
+			: `var(--${tone === "you" ? "you" : "agent"})`;
 	return (
-		<p
-			className={`${base} flex items-center justify-center text-center text-muted-foreground/70`}
-		>
-			{hint(state)}
-		</p>
+		<div className="flex min-h-0 w-full flex-1 flex-col items-center justify-center gap-4 text-center">
+			{children}
+			<p
+				aria-live="polite"
+				className={`text-5xl font-extralight tracking-tight transition-colors duration-500 sm:text-6xl ${breathing ? "animate-[breathe_2.4s_ease-in-out_infinite]" : ""}`}
+				style={{
+					color: `color-mix(in oklch, ${color} 85%, white)`,
+					textShadow:
+						tone === "none"
+							? undefined
+							: `0 0 40px color-mix(in oklch, ${color} 45%, transparent)`,
+				}}
+			>
+				{word}
+			</p>
+			<p className="max-w-sm text-base text-balance text-muted-foreground/70">
+				{hint}
+			</p>
+		</div>
 	);
 }
 
-/** Turns ended by hand: a message recorded, then sent or deleted. */
-function Recorder({ voice, state }: { voice: Voice; state: VoiceState }) {
-	const said = Boolean(state.draft || state.hearing);
-	if (!said && !state.recording) {
-		return (
-			<div className="flex min-h-0 w-full flex-1 flex-col items-center justify-center gap-6 text-center">
-				{state.ended && <Ended voice={voice} ended={state.ended} />}
-				<p className="text-2xl leading-snug font-light text-balance text-muted-foreground/70">
-					{state.ended
-						? "Tap the mic to record another."
-						: "Tap the mic to record a message."}
-				</p>
-			</div>
-		);
-	}
+/** The person's words, large, editable once nothing more is being heard
+ * into them, with what acts on them underneath. */
+function Words({
+	voice,
+	state,
+	editable,
+	children,
+}: {
+	voice: Voice;
+	state: VoiceState;
+	editable: boolean;
+	children: ReactNode;
+}) {
 	return (
-		<div className="flex min-h-0 w-full flex-1 flex-col gap-3 text-2xl leading-snug font-light">
-			{said && state.recording ? (
-				// Editing waits until the recording stops, so the words heard
-				// so far read on as one text.
-				<p className="min-h-0 flex-1 overflow-y-auto">
-					{state.draft}{" "}
-					<span className="text-muted-foreground">{state.hearing}</span>
-				</p>
-			) : said ? (
+		<div className="flex min-h-0 w-full flex-1 flex-col gap-3 pt-4 text-2xl leading-snug font-light sm:text-3xl">
+			{editable ? (
 				<>
 					<textarea
-						aria-label="Your message, to edit before sending"
-						className="min-h-0 flex-1 resize-none bg-transparent outline-none"
+						aria-label="What you said, to edit before sending"
+						className="min-h-0 flex-1 resize-none bg-transparent text-balance outline-none"
 						value={state.draft}
 						onChange={(event) => voice.setDraft(event.target.value)}
 					/>
@@ -319,11 +358,75 @@ function Recorder({ voice, state }: { voice: Voice; state: VoiceState }) {
 					)}
 				</>
 			) : (
-				<p className="flex flex-1 items-center justify-center text-center text-balance text-muted-foreground/70">
-					Say your message.
+				// Editing waits until the recording stops, so the words heard so
+				// far read on as one text.
+				<p className="min-h-0 flex-1 overflow-y-auto">
+					{state.draft}{" "}
+					<span className="text-muted-foreground">{state.hearing}</span>
 				</p>
 			)}
-			<div className="flex shrink-0 items-center gap-2 text-sm font-normal">
+			{children}
+		</div>
+	);
+}
+
+function Actions({ children }: { children: ReactNode }) {
+	return (
+		<div className="flex shrink-0 items-center justify-end gap-2 text-sm font-normal">
+			{children}
+		</div>
+	);
+}
+
+function Action({
+	label,
+	onClick,
+	children,
+}: {
+	label: string;
+	onClick: () => void;
+	children: ReactNode;
+}) {
+	return (
+		<button
+			type="button"
+			title={label}
+			className="flex h-10 items-center gap-2 rounded-full px-4 text-foreground/80 transition hover:bg-white/10 hover:text-foreground [&_svg]:size-4"
+			onClick={onClick}
+		>
+			{children}
+		</button>
+	);
+}
+
+function SendButton({ voice }: { voice: Voice }) {
+	return (
+		<button
+			type="button"
+			title="Send it to your agent (Enter)"
+			className="flex h-10 items-center gap-2 rounded-full bg-you px-5 font-medium text-black shadow-[0_0_24px_-4px_var(--you)] transition hover:brightness-110"
+			onClick={() => voice.send()}
+		>
+			Send
+			<CornerDownLeft className="size-4 opacity-60" />
+		</button>
+	);
+}
+
+/** Turns ended by hand: a message recorded, then sent or deleted. */
+function Recorder({ voice, state }: { voice: Voice; state: VoiceState }) {
+	const words = Boolean(state.draft || state.hearing);
+	if (!words)
+		return (
+			<Floor state={state}>
+				{state.ended && !state.recording && (
+					<Ended voice={voice} ended={state.ended} />
+				)}
+			</Floor>
+		);
+	return (
+		<Words voice={voice} state={state} editable={!state.recording}>
+			<Actions>
 				<p className="mr-auto flex items-center gap-2 text-muted-foreground">
 					{state.recording ? (
 						<>
@@ -331,33 +434,19 @@ function Recorder({ voice, state }: { voice: Voice; state: VoiceState }) {
 							Recording
 						</>
 					) : (
-						"Tap the mic to add more"
+						"Tap the microphone to add more"
 					)}
 				</p>
-				{said && (
-					<>
-						<button
-							type="button"
-							title="Delete this message (Escape)"
-							className="flex h-9 items-center gap-2 rounded-full px-4 text-foreground/80 transition hover:bg-white/10 hover:text-foreground"
-							onClick={() => voice.clear()}
-						>
-							<Trash2 className="size-4" />
-							Delete
-						</button>
-						<button
-							type="button"
-							title="Send it to your agent (Enter)"
-							className="flex h-9 items-center gap-2 rounded-full bg-you px-4 font-medium text-black shadow-[0_0_24px_-4px_var(--you)] transition hover:brightness-110"
-							onClick={() => voice.send()}
-						>
-							Send
-							<CornerDownLeft className="size-4 opacity-60" />
-						</button>
-					</>
-				)}
-			</div>
-		</div>
+				<Action
+					label="Delete this message (Escape)"
+					onClick={() => voice.clear()}
+				>
+					<Trash2 />
+					Delete
+				</Action>
+				<SendButton voice={voice} />
+			</Actions>
+		</Words>
 	);
 }
 
@@ -370,7 +459,7 @@ function Ended({
 	ended: { text: string; sent: boolean };
 }) {
 	return (
-		<div className="flex max-w-md flex-col items-center gap-2 text-sm">
+		<div className="mb-6 flex max-w-md flex-col items-center gap-2 text-sm">
 			<p className="flex items-center gap-1.5 text-xs tracking-widest text-muted-foreground uppercase">
 				{ended.sent ? (
 					<Check className="size-3.5" />
@@ -399,12 +488,6 @@ function Ended({
 	);
 }
 
-function hint({ listener, speaker, autoEnd }: VoiceState): string {
-	if (listener && autoEnd) return "Speak, and your words go to your agent.";
-	if (speaker) return "Your agent's messages are read aloud as they arrive.";
-	return "Turn on listening, speaking, or both.";
-}
-
 /** Words heard while the agent spoke that didn't count, to send if they
  * were the person's. */
 function Missed({ voice, state }: { voice: Voice; state: VoiceState }) {
@@ -415,7 +498,7 @@ function Missed({ voice, state }: { voice: Voice; state: VoiceState }) {
 		backchannel: "said while your agent spoke",
 	}[state.missed.why];
 	return (
-		<p className="flex max-w-xl items-center gap-2 text-sm text-muted-foreground">
+		<p className="flex max-w-xl items-center gap-2 rounded-full bg-white/[0.04] py-1 pr-1 pl-4 text-sm text-muted-foreground">
 			<span className="truncate">
 				Not sent, {why}: “{state.missed.text}”
 			</span>
@@ -431,168 +514,8 @@ function Missed({ voice, state }: { voice: Voice; state: VoiceState }) {
 	);
 }
 
-/** The mode, what is going on in it, and sharing the trace. */
-function Status({ voice, state }: { voice: Voice; state: VoiceState }) {
-	const dot =
-		state.listener && state.speaker
-			? "linear-gradient(90deg, var(--you) 50%, var(--agent) 50%)"
-			: state.listener
-				? "var(--you)"
-				: state.speaker
-					? "var(--agent)"
-					: "var(--muted-foreground)";
-	return (
-		<div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs tracking-widest whitespace-nowrap text-muted-foreground uppercase sm:gap-x-3">
-			<p className="flex items-center gap-2">
-				<span
-					className="size-2 rounded-full transition-[background] duration-500"
-					style={{ background: dot }}
-				/>
-				{mode(state)}
-				{doing(state) && (
-					<span className="hidden text-muted-foreground/60 sm:inline">
-						· {doing(state)}
-					</span>
-				)}
-			</p>
-			<TierChoice voice={voice} state={state} />
-			{state.tier === "local" && state.engineVoices.length > 1 && (
-				<EngineVoice voice={voice} state={state} />
-			)}
-			{state.tier === "elevenlabs" && <Languages voice={voice} state={state} />}
-			<button
-				type="button"
-				aria-pressed={state.sharing}
-				title="Send your agent a trace of what voice does, with the audio it heard, now and with each message, so that it can improve voice"
-				className={`rounded-full px-2 py-0.5 tracking-widest uppercase transition hover:bg-white/10 hover:text-foreground ${state.sharing ? "bg-white/10 text-foreground" : "text-muted-foreground/60"}`}
-				onClick={() => voice.share(!state.sharing)}
-			>
-				{state.sharing ? "sharing trace" : "share trace"}
-			</button>
-			<button
-				type="button"
-				aria-pressed={state.sounds}
-				title="Short sounds for what happens, such as your message going out and your agent working on it"
-				className={`rounded-full px-2 py-0.5 tracking-widest uppercase transition hover:bg-white/10 hover:text-foreground ${state.sounds ? "text-muted-foreground" : "text-muted-foreground/40 line-through"}`}
-				onClick={() => voice.setSounds(!state.sounds)}
-			>
-				sounds
-			</button>
-		</div>
-	);
-}
-
-/** Where transcription and speech synthesis run: ElevenLabs, or an engine
- * in the session, which a press switches between. */
-function TierChoice({ voice, state }: { voice: Voice; state: VoiceState }) {
-	const local = state.tier === "local";
-	return (
-		<button
-			type="button"
-			title="Where your voice is heard and spoken: on ElevenLabs, with your key, or by an engine your agent runs, in English only. Press to switch."
-			aria-label={`Voice on ${local ? "an engine your agent runs" : "ElevenLabs"}`}
-			className="rounded-full px-2 py-0.5 tracking-widest uppercase transition hover:bg-white/10 hover:text-foreground text-muted-foreground/60"
-			onClick={() => voice.setTier(local ? "elevenlabs" : "local")}
-		>
-			{local ? `local${state.engine ? "" : " · no engine yet"}` : "elevenlabs"}
-		</button>
-	);
-}
-
-/** Kokoro's kinds of voice, by the first two letters of a voice's name. */
-const KINDS: Record<string, string> = {
-	af: "American, female",
-	am: "American, male",
-	bf: "British, female",
-	bm: "British, male",
-};
-
-/** The engine's voice the agent speaks with, chosen from those it offers,
- * grouped by their kind where the name shows one, as Kokoro's do. */
-function EngineVoice({ voice, state }: { voice: Voice; state: VoiceState }) {
-	const name = (v: string) => (KINDS[v.slice(0, 2)] ? v.slice(3) : v);
-	const groups = new Map<string, string[]>();
-	for (const v of [...state.engineVoices].sort()) {
-		const kind = KINDS[v.slice(0, 2)] ?? "Other";
-		groups.set(kind, [...(groups.get(kind) ?? []), v]);
-	}
-	// The name shows as a pill; the select over it, unseen, opens the
-	// browser's own list, and is as wide as the name rather than the longest.
-	return (
-		<label
-			title="The voice your agent speaks with, kept in this browser"
-			className="relative cursor-pointer rounded-full px-2 py-0.5 tracking-widest uppercase text-muted-foreground/60 transition hover:bg-white/10 hover:text-foreground"
-		>
-			{name(state.engineVoice ?? "")}
-			<select
-				aria-label="The voice your agent speaks with"
-				className="absolute inset-0 cursor-pointer opacity-0"
-				value={state.engineVoice ?? ""}
-				onChange={(event) => voice.setEngineVoice(event.target.value)}
-			>
-				{[...groups].map(([kind, voices]) => (
-					<optgroup key={kind} label={kind}>
-						{voices.map((v) => (
-							<option key={v} value={v}>
-								{name(v)}
-							</option>
-						))}
-					</optgroup>
-				))}
-			</select>
-		</label>
-	);
-}
-
-const names = new Intl.DisplayNames(["en"], { type: "language" });
-
-/** The languages the person speaks, for transcription: detected, shown as
- * the globe alone, or typed as codes such as `en, de`, the most likely first. */
-function Languages({ voice, state }: { voice: Voice; state: VoiceState }) {
-	const [editing, setEditing] = useState<string | null>(null);
-	const title =
-		"The languages you speak, the most likely first, as codes such as en, de: transcription hears only these. Empty is automatic.";
-	if (editing === null)
-		return (
-			<button
-				type="button"
-				title={title}
-				aria-label={`Languages: ${state.languages.join(", ") || "detected"}`}
-				className="flex items-center gap-1.5 rounded-full px-2 py-0.5 tracking-widest uppercase transition hover:bg-white/10 hover:text-foreground text-muted-foreground/60"
-				onClick={() => setEditing(state.languages.join(", "))}
-			>
-				<Globe className="size-3" />
-				{state.languages.join(" · ")}
-			</button>
-		);
-	const save = () => {
-		const codes = editing
-			.toLowerCase()
-			.split(/[\s,]+/)
-			.filter((code) => /^[a-z]{2,3}$/.test(code) && names.of(code) !== code);
-		void voice.setLanguages([...new Set(codes)]);
-		setEditing(null);
-	};
-	return (
-		<input
-			// biome-ignore lint/a11y/noAutofocus: it opens at the person's click
-			autoFocus
-			aria-label="The languages you speak"
-			title={title}
-			placeholder="en, de"
-			className="w-24 rounded-full bg-white/10 px-2 py-0.5 text-xs tracking-normal text-foreground normal-case outline-none placeholder:text-muted-foreground/60"
-			value={editing}
-			onChange={(event) => setEditing(event.target.value)}
-			onBlur={save}
-			onKeyDown={(event) => {
-				if (event.key === "Enter") save();
-				if (event.key === "Escape") setEditing(null);
-			}}
-		/>
-	);
-}
-
-/** The two parts: listening and speaking, apart, or joined while both are on. */
+/** The two parts: listening and speaking, apart, or joined while both are
+ * on. Each control keeps its place and its meaning in every state. */
 function Bar({ voice, state }: { voice: Voice; state: VoiceState }) {
 	const manual = !state.autoEnd;
 	const listening = manual ? state.recording : state.listener;
@@ -600,7 +523,7 @@ function Bar({ voice, state }: { voice: Voice; state: VoiceState }) {
 	const reading = state.reading !== null;
 	return (
 		<div
-			className={`flex w-full max-w-xl justify-center transition-[gap] duration-500 ${joined ? "gap-0" : "gap-2 sm:gap-3"}`}
+			className={`flex w-full max-w-xl shrink-0 justify-center transition-[gap] duration-500 ${joined ? "gap-0" : "gap-2 sm:gap-3"}`}
 		>
 			<Part side="left" on={listening} joined={joined} color="--you">
 				{manual ? (
@@ -626,28 +549,20 @@ function Bar({ voice, state }: { voice: Voice; state: VoiceState }) {
 						{state.listener ? <Mic /> : <MicOff />}
 					</Switch>
 				)}
-				<TurnEnd voice={voice} state={state} />
-				{!manual && (state.draft || state.hearing) ? (
-					<Small
-						label="Drop what you said so far (Escape): it can still be copied"
-						onClick={() => voice.clear()}
-					>
-						<X />
-					</Small>
-				) : (
-					<Small
-						label="Copy your last transcript"
-						disabled={!state.last}
-						onClick={() => voice.copyLast()}
-						done={<Check />}
-					>
-						<Copy />
-					</Small>
-				)}
+				<AutoSend voice={voice} state={state} />
+				<Small
+					label="Copy your last transcript"
+					disabled={!state.last}
+					onClick={() => voice.copyLast()}
+					done={<Check />}
+				>
+					<Copy />
+				</Small>
 			</Part>
 			<Part side="right" on={state.speaker} joined={joined} color="--agent">
 				<Small
 					label="Read the last message again"
+					disabled={!state.message}
 					onClick={() => voice.replay()}
 				>
 					<RotateCcw />
@@ -687,11 +602,11 @@ function Part(props: {
 	color: string;
 	children: ReactNode;
 }) {
-	const inner = props.joined ? "4px" : "999px";
+	const inner = props.joined ? "6px" : "999px";
 	const left = props.side === "left";
 	return (
 		<div
-			className={`flex shrink-0 items-center gap-0.5 border p-1 sm:gap-1 sm:p-1.5 ${left ? "pr-1.5 sm:pr-2" : ""} shadow-2xl shadow-black/60 backdrop-blur-xl transition-all duration-500 ${props.on ? "bg-white/[0.08]" : "border-white/10 bg-white/[0.03]"}`}
+			className={`flex shrink-0 items-center gap-0.5 border p-1 sm:gap-1 sm:p-1.5 ${left ? "pr-1.5 sm:pr-2" : "pl-1.5 sm:pl-2"} shadow-2xl shadow-black/60 backdrop-blur-xl transition-all duration-500 ${props.on ? "bg-white/[0.08]" : "border-white/10 bg-white/[0.03]"}`}
 			style={{
 				borderRadius: left
 					? `999px ${inner} ${inner} 999px`
@@ -730,7 +645,7 @@ function Switch(props: {
 			aria-pressed={props.on}
 			disabled={props.busy}
 			onClick={props.onClick}
-			className={`grid size-11 shrink-0 place-items-center rounded-full sm:size-12 transition-colors duration-300 [&_svg]:size-5 ${props.on ? "text-black" : "bg-white/10 text-foreground/70 hover:bg-white/15 hover:text-foreground"} ${props.busy ? "animate-pulse" : ""} ${props.working ? "animate-[working_2.4s_ease-in-out_infinite]" : ""}`}
+			className={`grid size-12 shrink-0 place-items-center rounded-full transition-colors duration-300 [&_svg]:size-5 ${props.on ? "text-black" : "bg-white/10 text-foreground/70 hover:bg-white/15 hover:text-foreground"} ${props.busy ? "animate-pulse" : ""} ${props.working ? "animate-[working_2.4s_ease-in-out_infinite]" : ""}`}
 			style={
 				props.on
 					? {
@@ -745,40 +660,34 @@ function Switch(props: {
 	);
 }
 
-/** Whether a turn ends at a pause or when the person sends it: a setting of
- * listening, so a choice of two rather than a button. */
-function TurnEnd({ voice, state }: { voice: Voice; state: VoiceState }) {
-	const options = [
-		{ auto: true, label: "auto", title: "Your turn ends when you pause" },
-		{
-			auto: false,
-			label: "manual",
-			title: "Record each message with the microphone, then send it",
-		},
-	];
+/** Whether a turn ends by itself at a pause: a setting of listening, so it
+ * looks like one, a labelled switch rather than a button that acts. Off, the
+ * person records each message and sends it. */
+function AutoSend({ voice, state }: { voice: Voice; state: VoiceState }) {
 	return (
-		<fieldset
-			aria-label="How your turn ends"
-			className={`relative m-0 grid min-w-0 border-0 h-8 shrink-0 grid-cols-2 rounded-full bg-black/40 p-0.5 text-xs transition-opacity ${state.listener || !state.autoEnd ? "" : "opacity-60"}`}
+		<button
+			type="button"
+			role="switch"
+			aria-checked={state.autoEnd}
+			title={
+				state.autoEnd
+					? "Auto-send is on: your turn ends when you pause. Turn it off to record each message and send it yourself."
+					: "Auto-send is off: record each message, then send it. Turn it on to have your turn end when you pause."
+			}
+			className="flex h-9 shrink-0 items-center gap-2 rounded-full px-2.5 text-xs text-muted-foreground transition hover:bg-white/10 hover:text-foreground sm:px-3"
+			onClick={() => voice.setAutoEnd(!state.autoEnd)}
 		>
+			<span>auto-send</span>
 			<span
 				aria-hidden
-				className="absolute inset-y-0.5 left-0.5 w-[calc(50%-2px)] rounded-full bg-white/15 shadow-sm transition-transform duration-300 ease-out"
-				style={{ transform: state.autoEnd ? "none" : "translateX(100%)" }}
-			/>
-			{options.map(({ auto, label, title }) => (
-				<button
-					key={label}
-					type="button"
-					aria-pressed={state.autoEnd === auto}
-					title={title}
-					className={`relative rounded-full px-1.5 transition-colors sm:px-2.5 ${state.autoEnd === auto ? "text-foreground" : "text-muted-foreground hover:text-foreground"}`}
-					onClick={() => voice.setAutoEnd(auto)}
-				>
-					{label}
-				</button>
-			))}
-		</fieldset>
+				className={`relative h-4 w-7 shrink-0 rounded-full transition-colors duration-300 ${state.autoEnd ? "bg-you/80" : "bg-white/15"}`}
+			>
+				<span
+					className="absolute top-0.5 left-0.5 size-3 rounded-full bg-white shadow transition-transform duration-300 ease-out"
+					style={{ transform: state.autoEnd ? "translateX(12px)" : "none" }}
+				/>
+			</span>
+		</button>
 	);
 }
 
@@ -806,18 +715,294 @@ function Small(props: {
 					() => props.done && setDone(true),
 				)
 			}
-			className="grid size-8 shrink-0 place-items-center rounded-full text-foreground/80 transition hover:bg-white/10 hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent sm:size-9 [&_svg]:size-4"
+			className="grid size-9 shrink-0 place-items-center rounded-full text-foreground/80 transition hover:bg-white/10 hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent [&_svg]:size-[18px]"
 		>
 			{done ? props.done : props.children}
 		</button>
 	);
 }
 
+/** What is set once and then left: where speech runs, its voice and
+ * languages, the sounds, sharing the trace, and leaving. */
+function Settings(props: {
+	open: boolean;
+	close: () => void;
+	voice: Voice;
+	state: VoiceState;
+	leave?: (() => void) | undefined;
+	changeKey?: (() => void) | undefined;
+}) {
+	const { voice, state } = props;
+	const dialog = useRef<HTMLDialogElement>(null);
+	useEffect(() => {
+		const element = dialog.current;
+		if (!element) return;
+		if (props.open && !element.open) element.showModal();
+		if (!props.open && element.open) element.close();
+	}, [props.open]);
+	const local = state.tier === "local";
+	return (
+		// biome-ignore lint/a11y/useKeyWithClickEvents: Escape closes it, natively
+		<dialog
+			ref={dialog}
+			aria-label="Settings"
+			onClose={props.close}
+			// A click on the backdrop lands on the dialog itself.
+			onClick={(event) => event.target === dialog.current && props.close()}
+			className="m-auto w-[min(28rem,calc(100vw-1.5rem))] rounded-3xl border border-white/10 bg-neutral-900/90 p-0 text-foreground shadow-2xl shadow-black backdrop-blur-2xl backdrop:bg-black/50 backdrop:backdrop-blur-sm max-sm:mb-3"
+		>
+			<div className="flex flex-col gap-1 p-2">
+				<div className="flex items-center justify-between py-1 pr-1 pl-4">
+					<h2 className="text-base font-medium">Settings</h2>
+					<button
+						type="button"
+						aria-label="Close"
+						className="grid size-9 place-items-center rounded-full text-muted-foreground outline-none transition hover:bg-white/10 focus-visible:bg-white/10 hover:text-foreground [&_svg]:size-4"
+						onClick={props.close}
+					>
+						<X />
+					</button>
+				</div>
+				<Row
+					title="Speech models"
+					detail={
+						local
+							? state.engine
+								? "On your agent's machine, through its engine."
+								: "On your agent's machine. Waiting for its engine."
+							: "On ElevenLabs, with your key."
+					}
+				>
+					<Segmented
+						label="Where speech models run"
+						options={[
+							["local", "Local"],
+							["elevenlabs", "ElevenLabs"],
+						]}
+						value={state.tier}
+						choose={(tier) => void voice.setTier(tier as VoiceState["tier"])}
+					/>
+				</Row>
+				{local && state.engineVoices.length > 1 && (
+					<Row title="Voice" detail="The voice your agent speaks with.">
+						<EngineVoice voice={voice} state={state} />
+					</Row>
+				)}
+				{!local && (
+					<Row
+						title="Languages"
+						detail="The ones you speak, the most likely first. Empty is automatic."
+					>
+						<Languages voice={voice} state={state} />
+					</Row>
+				)}
+				{!local && props.changeKey && (
+					<Row title="ElevenLabs key" detail="Kept in this browser.">
+						<button
+							type="button"
+							className="h-8 rounded-full bg-white/10 px-3 text-sm transition hover:bg-white/15"
+							onClick={() => {
+								props.close();
+								props.changeKey?.();
+							}}
+						>
+							Change
+						</button>
+					</Row>
+				)}
+				<Row
+					title="Sounds"
+					detail="Short cues for what happens, such as your message going out."
+				>
+					<Toggle
+						label="Sounds"
+						on={state.sounds}
+						flip={() => voice.setSounds(!state.sounds)}
+					/>
+				</Row>
+				<Row
+					title="Share trace"
+					detail="Sends your agent what voice does, with the audio it heard, so that it can improve voice."
+				>
+					<Toggle
+						label="Share trace"
+						on={state.sharing}
+						flip={() => voice.share(!state.sharing)}
+					/>
+				</Row>
+				{props.leave && (
+					<div className="mt-2 flex items-center gap-3 border-t border-white/10 px-4 pt-4 pb-2">
+						<p className="flex-1 text-sm text-pretty text-muted-foreground">
+							Keep this page's link secret: whoever holds it can talk to your
+							agent.
+						</p>
+						<button
+							type="button"
+							title="Leave the session: once everyone has left, it is deleted"
+							className="h-9 shrink-0 rounded-full border border-white/15 px-4 text-sm transition hover:border-destructive/60 hover:text-destructive"
+							onClick={() => {
+								props.close();
+								props.leave?.();
+							}}
+						>
+							Leave
+						</button>
+					</div>
+				)}
+			</div>
+		</dialog>
+	);
+}
+
+function Row({
+	title,
+	detail,
+	children,
+}: {
+	title: string;
+	detail: string;
+	children: ReactNode;
+}) {
+	return (
+		<div className="flex items-center gap-4 rounded-2xl px-4 py-3">
+			<div className="min-w-0 flex-1">
+				<p className="text-sm">{title}</p>
+				<p className="text-xs text-pretty text-muted-foreground">{detail}</p>
+			</div>
+			<div className="shrink-0">{children}</div>
+		</div>
+	);
+}
+
+function Toggle({
+	label,
+	on,
+	flip,
+}: {
+	label: string;
+	on: boolean;
+	flip: () => void;
+}) {
+	return (
+		<button
+			type="button"
+			role="switch"
+			aria-checked={on}
+			aria-label={label}
+			className={`relative h-6 w-10 rounded-full transition-colors duration-300 ${on ? "bg-foreground" : "bg-white/15"}`}
+			onClick={flip}
+		>
+			<span
+				className={`absolute top-0.5 left-0.5 size-5 rounded-full shadow transition-transform duration-300 ease-out ${on ? "bg-background" : "bg-white/80"}`}
+				style={{ transform: on ? "translateX(16px)" : "none" }}
+			/>
+		</button>
+	);
+}
+
+function Segmented({
+	label,
+	options,
+	value,
+	choose,
+}: {
+	label: string;
+	options: [string, string][];
+	value: string;
+	choose: (value: string) => void;
+}) {
+	return (
+		<fieldset
+			aria-label={label}
+			className="m-0 flex min-w-0 rounded-full border-0 bg-black/40 p-0.5 text-xs"
+		>
+			{options.map(([id, name]) => (
+				<button
+					key={id}
+					type="button"
+					aria-pressed={value === id}
+					className={`h-7 rounded-full px-3 transition-colors ${value === id ? "bg-white/15 text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+					onClick={() => choose(id)}
+				>
+					{name}
+				</button>
+			))}
+		</fieldset>
+	);
+}
+
+/** Kokoro's kinds of voice, by the first two letters of a voice's name. */
+const KINDS: Record<string, string> = {
+	af: "American, female",
+	am: "American, male",
+	bf: "British, female",
+	bm: "British, male",
+};
+
+/** The engine's voice the agent speaks with, chosen from those it offers,
+ * grouped by their kind where the name shows one, as Kokoro's do. */
+function EngineVoice({ voice, state }: { voice: Voice; state: VoiceState }) {
+	const name = (v: string) => (KINDS[v.slice(0, 2)] ? v.slice(3) : v);
+	const groups = new Map<string, string[]>();
+	for (const v of [...state.engineVoices].sort()) {
+		const kind = KINDS[v.slice(0, 2)] ?? "Other";
+		groups.set(kind, [...(groups.get(kind) ?? []), v]);
+	}
+	return (
+		<select
+			aria-label="The voice your agent speaks with"
+			className="h-8 cursor-pointer rounded-full bg-white/10 px-3 text-sm capitalize outline-none transition hover:bg-white/15"
+			value={state.engineVoice ?? ""}
+			onChange={(event) => voice.setEngineVoice(event.target.value)}
+		>
+			{[...groups].map(([kind, voices]) => (
+				<optgroup key={kind} label={kind}>
+					{voices.map((v) => (
+						<option key={v} value={v}>
+							{name(v)}
+						</option>
+					))}
+				</optgroup>
+			))}
+		</select>
+	);
+}
+
+const names = new Intl.DisplayNames(["en"], { type: "language" });
+
+/** The languages the person speaks, for transcription, typed as codes such
+ * as `en, de`, the most likely first; none is automatic. */
+function Languages({ voice, state }: { voice: Voice; state: VoiceState }) {
+	const [editing, setEditing] = useState(state.languages.join(", "));
+	const save = () => {
+		const codes = editing
+			.toLowerCase()
+			.split(/[\s,]+/)
+			.filter((code) => /^[a-z]{2,3}$/.test(code) && names.of(code) !== code);
+		void voice.setLanguages([...new Set(codes)]);
+		setEditing(codes.join(", "));
+	};
+	return (
+		<input
+			aria-label="The languages you speak, as codes such as en, de"
+			placeholder="auto"
+			className="h-8 w-24 rounded-full bg-white/10 px-3 text-sm outline-none placeholder:text-muted-foreground/60 focus-visible:ring-2 focus-visible:ring-ring/50"
+			value={editing}
+			onChange={(event) => setEditing(event.target.value)}
+			onBlur={save}
+			onKeyDown={(event) => {
+				if (event.key === "Enter") save();
+			}}
+		/>
+	);
+}
+
 /** Space turns listening, or recording, on and off, Enter sends what was said by hand,
  * Escape drops it. Not while typing in the draft, except Escape, nor in a
- * field. */
-function useShortcuts(voice: Voice, state: VoiceState) {
+ * field, nor while the settings are open. */
+function useShortcuts(voice: Voice, state: VoiceState, settings: boolean) {
 	useEffect(() => {
+		if (settings) return;
 		const key = (event: KeyboardEvent) => {
 			if (event.target instanceof HTMLInputElement) return;
 			const typing = event.target instanceof HTMLTextAreaElement;
@@ -833,5 +1018,5 @@ function useShortcuts(voice: Voice, state: VoiceState) {
 		};
 		window.addEventListener("keydown", key);
 		return () => window.removeEventListener("keydown", key);
-	}, [voice, state.listener, state.autoEnd, state.recording]);
+	}, [voice, state.listener, state.autoEnd, state.recording, settings]);
 }

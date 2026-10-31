@@ -36,6 +36,9 @@ const voice = {
 	share: () => {},
 	setLanguages: async () => {},
 	skip: () => {},
+	setSounds: () => {},
+	setTier: async () => {},
+	setEngineVoice: () => {},
 } as unknown as Voice;
 // The microphone's level is part of the state, which changes as it moves.
 setInterval(() => {
@@ -43,10 +46,18 @@ setInterval(() => {
 }, 30);
 
 const root = document.getElementById("root");
+// A state named settings opens them, as a press on their button does.
+if (name.startsWith("settings"))
+	setTimeout(
+		() =>
+			document
+				.querySelector<HTMLButtonElement>('[aria-label="Settings"]')
+				?.click(),
+		100,
+	);
 if (root)
 	createRoot(root).render(
-		<main className="mx-auto flex h-dvh max-w-2xl flex-col gap-4 p-4 pb-8">
-			<div className="h-8" />
-			<VoiceBar voice={voice} />
+		<main className="mx-auto flex h-dvh max-w-2xl flex-col gap-4 px-3 pt-3 pb-6 sm:px-4 sm:pb-8">
+			<VoiceBar voice={voice} leave={() => {}} changeKey={() => {}} />
 		</main>,
 	);

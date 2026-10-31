@@ -213,21 +213,14 @@ function Page({ name, rename }: { name: string; rename: () => void }) {
 		);
 	}
 	return (
-		<main className="mx-auto flex h-dvh max-w-2xl flex-col gap-4 px-2 pt-4 pb-8 sm:px-4">
-			<div className="flex items-center gap-2 text-sm text-muted-foreground">
-				<span className="flex-1">Keep this page's link secret.</span>
-				<Button
-					variant="outline"
-					size="sm"
-					disabled={session === null}
-					title="Leave the session: once everyone has left, it is deleted"
-					onClick={leave}
-				>
-					Leave
-				</Button>
-			</div>
+		<main className="mx-auto flex h-dvh max-w-2xl flex-col gap-4 px-3 pt-3 pb-6 sm:px-4 sm:pb-8">
 			{voice && (
-				<Refusable voice={voice} forget={forget} keyed={key !== null} />
+				<Refusable
+					voice={voice}
+					forget={forget}
+					keyed={key !== null}
+					leave={session ? () => void leave() : undefined}
+				/>
 			)}
 		</main>
 	);
@@ -250,15 +243,21 @@ function Refusable({
 	voice,
 	forget,
 	keyed,
+	leave,
 }: {
 	voice: Voice;
 	forget: (why: string) => void;
 	keyed: boolean;
+	leave?: (() => void) | undefined;
 }) {
 	const state = useSyncExternalStore(voice.watch, () => voice.state);
 	return (
 		<>
-			<VoiceBar voice={voice} />
+			<VoiceBar
+				voice={voice}
+				leave={leave}
+				changeKey={keyed ? () => forget("") : undefined}
+			/>
 			{state.refused && state.error && (
 				<div className="flex justify-center">
 					<Button variant="outline" onClick={() => forget(state.error ?? "")}>

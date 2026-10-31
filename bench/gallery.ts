@@ -25,8 +25,8 @@ try {
 		const tab = await (await browser.newContext(options)).newPage();
 		for (const state of Object.keys(states)) {
 			await tab.goto(`${url}bench/gallery.html?state=${state}`);
-			// The strip fills over its first seconds.
-			await tab.waitForTimeout(3500);
+			// The levels ease in over the first moments.
+			await tab.waitForTimeout(1500);
 			const file = join(out, `${screen}-${state}.png`);
 			await tab.screenshot({ path: file });
 			console.log(file);

@@ -108,4 +108,20 @@ export const states: Record<string, Partial<VoiceState>> = {
 			sent: false,
 		},
 	},
+	"agent-sent": { listener: true, speaker: true, progress: "sent" },
+	settings: {
+		listener: true,
+		speaker: true,
+		tier: "local",
+		engine: true,
+		engineVoices: ["af_heart", "af_bella", "am_adam", "bm_george"],
+		engineVoice: "af_heart",
+	},
+	"settings-elevenlabs": {
+		listener: true,
+		speaker: true,
+		languages: ["en", "de"],
+		sounds: false,
+		sharing: true,
+	},
 };

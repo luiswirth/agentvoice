@@ -136,6 +136,17 @@
 	}
 }
 
+/* What shows the agent working breathes, slowly. */
+@keyframes breathe {
+	0%,
+	100% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 0.45;
+	}
+}
+
 /* The agent's switch breathes while the agent works on the person's message. */
 @keyframes working {
 	0%,
