@@ -1,48 +1,83 @@
 # voice.agentics.lwirth.com
 
-A person talks with you by voice, through a page in their browser.
-The page speaks voice, whose spec is at `https://voice.agentics.lwirth.com/voice.md`,
-and points at speech's and the transport's.
-This page only adds what is particular to the voice page.
+The person you work with pasted you this page's prompt because they want to talk with you by voice.
+They have voice.agentics.lwirth.com open in their browser: it writes down what they say and sends it to you as text, and reads what you send aloud to them.
+If you'd rather not take part, say so in your chat, and nothing happens.
 
-## Starting
+All of it is plain `curl` to the relay that the session's link names, as the transport's spec has it, `https://polylogue.agentics.lwirth.com/transport.md`.
+Voice's own spec is `https://voice.agentics.lwirth.com/voice.md`.
+This page is enough to start; read those when you want the details.
 
-You take part with plain `curl`, as the transport's spec, `https://polylogue.agentics.lwirth.com/transport.md`, has every request;
-the `polylogue` script makes the same requests for convenience: `curl -so polylogue https://polylogue.agentics.lwirth.com/polylogue`, then `sh polylogue help`.
-Taking part reaches two hosts: `voice.agentics.lwirth.com`, for this page and voice's spec, and `polylogue.agentics.lwirth.com`, for the script, the other specs and the relay, unless the session's link names another relay.
+## Setting up
 
-If you were given a session's link, join with it under your name, such as `luis/claude`: `curl -s -X POST '<link>/join?as=<name>'`.
-Its answer holds your own link, `<me>` below: everything you do later goes to it, so keep it to yourself.
-Once you have joined, say that you are there before you read on, with `curl -s --data-binary "I'm here." '<me>'`: the person waits until you do.
-Then receive with `curl -s '<me>?wait=540&skip=application/vnd.polylogue.voice.trace&skip=audio/'`, which leaves out the page's trace and audio files, such as the audio the trace shares, so that only what is said to you wakes you; receive without `skip` when you look into how voice works. Fetch entry `n`'s file with `curl -s -o <file> '<me>/<n>'`, and leave with `curl -s -X POST '<me>/leave'`.
-Save the traces and files you still need before you leave: once the page has left, your leaving ends the session, and it is deleted with everything in it.
+The person waits while you set up, and sees only what you send.
+So you could tell them each step in a few words as you take it, such as "Joined.", "Reading the engine.", "Starting it.":
+until there is a voice, the page shows your messages as text.
 
-To start one yourself, `curl -s -X POST https://polylogue.agentics.lwirth.com/v1/s` prints a new session's link: join it first, then give the person `https://voice.agentics.lwirth.com/#session=<link>`.
-Their joining is an entry, so a receive wakes you when they come. If nobody has joined after two receives, about 20 minutes, say once in your harness's chat that you stop waiting, and leave, which ends the session: start a new one when they ask.
-The page joins under the name the person gives it, and anyone they share the link with joins under their own.
-A name stays with whoever joined under it first, for the whole session, so nobody else sends under yours, and if yours is taken, someone else joined under it.
+1. Join with the session's link under your name, under the person's, such as `luis/claude`:
+   `curl -s -X POST '<link>/join?as=<name>'`.
+   Its answer is JSON, whose `link` is your own link, `<me>` below. Keep it to yourself: whoever holds it acts under your name.
+   Then say that you are there, with `curl -s --data-binary "I'm here." '<me>'`.
+2. Receive, with `curl -s '<me>?wait=540&skip=application/vnd.polylogue.voice.trace&skip=audio/'`.
+   Among the page's first entries is its modes, as `{"listener":true,"speaker":true,"tier":"local"}`, the latest holding.
+   The tier says what turns the person's speech into text and yours into speech:
+   `local`, an engine on a machine you can act on, or `elevenlabs`, with the person's ElevenLabs key.
+   Each has a section below.
 
-## Talking
+## The local tier
 
-- You hear the person only while a receive runs: keep one running until they end the session, and start the next as soon as one returns.
-  Where your harness runs commands in the background, receive there, so the person can still type to you; under a 10-minute cap on commands, `wait=540` waits about 9 minutes.
-- Answer by voice, briefly; your harness's chat is for documents and other things to read.
-- Make one point per reply, and put a question first: the person often cuts in before a long reply is read to its end.
-- Don't end a question on the words you expect as its answer, such as "Yes or no?": an answer that repeats the words you just said is taken for your echo, and dropped.
-- Hand over a document as a file, in your harness's chat, and never repeat its contents in voice or chat.
-- Before longer work, say in one sentence what you are about to do: while you work, the person hears only a soft sound now and then, which tells them that you are on it, not what you do.
-- Send without checking for anything new first: the receive still running brings it. When the person sends before your reply was heard to its end, it is dropped, and a heard entry tells you what of it they heard.
+An engine is a participant of the session that transcribes what the person says and speaks what you send.
+The page waits for one, and any that speaks `https://voice.agentics.lwirth.com/engine.md` will do.
+Voice's own is one file of about 240 lines, to read in full before you run it:
 
-The page listens and speaks through ElevenLabs, with the person's own ElevenLabs key, which goes from their browser straight to ElevenLabs,
-or on models on the person's device, which need no key and hear and speak only English: the person chooses for listening and speaking each.
-When the page has no key and needs one, it posts a public key, from the person's name, and takes their key as the secret `elevenlabs`, encrypted to that public key, so that only their page can read it.
+```sh
+curl -so engine.py https://raw.githubusercontent.com/luiswirth/polylogue-voice/a2a5271/engine/engine.py
+uv run engine.py '<link>' <person>/engine
+```
+
+Reading it shows that it uses sherpa-onnx and numpy, pinned, from PyPI;
+fetches two models in k2-fsa's conversions from Hugging Face, at pinned revisions, Parakeet v2 to transcribe and Kokoro to speak,
+and uses them only if they match the hashes in the file;
+keeps nothing but those models, in `~/.cache/polylogue-voice-engine`;
+reaches only the session and Hugging Face; and runs no commands.
+What it can't show is what sherpa-onnx does, which is compiled code from PyPI.
+
+It needs `uv`, which installs the dependencies on the fly; where it is missing, `nix shell nixpkgs#uv` or Astral's installer gives it.
+If you'd rather not run it, say so: the person can switch to ElevenLabs on the page.
+The models are about 1 GB, fetched once, so the first start takes well under a minute, and later ones seconds.
+Run it in the background: once it is ready, it sends its offer to the session, which your receive brings, and it converts until stopped, and then leaves.
+It can run on any machine you can act on, such as one with a GPU.
+
+## The ElevenLabs tier
+
+The person's ElevenLabs key goes from their browser straight to ElevenLabs.
+When the page has none, it posts a public key, and takes the key as the secret `elevenlabs`, encrypted to it, so that only their page can read it.
 Each page posts its own, so where the person joined on several, send the key to each of them.
 To send it, fetch the public key, encrypt and send, as the transport's spec shows under Secrets.
 A key said in your chat stays in your harness's transcript and goes to your model's provider;
-the person can also enter it in the page.
+the person can also type it into the page.
+
+## Talking
+
+- You hear the person only while a receive runs: keep one running, and start the next as soon as one returns.
+  Where your harness runs commands in the background, receive there, so the person can still type to you.
+- Answer briefly, one point per reply, a question first: the person often cuts in before a long reply ends.
+- Don't end a question on the words you expect as its answer, such as "Yes or no?": an answer that repeats your last words is taken for your echo, and dropped.
+- Hand over a document as a file in your harness's chat, and never read it out.
+- Before longer work, say in one sentence what you are about to do: while you work, the person hears only a soft sound now and then.
+- When the person cuts in, what they hadn't heard yet is dropped, and a heard entry tells you what of it they heard.
 
 ## Naming the voices
 
 The person's messages tag each voice by number, and anything near their microphone, your own echo too, can cut you off until you name a voice.
-So once you can tell who talks to you, name them, as voice's spec has it under its names entry:
+So once you can tell who talks to you, name them:
 `curl -s -H 'Content-Type: application/vnd.polylogue.voice.names+json' --data-binary '{"1":"Luis"}' '<me>'`.
+
+## Ending
+
+Leave with `curl -s -X POST '<me>/leave'`, and stop your engine.
+Once the page has left, your leaving deletes the session with everything in it, so save first what you still need, such as a trace the person shared.
+
+To start a session yourself, `curl -s -X POST https://polylogue.agentics.lwirth.com/v1/s` prints its link:
+join it, then give the person `https://voice.agentics.lwirth.com/#session=<link>`.
+If nobody comes within about 20 minutes, say so once in your chat, and leave.
