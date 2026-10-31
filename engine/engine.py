@@ -13,7 +13,7 @@ both in k2-fsa's conversions for sherpa-onnx, fetched once from Hugging Face at 
 and checked against the hashes below.
 It reaches only the session and Hugging Face, keeps nothing but the models,
 in ~/.cache/polylogue-voice-engine, and runs no commands.
-It runs until stopped, and then leaves the session.
+It runs until stopped, by SIGTERM or SIGINT, and then leaves the session.
 """
 
 import hashlib, io, json, os, queue, shutil, signal, sys, tempfile, threading, time, wave
@@ -43,30 +43,53 @@ SOURCE = "https://github.com/luiswirth/polylogue-voice/blob/main/engine/engine.p
 PREFIX = "application/vnd.polylogue.engine."
 CACHE = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "polylogue-voice-engine"
 THREADS = min(4, os.cpu_count() or 1)
+# Set as the engine is stopped, so that downloads end at once and their partial files are removed.
+STOPPING = threading.Event()
+
+
+class Progress:
+    """How much of the models' bytes are fetched, of how many, across the downloads."""
+
+    def __init__(self):
+        self.lock, self.done, self.total = threading.Lock(), 0, 0
+
+    def add(self, done=0, total=0):
+        with self.lock:
+            self.done += done
+            self.total += total
+
+    def __str__(self):
+        return f"{self.done >> 20} of {self.total >> 20} MB"
 
 
 def log(message):
     print(message, file=sys.stderr, flush=True)
 
 
-def download(url, path, attempts=4):
+def download(url, path, progress, attempts=4):
     """The file's sha256, once it is written to the path, trying again where the connection fails."""
     path.parent.mkdir(parents=True, exist_ok=True)
     for attempt in range(attempts):
         hash = hashlib.sha256()
         try:
+            got = 0
             with urllib.request.urlopen(url, timeout=60) as response, open(path, "wb") as file:
                 while data := response.read(1 << 20):
+                    if STOPPING.is_set():
+                        raise SystemExit
                     hash.update(data)
                     file.write(data)
+                    got += len(data)
+                    progress.add(len(data))
             return hash.hexdigest()
         except OSError as error:
+            progress.add(-got)
             if attempt == attempts - 1:
                 raise SystemExit(f"couldn't fetch {url}: {error}") from None
             time.sleep(2**attempt)
 
 
-def fetch(name):
+def fetch(name, progress):
     """The model's directory, downloaded and checked on first use."""
     target = CACHE / name
     if target.exists():
@@ -75,14 +98,16 @@ def fetch(name):
     log(f"fetching https://huggingface.co/{repo}/tree/{revision}")
     with urllib.request.urlopen(f"https://huggingface.co/api/models/{repo}/tree/{revision}?recursive=true") as response:
         tree = json.load(response)
-    paths = sorted(entry["path"] for entry in tree if entry["type"] == "file"
-                   and any(entry["path"] == w or w.endswith("/") and entry["path"].startswith(w) for w in wanted))
+    files = {entry["path"]: entry["size"] for entry in tree if entry["type"] == "file"
+             and any(entry["path"] == w or w.endswith("/") and entry["path"].startswith(w) for w in wanted)}
+    paths = sorted(files)
+    progress.add(total=sum(files.values()))
     # A directory of this run's own, so that engines started together never touch each other's download.
     CACHE.mkdir(parents=True, exist_ok=True)
     partial = Path(tempfile.mkdtemp(dir=CACHE, prefix=f"{name}.partial."))
     try:
         with ThreadPoolExecutor(16) as pool:
-            hashes = pool.map(lambda p: download(f"https://huggingface.co/{repo}/resolve/{revision}/{urllib.parse.quote(p)}", partial / p), paths)
+            hashes = pool.map(lambda p: download(f"https://huggingface.co/{repo}/resolve/{revision}/{urllib.parse.quote(p)}", partial / p, progress), paths)
             listing = "".join(f"{h}  {p}\n" for p, h in zip(paths, hashes))
         if hashlib.sha256(listing.encode()).hexdigest() != digest:
             raise SystemExit(f"{repo} doesn't match its hash: not used")
@@ -179,16 +204,49 @@ def main():
         raise SystemExit(__doc__)
     link, name = sys.argv[1].rstrip("/"), sys.argv[2] if len(sys.argv) == 3 else "engine"
 
+    def stop(*_):
+        STOPPING.set()
+        sys.exit(0)
+
+    # SIGINT too, which a shell leaves ignored for a command it runs in the background.
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+    session = Session(link, name)
+    try:
+        serve(session)
+    finally:
+        try:
+            session.leave()
+        except OSError:
+            pass
+
+
+def serve(session):
+    def status(text):
+        log(text)
+        try:
+            session.send("status+json", json.dumps({"text": text}).encode())
+        except OSError as error:
+            log(f"couldn't send the status: {error}")
+
+    progress, fetched = Progress(), threading.Event()
+    if not all((CACHE / model).exists() for model in MODELS):
+        status("Fetching the models, about 1 GB, once.")
+
+        def report():
+            while not fetched.wait(10):
+                status(f"Fetching the models: {progress}.")
+
+        threading.Thread(target=report, daemon=True).start()
     with ThreadPoolExecutor(2) as pool:
-        asr, tts = pool.map(fetch, ["parakeet", "kokoro"])
-    log("loading the models")
+        asr, tts = pool.map(lambda model: fetch(model, progress), ["parakeet", "kokoro"])
+    fetched.set()
+    status("Loading the models.")
     jobs = {
         PREFIX + "transcribe": (transcribe, transcriber(asr)),
         PREFIX + "synthesize+json": (synthesize, synthesizer(tts)),
     }
 
-    session = Session(link, name)
-    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     # One worker per job, so that a transcript never waits for speech, nor speech for a transcript.
     work = {type: queue.Queue() for type in jobs}
 
@@ -214,31 +272,22 @@ def main():
     }).encode())
     log("offered; converting until stopped")
 
-    try:
-        while True:
-            try:
-                entries = session.receive()
-            except urllib.error.HTTPError as error:
-                if error.code in (403, 404, 410):
-                    raise SystemExit(f"the session is gone for the engine: {error.code} {error.read().decode().strip()}") from None
-                time.sleep(1)
-                continue
-            except OSError:
-                time.sleep(1)
-                continue
-            for entry in entries:
-                type = entry["type"].split(";")[0].strip()
-                if type in work:
-                    work[type].put(entry["n"])
-    finally:
+    while True:
         try:
-            session.leave()
+            entries = session.receive()
+        except urllib.error.HTTPError as error:
+            if error.code in (403, 404, 410):
+                raise SystemExit(f"the session is gone for the engine: {error.code} {error.read().decode().strip()}") from None
+            time.sleep(1)
+            continue
         except OSError:
-            pass
+            time.sleep(1)
+            continue
+        for entry in entries:
+            type = entry["type"].split(";")[0].strip()
+            if type in work:
+                work[type].put(entry["n"])
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        pass
+    main()

@@ -15,6 +15,9 @@ Every entry of the extension has a type starting with `application/vnd.polylogue
 so a participant that leaves the conversion to the engine skips them with `skip=application/vnd.polylogue.engine.`.
 An answer names the entry it answers in its type, as `; of=<n>`.
 
+- `application/vnd.polylogue.engine.status+json`, as `{"text":"Fetching the models: 420 of 1010 MB."}`, which the engine may send before its offer:
+  what it is doing, for the person to see while they wait.
+  The latest one holds.
 - `application/vnd.polylogue.engine.offer+json`, as `{"transcription":"parakeet-tdt-0.6b-v2-int8","synthesis":"kokoro-v1.0-af_heart","source":"<url>"}`, which the engine sends once it has joined and its models are loaded:
   what it converts with, and where its code is.
   Either job may be missing, for an engine that does only one.
