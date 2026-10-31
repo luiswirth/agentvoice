@@ -59,6 +59,8 @@ const TIERS = [
 function Page({ name, rename }: { name: string; rename: () => void }) {
 	const { session, entries, alone, problem, taken, leave } = useSession(name);
 	const [key, setKey] = useState(() => localStorage.getItem(KEY));
+	// The entry that brought the key, if the agent sent it.
+	const [keyEntry, setKeyEntry] = useState<number | undefined>();
 	// Why ElevenLabs refused the last key, which asks for another.
 	const [refused, setRefused] = useState<string | null>(null);
 	// The tier as chosen in this browser, local until the person chooses.
@@ -77,14 +79,13 @@ function Page({ name, rename }: { name: string; rename: () => void }) {
 		}
 		localStorage.setItem(KEY, candidate);
 		setRefused(null);
+		setKeyEntry(after);
 		setKey(candidate);
-		void voice?.setKey(candidate, after);
 	};
 	const forget = (why: string) => {
 		localStorage.removeItem(KEY);
 		setRefused(why);
 		setKey(null);
-		void voice?.setKey(null);
 	};
 
 	// The voice lives as long as the session, so that the agent learns the
@@ -98,6 +99,13 @@ function Page({ name, rename }: { name: string; rename: () => void }) {
 		setVoice(voice);
 		return () => voice.close();
 	}, [session]);
+	// The voice gets the key from here, the one place it is kept, so that a
+	// key that came before the voice did, or through a callback made before
+	// it, still reaches it.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the entry comes with the key
+	useEffect(() => {
+		void voice?.setKey(key, keyEntry);
+	}, [voice, key]);
 	const state = useVoiceState(voice);
 	const choose = (chosen: Tier) => {
 		setRefused(null);
