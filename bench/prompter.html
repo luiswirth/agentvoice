@@ -87,7 +87,9 @@ async function run(step, i, after) {
 			if (pause !== undefined && j < step.turn.length - 1) {
 				show("Pause", "…", "Stay quiet, mid-thought.", { quiet: true });
 				tell("pause", { step: i, part: j, seconds: pause });
-				await countdown(pause);
+				// The tap comes about a second after the words end, which the
+				// pause already holds.
+				await countdown(Math.max(0.3, pause - 1));
 			}
 		}
 		tell("turn.said", { step: i });

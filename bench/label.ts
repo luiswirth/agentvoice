@@ -1,0 +1,181 @@
+// Labels a recording of `just record` with when each line of the
+// conversation was said, into `labels.json` beside it: the text comes from
+// bench/conversation.ts, the times from Scribe's words, matched to the text.
+// Where Scribe heard other words than the script's, the label keeps both, so
+// that a line the person misread can be told from a word Scribe got wrong.
+//
+//   just label <recording directory>
+import { readFile, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { conversation } from "./conversation.ts";
+
+const dir = process.argv[2];
+if (!dir) throw new Error("usage: label.ts <recording directory>");
+
+type Word = { text: string; start: number; end: number; type: string };
+
+/** Scribe's words for the recording, kept beside it once fetched. */
+async function scribe(): Promise<Word[]> {
+	const kept = join(dir ?? ".", "scribe.json");
+	const cached = await readFile(kept, "utf8").catch(() => null);
+	if (cached) return JSON.parse(cached).words;
+	const key = (
+		await readFile(join(homedir(), "secrets/elevenlabs-api-key.txt"), "utf8")
+	).trim();
+	const form = new FormData();
+	form.set("model_id", "scribe_v1");
+	form.set("language_code", "en");
+	form.set("timestamps_granularity", "word");
+	form.set("tag_audio_events", "true");
+	form.set(
+		"file",
+		new Blob([await readFile(join(dir ?? ".", "audio.wav"))]),
+		"audio.wav",
+	);
+	const response = await fetch("https://api.elevenlabs.io/v1/speech-to-text", {
+		method: "POST",
+		headers: { "xi-api-key": key },
+		body: form,
+	});
+	if (!response.ok) throw new Error(`Scribe ${response.status}`);
+	const text = await response.text();
+	await writeFile(kept, text);
+	return JSON.parse(text).words;
+}
+
+const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9']/g, "");
+const tokens = (s: string) => s.split(/\s+/).map(norm).filter(Boolean);
+
+/** What the person was to say, in order: each part of a turn, and each
+ * backchannel or cut-in while the agent spoke. */
+type Line = {
+	step: number;
+	part: number;
+	kind: "part" | "backchannel" | "cut-in";
+	text: string;
+};
+const lines: Line[] = [];
+for (const [step, s] of conversation.entries()) {
+	if ("turn" in s)
+		for (const [part, text] of s.turn.entries())
+			lines.push({ step, part, kind: "part", text });
+	if ("agent" in s)
+		for (const [part, cue] of (s.cues ?? []).entries())
+			if ("say" in cue)
+				lines.push({ step, part, kind: cue.kind, text: cue.say });
+}
+const script = lines.flatMap((line, i) =>
+	tokens(line.text).map((token) => ({ token, line: i })),
+);
+
+const all = await scribe();
+const heard = all.filter((w) => w.type === "word" && norm(w.text));
+
+// The alignment of the script's words to Scribe's, by least edits.
+const n = script.length;
+const m = heard.length;
+const cost = Array.from({ length: n + 1 }, () => new Int32Array(m + 1));
+for (let i = 0; i <= n; i++) cost[i]![0] = i;
+for (let j = 0; j <= m; j++) cost[0]![j] = j;
+for (let i = 1; i <= n; i++)
+	for (let j = 1; j <= m; j++) {
+		const same = script[i - 1]!.token === norm(heard[j - 1]!.text);
+		cost[i]![j] = Math.min(
+			cost[i - 1]![j - 1]! + (same ? 0 : 1),
+			cost[i - 1]![j]! + 1,
+			cost[i]![j - 1]! + 1,
+		);
+	}
+/** For each of Scribe's words, the line it belongs to, if any. */
+const lineOf = new Array<number | undefined>(m);
+const matched = new Array<boolean>(m).fill(false);
+for (let i = n, j = m; i > 0 || j > 0; ) {
+	const here = cost[i]![j]!;
+	if (i > 0 && j > 0) {
+		const same = script[i - 1]!.token === norm(heard[j - 1]!.text);
+		if (here === cost[i - 1]![j - 1]! + (same ? 0 : 1)) {
+			lineOf[j - 1] = script[i - 1]!.line;
+			matched[j - 1] = same;
+			i--;
+			j--;
+			continue;
+		}
+	}
+	if (i > 0 && here === cost[i - 1]![j]! + 1) i--;
+	else j--;
+}
+
+// A word Scribe heard inside a line, which the script lacks, belongs to it.
+for (let j = 0, last: number | undefined; j < m; j++) {
+	if (lineOf[j] !== undefined) {
+		last = lineOf[j];
+		continue;
+	}
+	const next = lineOf.slice(j).find((l) => l !== undefined);
+	if (last !== undefined && next === last) lineOf[j] = last;
+}
+
+const said = lines.map((line, i) => {
+	const words = heard.filter((_, j) => lineOf[j] === i);
+	const hits = heard.filter((_, j) => lineOf[j] === i && matched[j]);
+	const first = words[0];
+	const last = words.at(-1);
+	return {
+		...line,
+		start: first?.start ?? null,
+		end: last?.end ?? null,
+		scribe: words.map((w) => w.text).join(" "),
+		/** The share of the script's words Scribe heard as they are. */
+		match: hits.length / tokens(line.text).length,
+	};
+});
+
+// The turns the agent should get, each a message: the parts of a turn
+// together, and a cut-in on its own.
+const turns = conversation.flatMap((s, step) => {
+	const mine = said.filter(
+		(l) => l.step === step && (l.kind === "part" || l.kind === "cut-in"),
+	);
+	if (mine.length === 0) return [];
+	return [
+		{
+			step,
+			text: mine.map((l) => l.text).join(" "),
+			start: mine[0]?.start ?? null,
+			end: mine.at(-1)?.end ?? null,
+			/** The pauses mid-thought, in seconds, as said. */
+			pauses: mine
+				.slice(1)
+				.map((l, i) =>
+					l.start !== null && mine[i]?.end != null
+						? +(l.start - (mine[i]?.end ?? 0)).toFixed(2)
+						: null,
+				),
+		},
+	];
+});
+
+// The agent's lines, at when they were sent, on the recording's clock.
+const session = JSON.parse(
+	await readFile(join(dir, "session.json"), "utf8"),
+) as {
+	audioStart: string;
+	messages: { from: string; time: string; type: string; text?: string }[];
+};
+const t0 = Date.parse(session.audioStart);
+const agent = session.messages
+	.filter((e) => e.from === "agent" && e.type.startsWith("text/plain"))
+	.map((e) => ({ text: e.text, sent: (Date.parse(e.time) - t0) / 1000 }));
+const events = all
+	.filter((w) => w.type === "audio_event")
+	.map((w) => ({ text: w.text, start: w.start, end: w.end }));
+
+await writeFile(
+	join(dir, "labels.json"),
+	JSON.stringify({ turns, said, agent, events }, null, 1),
+);
+for (const l of said)
+	console.log(
+		`${l.start?.toFixed(2) ?? "    -"}–${l.end?.toFixed(2) ?? "-"} ${l.kind} ${(100 * l.match).toFixed(0)}% "${l.text}"${l.match < 1 ? ` / heard "${l.scribe}"` : ""}`,
+	);

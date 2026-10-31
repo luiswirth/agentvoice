@@ -27,6 +27,11 @@ recording link out="recording.wav":
 record out port="8794":
     pnpm exec tsx bench/record.ts {{ out }} {{ port }}
 
+# Labels a recording of `just record` with when each line was said, into
+# labels.json beside it.
+label dir:
+    pnpm exec tsx bench/label.ts {{ dir }}
+
 # Builds the page and serves it at voice.agentics.lwirth.com.
 deploy: pinned ci
     pnpm exec wrangler deploy --domain voice.agentics.lwirth.com
