@@ -28,7 +28,9 @@ const KEY = "elevenlabs-key";
 const SERVICE = "voice.agentics.lwirth.com";
 /** What the engine is doing before it offers, as public/engine.md has it. */
 const STATUS = "application/vnd.polylogue.engine.status+json";
-/** What an engine sends once it is ready, which marks a participant as one. */
+/** What an engine sends once it is ready. This and its status are what only
+ * an engine sends, which marks a participant as one: the pages send the
+ * extension's requests too. */
 const OFFER = "application/vnd.polylogue.engine.offer+json";
 
 /** The text of a status entry's payload, empty where it has none. */
@@ -253,7 +255,9 @@ function roomOf(
 	presence: Record<string, { receiving: boolean; since?: string }>,
 ): { people: Present[]; left: string | null } | undefined {
 	const engines = new Set(
-		entries.filter((e) => e.type.startsWith(OFFER)).map((e) => e.from),
+		entries
+			.filter((e) => e.type.startsWith(OFFER) || e.type.startsWith(STATUS))
+			.map((e) => e.from),
 	);
 	// Until the page itself is in the presence, it holds no one yet.
 	if (!(name in presence)) return undefined;
