@@ -92,15 +92,9 @@ export type VoiceState = Modes & {
 const TIER = "voice-tier";
 
 /** Where transcription and speech synthesis run, as last chosen in this
- * browser: ElevenLabs, until the person chooses otherwise. */
+ * browser: local, until the person chooses otherwise. */
 export function chosenTier(): Tier {
-	return localStorage.getItem(TIER) === "local" ? "local" : "elevenlabs";
-}
-
-/** The tier chosen in this browser, null before the person chose one. */
-export function tierChosen(): Tier | null {
-	const tier = localStorage.getItem(TIER);
-	return tier === "local" || tier === "elevenlabs" ? tier : null;
+	return localStorage.getItem(TIER) === "elevenlabs" ? "elevenlabs" : "local";
 }
 
 export function chooseTier(tier: Tier): void {

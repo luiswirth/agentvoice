@@ -19,7 +19,6 @@ import { spoken } from "./voice/protocol.ts";
 import {
 	chooseTier,
 	chosenTier,
-	tierChosen,
 	Voice,
 	type VoiceState,
 } from "./voice/voice.ts";
@@ -62,8 +61,8 @@ function Page({ name, rename }: { name: string; rename: () => void }) {
 	const [key, setKey] = useState(() => localStorage.getItem(KEY));
 	// Why ElevenLabs refused the last key, which asks for another.
 	const [refused, setRefused] = useState<string | null>(null);
-	// The tier as chosen in this browser, null before the person chose one.
-	const [tier, setTier] = useState(tierChosen);
+	// The tier as chosen in this browser, local until the person chooses.
+	const [tier, setTier] = useState(chosenTier);
 
 	/** Keeps `candidate` unless ElevenLabs refuses it; a check that fails
 	 * for another reason, such as the network, can't tell, so it keeps it. */
@@ -165,7 +164,7 @@ function Page({ name, rename }: { name: string; rename: () => void }) {
 			/>
 		);
 	}
-	const current = state?.tier ?? tier ?? chosenTier();
+	const current = state?.tier ?? tier;
 	if (session && voice && state && !state.ready) {
 		return (
 			<Setup
