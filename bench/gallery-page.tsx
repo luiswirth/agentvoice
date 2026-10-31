@@ -47,27 +47,16 @@ setInterval(() => {
 
 // The agent, receiving unless it works, and the engine on the local tier.
 const room: Room = {
-	people:
-		name === "agent-left"
-			? []
-			: [
-					{
-						name: "luis/claude",
-						receiving: state.progress !== "working",
-						engine: false,
-					},
-					...(state.engine
-						? [{ name: "luis/claude/engine", receiving: true, engine: true }]
-						: []),
-				],
-	left:
-		name === "agent-left"
-			? {
-					name: "luis/claude",
-					prompt:
-						"Read https://voice.agentics.lwirth.com/agents.md, join the session https://polylogue.agentics.lwirth.com/s/abc123 as luis/<your name> and set up voice on the ElevenLabs tier so we can talk.",
-				}
-			: null,
+	people: [
+		{
+			name: "luis/claude",
+			receiving: state.progress !== "working",
+			engine: false,
+		},
+		...(state.engine
+			? [{ name: "luis/claude/engine", receiving: true, engine: true }]
+			: []),
+	],
 	link: "https://polylogue.agentics.lwirth.com/s/abc123",
 	leave: () => {},
 };

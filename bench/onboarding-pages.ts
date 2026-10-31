@@ -18,6 +18,11 @@ await server.listen();
 const url = `${server.resolvedUrls?.local[0]}?relay=${encodeURIComponent(RELAY)}`;
 const browser = await chromium.launch({
 	executablePath: process.env.CHROMIUM ?? "",
+	args: [
+		"--use-fake-ui-for-media-stream",
+		"--use-fake-device-for-media-stream",
+		"--autoplay-policy=no-user-gesture-required",
+	],
 });
 const screens = {
 	mac: { viewport: { width: 1100, height: 760 }, deviceScaleFactor: 2 },
@@ -88,7 +93,23 @@ try {
 					},
 				);
 				await shot(tab, screen, "6-local-ready");
+				// The agent leaving takes the page back to waiting, with the
+				// engine still in the session, and its coming back to talking,
+				// listening again if it was.
+				await tab.getByRole("button", { name: /^Listen/ }).click();
+				await tab.waitForTimeout(500);
+				await session.leave();
+				await shot(tab, screen, "7-local-left");
+				const back = new Session(session.link, "luis/claude-again");
+				await back.join();
+				await back.send("I'm back.");
+				await shot(tab, screen, "8-local-back");
+				const mic = tab.getByRole("button", { name: /listening/i });
+				console.log("listening again:", await mic.getAttribute("aria-pressed"));
+				await back.leave();
 				await engine.leave();
+				await context.close();
+				continue;
 			}
 			await session.leave();
 			await context.close();

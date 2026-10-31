@@ -9,6 +9,7 @@ import { useSession } from "polylogue-web/react";
 import {
 	type ReactNode,
 	useEffect,
+	useRef,
 	useState,
 	useSyncExternalStore,
 } from "react";
@@ -73,7 +74,7 @@ const TIERS = [
 
 /** The page, taking part under the person's `name`. */
 function Page({ name, rename }: { name: string; rename: () => void }) {
-	const { session, entries, presence, alone, problem, taken, leave } =
+	const { session, entries, presence, problem, taken, leave } =
 		useSession(name);
 	const [key, setKey] = useState(() => localStorage.getItem(KEY));
 	// The entry that brought the key, if the agent sent it.
@@ -146,6 +147,16 @@ function Page({ name, rename }: { name: string; rename: () => void }) {
 		});
 	}, [session, key]);
 
+	// Three states, which the presence decides: choosing and waiting until an
+	// agent is here and voice is ready, then talking. An agent joining and
+	// leaving are opposites: once it left, the page is the one from before it
+	// joined, which says so. The tier is chosen while waiting, and is a
+	// setting while talking.
+	const current = state?.tier ?? tier;
+	const room = session ? roomOf(name, entries, presence) : undefined;
+	const agent = room?.people.some((person) => !person.engine) ?? false;
+	const talking = Boolean(session && voice && state?.ready && agent);
+	useMicWhile(voice, talking);
 	if (problem) {
 		return taken ? (
 			<Frame
@@ -173,12 +184,18 @@ function Page({ name, rename }: { name: string; rename: () => void }) {
 			</Frame>
 		);
 	}
-	if (session && alone) {
+	// Until the page is in the presence, it can't tell who is here.
+	if (session && !room) return null;
+	if (session && room && !agent) {
 		return (
 			<Onboard
 				name={SERVICE}
-				title="Talk with your agent"
-				description="Speak to the agent you already use, and hear its answers, here in your browser. First choose where the speech models run."
+				title={room.left ? "Your agent left" : "Talk with your agent"}
+				description={
+					room.left
+						? `${label(room.left)} left the session. To talk again, give your agent this prompt.`
+						: "Speak to the agent you already use, and hear its answers, here in your browser. First choose where the speech models run."
+				}
 				link={session.link}
 				choice={{
 					// The key can be entered as ElevenLabs is chosen, before the
@@ -197,15 +214,13 @@ function Page({ name, rename }: { name: string; rename: () => void }) {
 								}
 							: option,
 					),
-					chosen: tier,
+					chosen: current,
 					choose: (id) => choose(id as Tier),
 				}}
 				person={name}
 			/>
 		);
 	}
-	const current = state?.tier ?? tier;
-	const room = session ? roomOf(name, entries, presence) : undefined;
 	if (session && voice && state && !state.ready) {
 		return (
 			<Setup
@@ -230,12 +245,6 @@ function Page({ name, rename }: { name: string; rename: () => void }) {
 							? {
 									people: room.people,
 									link: session.link,
-									left: room.left
-										? {
-												name: room.left,
-												prompt: invite(session.link, name, current),
-											}
-										: null,
 									leave: () => void leave(),
 								}
 							: undefined
@@ -278,11 +287,31 @@ function roomOf(
 	return { people, left: gone?.from ?? null };
 }
 
-/** The prompt that brings an agent into the session, as the onboarding
- * gives it, for the tier already chosen. */
-function invite(link: string, name: string, tier: Tier): string {
-	const goal = TIERS.find((option) => option.id === tier)?.goal;
-	return `Read ${new URL("agents.md", document.baseURI)}, join the session ${link} as ${name}/<your name> and ${goal}.`;
+/** A name in the session as the person reads it: without the person's own
+ * prefix, which every agent they invite carries. */
+function label(name: string): string {
+	return name.slice(name.indexOf("/") + 1);
+}
+
+/** Listening runs only while talking: it stops as the page leaves talking,
+ * and comes back as it returns, if it was on, as after a reload. */
+function useMicWhile(voice: Voice | null, talking: boolean) {
+	const held = useRef(false);
+	useEffect(() => {
+		if (!voice) return;
+		const apply = () => {
+			if (!talking && voice.state.listener && !voice.state.switching) {
+				held.current = true;
+				void voice.setListener(false);
+			} else if (talking && held.current) {
+				held.current = false;
+				void voice.setListener(true);
+			}
+		};
+		apply();
+		// Listening kept from before a reload turns on by itself.
+		return talking ? undefined : voice.watch(apply);
+	}, [voice, talking]);
 }
 
 function useVoiceState(voice: Voice | null): VoiceState | null {

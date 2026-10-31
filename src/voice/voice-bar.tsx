@@ -1,7 +1,8 @@
 // Voice as two things: the stage, to read from across the room, and the
 // player, to act on, as a media player's now-playing panel. The stage shows
 // one thing large: the person's words once there are any, else who has the
-// floor, or that the agent left and how to bring it back. The player is one
+// floor. It shows only while talking: once the agent left, the page is the
+// one from before it joined. The player is one
 // card of layers, from what changes least to what is pressed most: the
 // session, who is here and leaving it; the words, what happens to the person's
 // words, the same with auto-send on and off, with Delete and Send, or the words
@@ -67,9 +68,6 @@ export type Present = {
 export type Room = {
 	/** The others in it now. */
 	people: Present[];
-	/** Where everyone to talk with left: who left last, and the prompt that
-	 * brings an agent back. */
-	left: { name: string; prompt: string } | null;
 	link: string;
 	leave: () => void;
 };
@@ -103,7 +101,7 @@ export function VoiceBar({
 				agent={state.speaker}
 				working={state.progress === "working" && state.reading === null}
 			/>
-			<Stage voice={voice} state={state} left={room?.left ?? null} />
+			<Stage voice={voice} state={state} />
 			<section
 				aria-label="Player"
 				className="flex w-full max-w-[30rem] shrink-0 flex-col rounded-[2rem] border border-white/10 bg-neutral-950/55 p-2 shadow-2xl shadow-black/60 backdrop-blur-xl"
@@ -278,20 +276,11 @@ function Aura({
 	);
 }
 
-/** The middle of the page: the person's words once there are any, else that
- * everyone to talk with left, else who has the floor. */
-function Stage({
-	voice,
-	state,
-	left,
-}: {
-	voice: Voice;
-	state: VoiceState;
-	left: Room["left"];
-}) {
+/** The middle of the page: the person's words once there are any, else who
+ * has the floor. */
+function Stage({ voice, state }: { voice: Voice; state: VoiceState }) {
 	if (state.draft || state.hearing)
 		return <Words voice={voice} state={state} />;
-	if (left) return <Left {...left} />;
 	return <Floor state={state} />;
 }
 
@@ -320,44 +309,6 @@ function Floor({ state }: { state: VoiceState }) {
 			<p className="max-w-sm text-base text-balance text-muted-foreground/70">
 				{hint}
 			</p>
-		</div>
-	);
-}
-
-/** Where everyone to talk with left: who left, and the prompt that brings an
- * agent back into this session, as the person gave the first. */
-function Left({ name, prompt }: { name: string; prompt: string }) {
-	const [copied, setCopied] = useState(false);
-	useEffect(() => {
-		if (!copied) return;
-		const timer = setTimeout(() => setCopied(false), 1500);
-		return () => clearTimeout(timer);
-	}, [copied]);
-	return (
-		<div className="flex min-h-0 w-full flex-1 flex-col items-center justify-center gap-4 text-center">
-			<p className="text-5xl font-extralight tracking-tight text-muted-foreground sm:text-6xl">
-				Alone
-			</p>
-			<p className="max-w-sm text-base text-balance text-muted-foreground/70">
-				{label(name)} left. To bring your agent back, give it this prompt.
-			</p>
-			<div className="flex w-full max-w-md flex-col gap-2 rounded-2xl border border-white/10 bg-white/[0.03] p-2 text-left">
-				<p className="max-h-32 overflow-y-auto rounded-xl bg-black/30 p-3 font-mono text-xs leading-relaxed text-foreground/80 wrap-anywhere">
-					{prompt}
-				</p>
-				<button
-					type="button"
-					className="flex h-10 items-center justify-center gap-2 rounded-xl bg-white/10 text-sm transition hover:bg-white/15"
-					onClick={() =>
-						void navigator.clipboard
-							.writeText(prompt)
-							.then(() => setCopied(true))
-					}
-				>
-					{copied ? <Check className="size-4" /> : <Copy className="size-4" />}
-					{copied ? "Copied" : "Copy the prompt"}
-				</button>
-			</div>
 		</div>
 	);
 }
