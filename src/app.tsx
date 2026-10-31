@@ -16,12 +16,7 @@ import {
 } from "react";
 import { Button } from "@/components/ui/button";
 import { checkKey, KeyRefused } from "./voice/elevenlabs.ts";
-import {
-	chooseEngines,
-	chosenEngines,
-	needsKey,
-	Voice,
-} from "./voice/voice.ts";
+import { chooseTier, chosenTier, Voice } from "./voice/voice.ts";
 import { VoiceBar } from "./voice/voice-bar.tsx";
 
 const KEY = "elevenlabs-key";
@@ -41,7 +36,7 @@ function Page({ name, rename }: { name: string; rename: () => void }) {
 	const [key, setKey] = useState(() => localStorage.getItem(KEY));
 	// Why ElevenLabs refused the last key, which asks for another.
 	const [refused, setRefused] = useState<string | null>(null);
-	// The engines are kept in this browser, where the voice bar changes them.
+	// The tier is kept in this browser, where the voice bar changes them.
 	const [, rechosen] = useReducer((n: number) => n + 1, 0);
 
 	/** Keeps `candidate` unless ElevenLabs refuses it; a check that fails
@@ -114,17 +109,17 @@ function Page({ name, rename }: { name: string; rename: () => void }) {
 				description="Speak to the agent you already use, and hear its answers, here in your browser."
 				link={session.link}
 				person={name}
-				note="The voice runs on ElevenLabs, with your own account, or on this device."
+				note="The voice runs on ElevenLabs, with your own account, or on a machine your agent can act on."
 			/>
 		);
 	}
-	if (session && !key && needsKey(chosenEngines())) {
+	if (session && !key && chosenTier() === "elevenlabs") {
 		return (
 			<KeyStep
 				refused={refused}
 				offer={offer}
 				local={() => {
-					chooseEngines({ hearing: "local", speaking: "local" });
+					chooseTier("local");
 					setRefused(null);
 					rechosen();
 				}}

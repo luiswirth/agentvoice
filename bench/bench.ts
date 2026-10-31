@@ -5,7 +5,9 @@
 //   just bench [scenario]
 //
 // It uses the ElevenLabs key in ~/secrets/elevenlabs-api-key.txt and the
-// public relay. `ENGINE=local` has the page hear and speak on local models.
+// public relay. `TIER=local` has the page hear and speak through voice's engine,
+// which the bench starts in the session.
+import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -47,6 +49,16 @@ agent.subscribe({
 	},
 });
 
+// The local tier's engine, voice's own, as an agent would start it.
+const engine =
+	process.env.TIER === "local"
+		? spawn(
+				"uv",
+				["run", join(import.meta.dirname, "../engine/engine.py"), agent.link],
+				{ stdio: ["ignore", "ignore", "inherit"] },
+			)
+		: null;
+
 const browser = await chromium.launch({
 	executablePath: process.env.CHROMIUM ?? "",
 	args: [
@@ -62,10 +74,7 @@ try {
 		([key, engine, recorded]) => {
 			localStorage.setItem("polylogue-name", "person");
 			localStorage.setItem("elevenlabs-key", key as string);
-			localStorage.setItem(
-				"voice-engines",
-				JSON.stringify({ hearing: engine, speaking: engine }),
-			);
+			localStorage.setItem("voice-tier", engine as string);
 			localStorage.setItem("voice-sharing-trace", "true");
 			// The fake microphone plays its file from when it is opened.
 			const open = navigator.mediaDevices.getUserMedia.bind(
@@ -96,7 +105,7 @@ try {
 				return stream;
 			};
 		},
-		[key, process.env.ENGINE ?? "elevenlabs", scenario === null] as const,
+		[key, process.env.TIER ?? "elevenlabs", scenario === null] as const,
 	);
 	const tab = await context.newPage();
 	tab.on("pageerror", (error) =>
@@ -135,6 +144,7 @@ try {
 	);
 } finally {
 	await browser.close();
+	engine?.kill();
 	await agent.leave().catch(() => {});
 	await server.close();
 }

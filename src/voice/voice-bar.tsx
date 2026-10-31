@@ -451,11 +451,8 @@ function Status({ voice, state }: { voice: Voice; state: VoiceState }) {
 					</span>
 				)}
 			</p>
-			<EngineChoice voice={voice} state={state} part="hearing" />
-			{state.engines.hearing === "elevenlabs" && (
-				<Languages voice={voice} state={state} />
-			)}
-			<EngineChoice voice={voice} state={state} part="speaking" />
+			<TierChoice voice={voice} state={state} />
+			{state.tier === "elevenlabs" && <Languages voice={voice} state={state} />}
 			<button
 				type="button"
 				aria-pressed={state.sharing}
@@ -478,28 +475,19 @@ function Status({ voice, state }: { voice: Voice; state: VoiceState }) {
 	);
 }
 
-/** Where hearing or speaking runs: ElevenLabs, or this device, which a
- * press switches between. */
-function EngineChoice({
-	voice,
-	state,
-	part,
-}: {
-	voice: Voice;
-	state: VoiceState;
-	part: "hearing" | "speaking";
-}) {
-	const local = state.engines[part] === "local";
-	const what = part === "hearing" ? "hear" : "speak";
+/** Where transcription and speech synthesis run: ElevenLabs, or an engine
+ * in the session, which a press switches between. */
+function TierChoice({ voice, state }: { voice: Voice; state: VoiceState }) {
+	const local = state.tier === "local";
 	return (
 		<button
 			type="button"
-			title={`Where ${part} runs: on ElevenLabs, with your key, or on this device, in English only. Press to switch.`}
-			aria-label={`${part === "hearing" ? "Hearing" : "Speaking"} on ${local ? "this device" : "ElevenLabs"}`}
+			title="Where your voice is heard and spoken: on ElevenLabs, with your key, or by an engine your agent runs, in English only. Press to switch."
+			aria-label={`Voice on ${local ? "an engine your agent runs" : "ElevenLabs"}`}
 			className="rounded-full px-2 py-0.5 tracking-widest uppercase transition hover:bg-white/10 hover:text-foreground text-muted-foreground/60"
-			onClick={() => voice.setEngine(part, local ? "elevenlabs" : "local")}
+			onClick={() => voice.setTier(local ? "elevenlabs" : "local")}
 		>
-			{what} · {local ? "local" : "elevenlabs"}
+			{local ? `local${state.engine ? "" : " · no engine yet"}` : "elevenlabs"}
 		</button>
 	);
 }

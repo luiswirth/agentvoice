@@ -19,7 +19,7 @@
     # compiler and the type definitions are pinned by pnpm instead, since
     # editors look for them in node_modules.
     # Chromium is the bench's browser, and only the server runs it.
-    tools = pkgs: with pkgs; [nodejs pnpm biome just ffmpeg-headless] ++ lib.optional stdenv.hostPlatform.isLinux chromium;
+    tools = pkgs: with pkgs; [nodejs pnpm biome just ffmpeg-headless uv] ++ lib.optional stdenv.hostPlatform.isLinux chromium;
   in {
     # Every language in the tree, behind one command. The global pre-commit
     # hook checks a repository by running this, so a language left out here is

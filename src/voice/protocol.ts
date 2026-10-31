@@ -7,11 +7,16 @@ export type { Entry };
 
 /** What voice needs of a session: the transport's client, or anything
  * else that sends, subscribes and keeps the log the same way. */
-export type Session = Pick<Client, "send" | "subscribe" | "log">;
+export type Session = Pick<Client, "send" | "subscribe" | "log" | "fetch">;
 
-/** Which of the person's listener and speaker are on: sent as either changes. */
+/** Which of the person's listener and speaker are on, and the tier they
+ * chose: sent as any of them changes. */
 export const MODES = "application/vnd.polylogue.voice.modes+json";
-export type Modes = { listener: boolean; speaker: boolean };
+export type Modes = {
+	listener: boolean;
+	speaker: boolean;
+	tier: "elevenlabs" | "local";
+};
 
 /** What was heard of a message dropped as the person cut in, empty if none: sent before what cut it off. */
 export const HEARD = "application/vnd.polylogue.voice.heard+json";

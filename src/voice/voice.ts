@@ -13,14 +13,14 @@
 // while it played, as its echo or too quiet, show for a while, to send. What happens is heard
 // as short cues, so that voice seems responsive while nothing is said.
 // With turns ended by hand, the person records each message deliberately,
-// and sends or deletes it. Hearing and speaking each run on ElevenLabs or
-// on local models, as the person chooses.
+// and sends or deletes it. Transcription and speech synthesis run on
+// ElevenLabs or on an engine in the session, the tier the person chooses.
 import { Activity, type Progress } from "./activity.ts";
 import { holdAudioSession } from "./audio.ts";
 import { KeyRefused, Scribe, Speech } from "./elevenlabs.ts";
-import type { Engine, Heard, Synthesizer, Transcriber } from "./engines.ts";
+import type { Heard, Synthesizer, Tier, Transcriber } from "./engines.ts";
 import { Listener } from "./listener.ts";
-import { Moonshine, Phonon } from "./local.ts";
+import { Engines, LocalSynthesizer, LocalTranscriber } from "./local.ts";
 import { holdMedia } from "./media.ts";
 import {
 	HEARD,
@@ -83,33 +83,20 @@ export type VoiceState = Modes & {
 	/** Whether the error is ElevenLabs refusing the key, which another key
 	 * fixes. */
 	refused: boolean;
-	/** Where hearing and speaking run. Kept in this browser. */
-	engines: Engines;
+	/** Whether an engine is in the session, which the local tier needs. */
+	engine: boolean;
 };
 
-export type Engines = { hearing: Engine; speaking: Engine };
+const TIER = "voice-tier";
 
-const ENGINES = "voice-engines";
-
-/** Where hearing and speaking run, as last chosen in this browser:
- * ElevenLabs, until the person chooses otherwise. */
-export function chosenEngines(): Engines {
-	const chosen: Partial<Engines> = JSON.parse(
-		localStorage.getItem(ENGINES) ?? "{}",
-	);
-	return {
-		hearing: chosen.hearing ?? "elevenlabs",
-		speaking: chosen.speaking ?? "elevenlabs",
-	};
+/** Where transcription and speech synthesis run, as last chosen in this
+ * browser: ElevenLabs, until the person chooses otherwise. */
+export function chosenTier(): Tier {
+	return localStorage.getItem(TIER) === "local" ? "local" : "elevenlabs";
 }
 
-export function chooseEngines(engines: Engines): void {
-	localStorage.setItem(ENGINES, JSON.stringify(engines));
-}
-
-/** Whether either runs on ElevenLabs, which needs the person's key. */
-export function needsKey(engines: Engines): boolean {
-	return engines.hearing === "elevenlabs" || engines.speaking === "elevenlabs";
+export function chooseTier(tier: Tier): void {
+	localStorage.setItem(TIER, tier);
 }
 
 /** The state that shows `error`. */
@@ -160,6 +147,7 @@ export class Voice {
 	private readonly session: Session;
 	private readonly name: string;
 	private readonly key: string | null;
+	private readonly engines: Engines;
 	private listener: Listener | null = null;
 	private speaker: Speaker | null = null;
 	/** What happens to the draft once the segment in progress ends: the
@@ -210,7 +198,8 @@ export class Voice {
 		missed: null,
 		error: null,
 		refused: false,
-		engines: chosenEngines(),
+		tier: chosenTier(),
+		engine: false,
 	};
 
 	/** `name` is the person's in the session, `key` their ElevenLabs key,
@@ -231,6 +220,7 @@ export class Voice {
 		};
 		message();
 		named();
+		this.engines = new Engines(session, (engine) => this.set({ engine }));
 		this.unsubscribe = session.subscribe({
 			entry: (entry) => {
 				message();
@@ -445,19 +435,20 @@ export class Voice {
 		play("press");
 		localStorage.setItem(LANGUAGES, JSON.stringify(languages));
 		this.set({ languages });
-		if (this.state.engines.hearing === "elevenlabs") await this.reopen();
+		if (this.state.tier === "elevenlabs") await this.reopen();
 	}
 
-	/** Chooses where hearing or speaking runs. Listening switches at its next
-	 * start, at once while nothing is being heard; reading aloud at once. */
-	async setEngine(part: keyof Engines, engine: Engine): Promise<void> {
-		if (this.state.engines[part] === engine) return;
-		this.trace.event("engine", { [part]: engine });
+	/** Chooses where transcription and speech synthesis run. Listening
+	 * switches at its next start, at once while nothing is being heard; reading
+	 * aloud at once. */
+	async setTier(tier: Tier): Promise<void> {
+		if (this.state.tier === tier) return;
+		this.trace.event("tier", { tier });
 		play("press");
-		const engines = { ...this.state.engines, [part]: engine };
-		chooseEngines(engines);
-		this.set({ engines, error: null, refused: false });
-		if (part === "hearing") return this.reopen();
+		chooseTier(tier);
+		this.set({ tier, error: null, refused: false });
+		await this.modes();
+		await this.reopen();
 		if (!this.state.speaker || this.state.switching) return;
 		this.speaker?.close();
 		this.speaker = null;
@@ -723,24 +714,19 @@ export class Voice {
 	}
 
 	private async transcribe(heard: Heard): Promise<Transcriber> {
-		if (this.state.engines.hearing === "local") return Moonshine.open(heard);
+		if (this.state.tier === "local")
+			return new LocalTranscriber(this.engines, heard);
 		return Scribe.open(this.elevenlabs(), heard, this.state.languages);
 	}
 
 	private synthesizer(): Synthesizer {
-		if (this.state.engines.speaking === "elevenlabs")
-			return new Speech(this.elevenlabs());
-		const phonon = new Phonon();
-		phonon
-			.ready()
-			.catch((error: Error) =>
-				this.set(failure(new Error(`Phonon failed to load: ${error.message}`))),
-			);
-		return phonon;
+		if (this.state.tier === "local") return new LocalSynthesizer(this.engines);
+		return new Speech(this.elevenlabs());
 	}
 
 	close(): void {
 		this.unsubscribe();
+		this.engines.close();
 		this.activity.close();
 		clearTimeout(this.working);
 		clearTimeout(this.readCue);
@@ -785,9 +771,12 @@ export class Voice {
 			next: () => this.skip(),
 			previous: () => void this.replay(),
 		});
-		const modes: Modes = { listener, speaker };
 		if (this.restoring) return Promise.resolve();
-		sessionStorage.setItem(this.modesKey, JSON.stringify(modes));
+		sessionStorage.setItem(
+			this.modesKey,
+			JSON.stringify({ listener, speaker }),
+		);
+		const modes: Modes = { listener, speaker, tier: this.state.tier };
 		this.trace.event("modes", modes);
 		return this.queue(() =>
 			this.session.send(JSON.stringify(modes), { type: MODES }),

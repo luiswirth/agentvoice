@@ -1,8 +1,8 @@
-// What hears and what speaks, whichever engine runs it: ElevenLabs, or local
-// models in the browser. The person chooses one for each on the page.
+// What hears and what speaks, whichever tier runs it: ElevenLabs, or an
+// engine in the session. The person chooses one on the page.
 
-/** Where hearing or speaking runs. */
-export type Engine = "elevenlabs" | "local";
+/** Where transcription and speech synthesis run. */
+export type Tier = "elevenlabs" | "local";
 
 /** The rate of the audio hearing gets, and of the speech that comes back. */
 export const LISTEN_RATE = 16_000;
