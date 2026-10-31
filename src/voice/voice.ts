@@ -409,6 +409,7 @@ export class Voice {
 		if (this.stopping) {
 			// Still finishing: it listens on, and the words go in as they would.
 			this.stopping = false;
+			if (this.ending === "keep") this.ending = null;
 			this.set({ listener: true, error: null });
 			this.cue("listen");
 			return this.modes();
