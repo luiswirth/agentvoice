@@ -43,6 +43,7 @@ reaches only the session and Hugging Face; and runs no commands.
 What it can't show is what sherpa-onnx does, which is compiled code from PyPI.
 
 It needs `uv`, which installs the dependencies on the fly; where it is missing, `nix shell nixpkgs#uv` or Astral's installer gives it.
+On NixOS, if the import fails for want of `libstdc++.so.6`, run it with `LD_LIBRARY_PATH=$(nix build --no-link --print-out-paths nixpkgs#stdenv.cc.cc.lib)/lib`.
 If you'd rather not run it, say so: the person can switch to ElevenLabs on the page.
 The models are about 1 GB, fetched once, so the first start takes well under a minute, and later ones seconds.
 Run it in the background: once it is ready, it sends its offer to the session, which your receive brings, and it converts until stopped, and then leaves.
@@ -60,6 +61,7 @@ the person can also type it into the page.
 ## Talking
 
 - You hear the person only while a receive runs: keep one running, and start the next as soon as one returns.
+  A second receive ends the one running, so look an entry up by its number instead, with `curl -s '<me>/<n>'`.
   Where your harness runs commands in the background, receive there, so the person can still type to you.
 - Answer briefly, one point per reply, a question first: the person often cuts in before a long reply ends.
 - Don't end a question on the words you expect as its answer, such as "Yes or no?": an answer that repeats your last words is taken for your echo, and dropped.
