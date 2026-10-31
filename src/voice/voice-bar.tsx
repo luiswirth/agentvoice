@@ -247,8 +247,11 @@ function who({
 }
 
 /** The levels of both voices, eased, as the CSS variables `--you-level` and
- * `--agent-level` on `root`, and how much of the agent's message was heard as
- * `--agent-progress`. */
+ * `--agent-level`, and how much of the agent's message was heard as
+ * `--agent-progress`, each frame on the elements in `root` marked
+ * `data-meter`, which show them. Set on `root` itself, they would make the
+ * browser restyle the whole page every frame, which a phone can't keep up
+ * with, so the meters would move in jumps. */
 function useLevels(voice: Voice, root: RefObject<HTMLDivElement | null>) {
 	useEffect(() => {
 		// Rises fast and falls slowly, as a meter does.
@@ -260,12 +263,17 @@ function useLevels(voice: Voice, root: RefObject<HTMLDivElement | null>) {
 			frame = requestAnimationFrame(tick);
 			you = ease(you, voice.state.listener ? voice.state.level : 0);
 			agent = ease(agent, voice.speakerLevel());
-			root.current?.style.setProperty("--you-level", you.toFixed(3));
-			root.current?.style.setProperty("--agent-level", agent.toFixed(3));
-			root.current?.style.setProperty(
-				"--agent-progress",
-				voice.speakerProgress().toFixed(4),
-			);
+			const values: [string, string][] = [
+				["--you-level", you.toFixed(3)],
+				["--agent-level", agent.toFixed(3)],
+				["--agent-progress", voice.speakerProgress().toFixed(4)],
+			];
+			const meters =
+				root.current?.querySelectorAll<HTMLElement>("[data-meter]");
+			for (const meter of meters ?? [])
+				for (const [name, value] of values)
+					if (meter.style.getPropertyValue(name) !== value)
+						meter.style.setProperty(name, value);
 		});
 		return () => cancelAnimationFrame(frame);
 	}, [voice, root]);
@@ -299,10 +307,12 @@ function Aura({
 			className="pointer-events-none fixed inset-0 -z-10 overflow-hidden"
 		>
 			<div
+				data-meter
 				className="absolute bottom-0 h-[70vh] w-[90vmax]"
 				style={glow("--you", "--you-level", "25%", you)}
 			/>
 			<div
+				data-meter
 				className={`absolute bottom-0 h-[70vh] w-[90vmax] ${working ? "animate-[breathe_2.4s_ease-in-out_infinite]" : ""}`}
 				style={glow("--agent", "--agent-level", "75%", agent || working)}
 			/>
@@ -439,6 +449,7 @@ function Reading({ held }: { held: boolean }) {
 				className="h-0.5 flex-1 overflow-hidden rounded-full bg-white/10"
 			>
 				<div
+					data-meter
 					className="h-full origin-left rounded-full bg-agent shadow-[0_0_8px_var(--agent)]"
 					style={{ transform: "scaleX(var(--agent-progress, 0))" }}
 				/>
@@ -957,6 +968,7 @@ function Switch(props: {
 			title={props.label}
 			aria-label={props.label}
 			aria-pressed={props.on}
+			data-meter
 			disabled={props.busy}
 			onClick={props.onClick}
 			className={`grid size-12 shrink-0 place-items-center rounded-full transition-colors duration-150 [&_svg]:size-5 ${props.on ? "" : "bg-white/[0.07] text-foreground/60 hover:bg-white/15 hover:text-foreground"} ${props.busy ? "animate-pulse" : ""}`}

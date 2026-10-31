@@ -69,3 +69,7 @@ sounds:
 # real relay.
 activity:
     pnpm exec tsx bench/activity.ts
+
+# How smoothly the page runs in a gallery state, on a slowed-down phone.
+frames state="agent-speaking":
+    CHROMIUM="$(command -v chromium)" pnpm exec tsx bench/frames.ts {{ state }}
