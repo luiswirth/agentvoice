@@ -9,14 +9,14 @@
 
 It speaks the engine extension, https://voice.agentics.lwirth.com/engine.md:
 it transcribes with NVIDIA's Parakeet v2 and speaks with Kokoro v1.0,
-both in k2-fsa's conversions for sherpa-onnx, fetched once from k2-fsa's releases
+both in k2-fsa's conversions for sherpa-onnx, fetched once from Hugging Face at pinned revisions
 and checked against the hashes below.
-It reaches only the session and those releases, keeps nothing but the models,
+It reaches only the session and Hugging Face, keeps nothing but the models,
 in ~/.cache/polylogue-voice-engine, and runs no commands.
 It runs until stopped, and then leaves the session.
 """
 
-import hashlib, io, json, os, queue, signal, sys, tarfile, threading, time, wave
+import hashlib, io, json, os, queue, shutil, signal, sys, threading, time, wave
 import urllib.parse, urllib.request, urllib.error
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -24,15 +24,18 @@ from pathlib import Path
 import numpy as np
 import sherpa_onnx as so
 
-RELEASES = "https://github.com/k2-fsa/sherpa-onnx/releases/download"
+# Each model: its repository and revision on Hugging Face, the files it needs (a path ending in / takes
+# the directory), and the hash `sha256sum` gives of its own output for those files, sorted by path.
 MODELS = {
-    "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8": (
-        f"{RELEASES}/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2",
-        "157c157bc51155e03e37d2466522a3a737dd9c72bb25f36eb18912964161e1ad",
+    "parakeet": (
+        "csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8", "1ab9323565ddb038682214b292f588070a538ce2",
+        ["encoder.int8.onnx", "decoder.int8.onnx", "joiner.int8.onnx", "tokens.txt"],
+        "1a2b077ef42880d3e9c3a01e57a1999c28f5608e05d30cd6bb94151bb243cec6",
     ),
-    "kokoro-multi-lang-v1_0": (
-        f"{RELEASES}/tts-models/kokoro-multi-lang-v1_0.tar.bz2",
-        "60703707bc05ccd48d60e1eb723f38b07d6e474795a0b6a588d7220400e0f7a4",
+    "kokoro": (
+        "csukuangfj/kokoro-multi-lang-v1_0", "f7b96bb6bef5c5da4d3aa4f4e0498fbbf62dc78b",
+        ["model.onnx", "voices.bin", "tokens.txt", "lexicon-us-en.txt", "espeak-ng-data/"],
+        "9bcbf600109c36027609dbec7ba6cdf493d4a94192991c2b65f3d489ba0e3699",
     ),
 }
 VOICE = 3  # Kokoro's af_heart
@@ -46,41 +49,43 @@ def log(message):
     print(message, file=sys.stderr, flush=True)
 
 
-class Hashing(io.RawIOBase):
-    """A download read as a stream, hashed as it passes."""
-
-    def __init__(self, response):
-        self.response, self.hash = response, hashlib.sha256()
-
-    def readable(self):
-        return True
-
-    def readinto(self, buffer):
-        data = self.response.read(len(buffer))
-        self.hash.update(data)
-        buffer[: len(data)] = data
-        return len(data)
+def download(url, path, attempts=4):
+    """The file's sha256, once it is written to the path, trying again where the connection fails."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    for attempt in range(attempts):
+        hash = hashlib.sha256()
+        try:
+            with urllib.request.urlopen(url, timeout=60) as response, open(path, "wb") as file:
+                while data := response.read(1 << 20):
+                    hash.update(data)
+                    file.write(data)
+            return hash.hexdigest()
+        except OSError as error:
+            if attempt == attempts - 1:
+                raise SystemExit(f"couldn't fetch {url}: {error}") from None
+            time.sleep(2**attempt)
 
 
 def fetch(name):
-    """The model's directory, downloaded, checked and unpacked on first use."""
+    """The model's directory, downloaded and checked on first use."""
     target = CACHE / name
     if target.exists():
         return target
-    url, digest = MODELS[name]
+    repo, revision, wanted, digest = MODELS[name]
+    log(f"fetching https://huggingface.co/{repo}/tree/{revision}")
+    with urllib.request.urlopen(f"https://huggingface.co/api/models/{repo}/tree/{revision}?recursive=true") as response:
+        tree = json.load(response)
+    paths = sorted(entry["path"] for entry in tree if entry["type"] == "file"
+                   and any(entry["path"] == w or w.endswith("/") and entry["path"].startswith(w) for w in wanted))
     partial = CACHE / f"{name}.partial"
-    partial.mkdir(parents=True, exist_ok=True)
-    log(f"fetching {url}")
-    with urllib.request.urlopen(url) as response:
-        stream = Hashing(response)
-        with tarfile.open(fileobj=stream, mode="r|bz2") as archive:
-            archive.extractall(partial, filter="data")
-        while stream.read(1 << 20):
-            pass
-    if stream.hash.hexdigest() != digest:
-        raise SystemExit(f"{url} doesn't match its hash: not used")
-    (partial / name).rename(target)
-    partial.rmdir()
+    shutil.rmtree(partial, ignore_errors=True)
+    with ThreadPoolExecutor(16) as pool:
+        hashes = pool.map(lambda p: download(f"https://huggingface.co/{repo}/resolve/{revision}/{urllib.parse.quote(p)}", partial / p), paths)
+        listing = "".join(f"{h}  {p}\n" for p, h in zip(paths, hashes))
+    if hashlib.sha256(listing.encode()).hexdigest() != digest:
+        shutil.rmtree(partial)
+        raise SystemExit(f"{repo} doesn't match its hash: not used")
+    partial.rename(target)
     return target
 
 
@@ -169,7 +174,7 @@ def main():
     link, name = sys.argv[1].rstrip("/"), sys.argv[2] if len(sys.argv) == 3 else "engine"
 
     with ThreadPoolExecutor(2) as pool:
-        asr, tts = pool.map(fetch, ["sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8", "kokoro-multi-lang-v1_0"])
+        asr, tts = pool.map(fetch, ["parakeet", "kokoro"])
     log("loading the models")
     jobs = {
         PREFIX + "transcribe": (transcribe, transcriber(asr)),
