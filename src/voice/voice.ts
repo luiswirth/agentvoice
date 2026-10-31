@@ -89,6 +89,11 @@ export type VoiceState = Modes & {
 	refused: boolean;
 	/** Whether an engine is in the session, which the local tier needs. */
 	engine: boolean;
+	/** The voices the engine speaks with, as it offered them. */
+	engineVoices: string[];
+	/** The engine's voice the agent speaks with: the one last chosen in this
+	 * browser, if the engine has it, else the engine's first. */
+	engineVoice: string | null;
 	/** Whether the tier can speak now: an engine is in, or there is a key. */
 	ready: boolean;
 };
@@ -104,6 +109,8 @@ export function chosenTier(): Tier {
 export function chooseTier(tier: Tier): void {
 	localStorage.setItem(TIER, tier);
 }
+
+const ENGINE_VOICE = "voice-engine-voice";
 
 /** The state that shows `error`. */
 function failure(error: Error): Pick<VoiceState, "error" | "refused"> {
@@ -247,6 +254,8 @@ export class Voice {
 		refused: false,
 		tier: chosenTier(),
 		engine: false,
+		engineVoices: [],
+		engineVoice: null,
 		ready: false,
 	};
 
@@ -268,8 +277,16 @@ export class Voice {
 		};
 		message();
 		named();
-		this.engines = new Engines(session, (engine) => {
-			this.set({ engine });
+		this.engines = new Engines(session, (engine, engineVoices) => {
+			const chosen = localStorage.getItem(ENGINE_VOICE);
+			this.set({
+				engine,
+				engineVoices,
+				engineVoice:
+					chosen !== null && engineVoices.includes(chosen)
+						? chosen
+						: (engineVoices[0] ?? null),
+			});
 			this.arm();
 		});
 		this.arm();
@@ -552,6 +569,16 @@ export class Voice {
 		this.speaker?.use(null);
 		this.arm();
 		await this.reopen();
+	}
+
+	/** Chooses the engine's voice the agent speaks with, from its next
+	 * sentence on. */
+	setEngineVoice(engineVoice: string): void {
+		if (engineVoice === this.state.engineVoice) return;
+		this.trace.event("engineVoice", { voice: engineVoice });
+		play("press");
+		localStorage.setItem(ENGINE_VOICE, engineVoice);
+		this.set({ engineVoice });
 	}
 
 	/** Gives the ElevenLabs key, or takes it away, with the entry that
@@ -848,7 +875,11 @@ export class Voice {
 	}
 
 	private synthesizer(): Synthesizer {
-		if (this.state.tier === "local") return new LocalSynthesizer(this.engines);
+		if (this.state.tier === "local")
+			return new LocalSynthesizer(
+				this.engines,
+				() => this.state.engineVoice ?? undefined,
+			);
 		return new Speech(this.elevenlabs());
 	}
 

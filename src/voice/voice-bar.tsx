@@ -456,6 +456,9 @@ function Status({ voice, state }: { voice: Voice; state: VoiceState }) {
 				)}
 			</p>
 			<TierChoice voice={voice} state={state} />
+			{state.tier === "local" && state.engineVoices.length > 1 && (
+				<EngineVoice voice={voice} state={state} />
+			)}
 			{state.tier === "elevenlabs" && <Languages voice={voice} state={state} />}
 			<button
 				type="button"
@@ -493,6 +496,51 @@ function TierChoice({ voice, state }: { voice: Voice; state: VoiceState }) {
 		>
 			{local ? `local${state.engine ? "" : " · no engine yet"}` : "elevenlabs"}
 		</button>
+	);
+}
+
+/** Kokoro's kinds of voice, by the first two letters of a voice's name. */
+const KINDS: Record<string, string> = {
+	af: "American, female",
+	am: "American, male",
+	bf: "British, female",
+	bm: "British, male",
+};
+
+/** The engine's voice the agent speaks with, chosen from those it offers,
+ * grouped by their kind where the name shows one, as Kokoro's do. */
+function EngineVoice({ voice, state }: { voice: Voice; state: VoiceState }) {
+	const name = (v: string) => (KINDS[v.slice(0, 2)] ? v.slice(3) : v);
+	const groups = new Map<string, string[]>();
+	for (const v of [...state.engineVoices].sort()) {
+		const kind = KINDS[v.slice(0, 2)] ?? "Other";
+		groups.set(kind, [...(groups.get(kind) ?? []), v]);
+	}
+	// The name shows as a pill; the select over it, unseen, opens the
+	// browser's own list, and is as wide as the name rather than the longest.
+	return (
+		<label
+			title="The voice your agent speaks with, kept in this browser"
+			className="relative cursor-pointer rounded-full px-2 py-0.5 tracking-widest uppercase text-muted-foreground/60 transition hover:bg-white/10 hover:text-foreground"
+		>
+			{name(state.engineVoice ?? "")}
+			<select
+				aria-label="The voice your agent speaks with"
+				className="absolute inset-0 cursor-pointer opacity-0"
+				value={state.engineVoice ?? ""}
+				onChange={(event) => voice.setEngineVoice(event.target.value)}
+			>
+				{[...groups].map(([kind, voices]) => (
+					<optgroup key={kind} label={kind}>
+						{voices.map((v) => (
+							<option key={v} value={v}>
+								{name(v)}
+							</option>
+						))}
+					</optgroup>
+				))}
+			</select>
+		</label>
 	);
 }
 

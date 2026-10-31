@@ -40,7 +40,15 @@ MODELS = {
         "9bcbf600109c36027609dbec7ba6cdf493d4a94192991c2b65f3d489ba0e3699",
     ),
 }
-VOICE = 3  # Kokoro's af_heart
+# Kokoro's English voices, in the order of their speaker ids in voices.bin, as k2-fsa's
+# scripts/kokoro/v1.0/generate_voices_bin.py writes them; the other languages' follow.
+VOICES = [
+    "af_alloy", "af_aoede", "af_bella", "af_heart", "af_jessica", "af_kore", "af_nicole", "af_nova",
+    "af_river", "af_sarah", "af_sky", "am_adam", "am_echo", "am_eric", "am_fenrir", "am_liam",
+    "am_michael", "am_onyx", "am_puck", "am_santa", "bf_alice", "bf_emma", "bf_isabella", "bf_lily",
+    "bm_daniel", "bm_fable", "bm_george", "bm_lewis",
+]
+VOICE = "af_heart"  # spoken where a request names none
 SOURCE = "https://github.com/luiswirth/polylogue-voice/blob/main/engine/engine.py"
 PREFIX = "application/vnd.polylogue.engine."
 CACHE = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "polylogue-voice-engine"
@@ -159,8 +167,11 @@ def transcribe(recognizer, payload):
 
 
 def synthesize(tts, payload):
-    text = json.loads(payload)["text"]
-    audio = tts.generate(text, sid=VOICE, speed=1.0)
+    request = json.loads(payload)
+    voice = request.get("voice", VOICE)
+    if voice not in VOICES:
+        raise ValueError(f"no voice {voice!r}")
+    audio = tts.generate(request["text"], sid=VOICES.index(voice), speed=1.0)
     pcm = (np.clip(np.asarray(audio.samples), -1, 1) * 32767).astype(np.int16)
     out = io.BytesIO()
     with wave.open(out, "wb") as w:
@@ -269,7 +280,8 @@ def serve(session):
         threading.Thread(target=worker, args=(type,), daemon=True).start()
     session.send("offer+json", json.dumps({
         "transcription": "parakeet-tdt-0.6b-v2-int8",
-        "synthesis": "kokoro-v1.0-af_heart",
+        "synthesis": "kokoro-v1.0",
+        "voices": [VOICE, *(voice for voice in VOICES if voice != VOICE)],
         "source": SOURCE,
     }).encode())
     log("offered; converting until stopped")

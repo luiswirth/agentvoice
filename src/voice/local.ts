@@ -28,15 +28,22 @@ export class Engines {
 	private offered = new Set<string>();
 	/** The latest offer's entry. */
 	offer = 0;
+	/** The voices the latest offer speaks with, the first where a request
+	 * names none. */
+	voices: string[] = [];
 	private waiting = new Map<number, (answer: Answer) => void>();
 	private early = new Map<number, Answer>();
 	private ready: (() => void)[] = [];
 	private readonly unsubscribe: () => void;
 	private readonly session: Session;
-	private readonly changed: (present: boolean) => void;
+	private readonly changed: (present: boolean, voices: string[]) => void;
 
-	/** `changed` hears whether an engine is in, as it changes. */
-	constructor(session: Session, changed: (present: boolean) => void) {
+	/** `changed` hears whether an engine is in, and the voices of the latest
+	 * offer, as they change. */
+	constructor(
+		session: Session,
+		changed: (present: boolean, voices: string[]) => void,
+	) {
 		this.session = session;
 		this.changed = changed;
 		this.unsubscribe = session.subscribe({
@@ -49,13 +56,23 @@ export class Engines {
 		if (type === `${PREFIX}offer+json`) {
 			this.offered.add(entry.from);
 			this.offer = entry.n;
+			try {
+				const { voices } = JSON.parse(entry.text ?? "{}") as {
+					voices?: unknown;
+				};
+				this.voices = Array.isArray(voices)
+					? voices.filter((v): v is string => typeof v === "string")
+					: [];
+			} catch {
+				this.voices = [];
+			}
 			for (const resolve of this.ready.splice(0)) resolve();
-			this.changed(true);
+			this.changed(true, this.voices);
 		} else if (
 			type === "application/vnd.polylogue.leave" &&
 			this.offered.delete(entry.from)
 		)
-			this.changed(this.present);
+			this.changed(this.present, this.voices);
 		const of = params.find((param) => param.startsWith("of="));
 		if (!type?.startsWith(PREFIX) || !of) return;
 		const n = Number(of.slice(3));
@@ -438,9 +455,12 @@ export class LocalSynthesizer implements Synthesizer {
 	private pending = 0;
 	private closed = false;
 	private readonly engines: Engines;
+	/** The voice each sentence is asked in, as chosen when it is asked. */
+	private readonly voice: () => string | undefined;
 
-	constructor(engines: Engines) {
+	constructor(engines: Engines, voice: () => string | undefined) {
 		this.engines = engines;
+		this.voice = voice;
 	}
 
 	say(line: string, piece: (piece: Piece) => boolean): Promise<void> {
@@ -455,7 +475,7 @@ export class LocalSynthesizer implements Synthesizer {
 			const audio = this.asking.then(() =>
 				wanted && !this.closed
 					? this.engines
-							.ask(JSON.stringify({ text }), SYNTHESIZE)
+							.ask(JSON.stringify({ text, voice: this.voice() }), SYNTHESIZE)
 							.then((entry) => this.engines.payload(entry))
 					: null,
 			);

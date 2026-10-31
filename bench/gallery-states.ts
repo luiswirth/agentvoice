@@ -25,6 +25,8 @@ export const base: VoiceState = {
 	refused: false,
 	tier: "elevenlabs",
 	engine: false,
+	engineVoices: [],
+	engineVoice: null,
 	ready: true,
 };
 
