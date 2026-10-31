@@ -3,7 +3,7 @@
 // person's last message, and whether they answered it. From reading it until
 // answering, an agent is taken to be working on it.
 import { type Entry, JOIN, LEAVE, type Presence } from "polylogue/participant";
-import { HEARD, MODES, type Session, spoken } from "./protocol.ts";
+import { MODES, type Session, spoken } from "./protocol.ts";
 import { TRACE } from "./trace.ts";
 
 /** Where the person's last message is: sent, read by another, or answered. */
@@ -23,7 +23,7 @@ export type ActivityEvents = {
 };
 
 /** Entries the voice pages send about themselves, which are no one's acts. */
-const PAGES = [MODES, HEARD, TRACE];
+const PAGES = [MODES, TRACE];
 
 export class Activity {
 	private readonly name: string;

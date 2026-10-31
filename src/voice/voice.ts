@@ -27,7 +27,6 @@ import { Listener, type Segment } from "./listener.ts";
 import { Engines, LocalSynthesizer, LocalTranscriber } from "./local.ts";
 import { holdMedia } from "./media.ts";
 import {
-	HEARD,
 	MODES,
 	type Modes,
 	NAMES,
@@ -723,10 +722,17 @@ export class Voice {
 		const trace = this.trace.take();
 		// The message goes first, so that the trace's audio, which takes a
 		// while to upload, holds it back from the agent no longer.
+		// What the person heard of the messages they cut in on goes ahead of
+		// what they said, so that the agent has the turn as one entry.
+		const cut = heard.map(({ n, text }) =>
+			text
+				? `[cut in on ${n} after "${text.replace(/\s+/g, " ")}"]`
+				: `[cut in before ${n}]`,
+		);
 		this.queue(async () => {
-			for (const entry of heard)
-				await this.session.send(JSON.stringify(entry), { type: HEARD });
-			await this.session.send(text, { type: "text/plain" });
+			await this.session.send([...cut, text].join(" "), {
+				type: "text/plain",
+			});
 			await this.shareTrace(trace);
 		});
 	}

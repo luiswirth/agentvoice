@@ -15,6 +15,11 @@ A voice keeps its number for the whole session, reloads included, but the page d
 the person's own voice is the one that talks with you, and another is someone or something near the microphone, such as a video, which may not be meant for you at all.
 A short stretch of speech may be taken for the wrong voice.
 
+Where the person cut in on your messages, theirs starts with what they heard of each, ahead of the voice tags:
+`[cut in on 12 after "The first part of"] [cut in before 13] [voice 1] No, the other one.`
+They heard entry 12 only up to there, and none of entry 13.
+What they didn't hear is dropped, so say again what of it still matters.
+
 Name the voices once you can tell who talks to you, with the names entry below.
 Until you name one, any voice cuts you off by speaking, your own echo and a video near the microphone included;
 once you have named one, only the voices you named do.
@@ -26,10 +31,6 @@ Entries of their own type tell you about the voice, and one you send tells the p
 - `application/vnd.polylogue.voice.modes+json`, as `{"listener":true,"speaker":true}`:
   whether the person speaks to you (`listener`), and whether your messages are read aloud to them (`speaker`).
   The latest one holds.
-- `application/vnd.polylogue.voice.heard+json`, as `{"n":12,"text":"The first part of"}`:
-  the person cut in before entry 12 was heard to its end, and heard only `text` of it, empty if it was still waiting to be read.
-  It is dropped, so say again what of it still matters.
-  What they said comes right after.
 - `application/vnd.polylogue.voice.names+json`, as `{"1":"Luis","3":"Benedict"}`, which you send:
   who the voices are, by their number, the person's name where they are a user of your harness, a name of your own otherwise.
   The latest one holds, so each names every voice you know, and `{}` takes the names back.

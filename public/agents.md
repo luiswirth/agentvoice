@@ -69,8 +69,7 @@ If you have no key, don't search for one: ask on the page for the key to be type
 - Don't end a question on the words you expect as its answer, such as "Yes or no?": an answer that repeats your last words is taken for your echo, and dropped.
 - Hand over a document as a file in your harness's chat, and never read it out.
 - Before longer work, say in one sentence what you are about to do: while you work, the person hears only a soft sound now and then.
-- When the person cuts in, what they hadn't heard yet is dropped, and a heard entry tells you what of it they heard.
-  What they said comes right after it, sometimes only in your next receive: answer that.
+- When the person cuts in, what they hadn't heard yet is dropped, and their message starts with what of it they heard, as `[cut in on 12 after "The first part of"]`.
 
 ## Naming the voices
 

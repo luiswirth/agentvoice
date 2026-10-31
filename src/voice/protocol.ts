@@ -18,8 +18,7 @@ export type Modes = {
 	tier: "elevenlabs" | "local";
 };
 
-/** What was heard of a message dropped as the person cut in, empty if none: sent before what cut it off. */
-export const HEARD = "application/vnd.polylogue.voice.heard+json";
+/** What was heard of message `n` dropped as the person cut in, empty if none. */
 export type Heard = { n: number; text: string };
 
 /** Who the voices are, by the number of their tag, as the agent names them:
