@@ -10,7 +10,7 @@
 // turn detection marks lands where it marked it, and only from shortly
 // before speech starts until its turn ends, so that the silence between
 // turns is not paid for. Each stretch of speech is tagged by its voice, on a
-// local speaker model, and a segment's words by the voice of their stretch,
+// local fingerprint model, and a segment's words by the voice of their stretch,
 // which it waits for if the model is not done. While speech goes on, the
 // model also tells which known voice is heard now, if any.
 import { Microphone } from "./audio.ts";
@@ -59,11 +59,11 @@ const PREROLL = 0.5;
  * seconds: the pre-roll, and where speech starts before it is heard. */
 const KEPT = PREROLL + 0.5;
 
-/** The longest stretch the speaker model hears at once, in seconds, so that
+/** The longest stretch the fingerprint model hears at once, in seconds, so that
  * a long one is heard while it goes on, and a voice change inside it shows. */
 const STRETCH = 10;
 
-/** How long speech goes on, in seconds, before the speaker model is asked
+/** How long speech goes on, in seconds, before the fingerprint model is asked
  * which voice is heard now, how often it is asked again while it goes on,
  * and the longest it hears for it. */
 const PROBE = { first: 0.75, every: 0.5, longest: 1.5 };
@@ -155,7 +155,7 @@ export class Listener {
 		/** Seconds of audio heard since the listener opened. */
 		let clock = 0;
 		/** Where the stretch of speech in progress starts, as far as the
-		 * speaker model has not heard it yet. */
+		 * fingerprint model has not heard it yet. */
 		let open: number | null = null;
 		/** Where the speech in progress starts, and where it was last asked
 		 * which voice is heard. */
@@ -163,15 +163,16 @@ export class Listener {
 		let probed: number | null = null;
 		/** The stretches of the segments in progress, with their voices. */
 		let stretches: Stretch[] = [];
-		/** The stretches the speaker model is still to answer, in order. */
+		/** The stretches the fingerprint model is still to answer, in order. */
 		const embedding: { from: number; to: number; done: () => void }[] = [];
-		/** Once the speaker model answered everything asked so far. */
+		/** Once the fingerprint model answered everything asked so far. */
 		let embedded: Promise<void> = Promise.resolve();
 		let voicing = false;
 		const voices = new Voices(`voice-voices ${location.href}`);
 		const speakers = new SpeakersWorker();
 		const ask = (message: ToSpeakers, transfer: Transferable[] = []) =>
 			speakers.postMessage(message, transfer);
+		ask({ type: "open", page: document.baseURI });
 		const embed = (from: number, to: number) => {
 			if (!voicing) return;
 			// A short one is heard with the sound around it.

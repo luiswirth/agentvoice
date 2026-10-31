@@ -1,12 +1,13 @@
-// The speaker model off the page's thread: it keeps the last minute of the
-// microphone's 16-bit PCM at 16 kHz, and embeds a stretch of it on request,
-// in seconds since the first chunk.
+// The voice fingerprint off the page's thread: it keeps the last minute of
+// the microphone's 16-bit PCM at 16 kHz, and embeds a stretch of it on
+// request, in seconds since the first chunk. It starts once the page tells it
+// its own address, against which the model's is.
 
 import * as ort from "onnxruntime-web/wasm";
-import { FBANK_BINS, fbank } from "./fbank.ts";
-import { CAMPLUS, fetchModel, setUpOnnxRuntime } from "./models.ts";
+import { fetchModel, REDIMNET2, setUpOnnxRuntime } from "./models.ts";
 
 export type ToSpeakers =
+	| { type: "open"; page: string }
 	| { type: "audio"; pcm: ArrayBuffer }
 	| { type: "embed" | "probe"; from: number; to: number };
 
@@ -29,9 +30,20 @@ const post = (message: FromSpeakers, transfer: Transferable[] = []) =>
 const kept = new Float32Array(KEPT);
 let heard = 0;
 
-const model = fetchModel(CAMPLUS).then((bytes) =>
-	ort.InferenceSession.create(bytes, { executionProviders: ["wasm"] }),
-);
+/** The shortest stretch embedded, in samples: ReDimNet2 hears frames of 10 ms. */
+const SHORTEST = RATE / 10;
+const DIMENSIONS = 192;
+
+let opened: (page: string) => void = () => {};
+const model = new Promise<string>((resolve) => {
+	opened = resolve;
+})
+	.then((page) =>
+		fetchModel({ ...REDIMNET2, url: new URL(REDIMNET2.url, page).href }),
+	)
+	.then((bytes) =>
+		ort.InferenceSession.create(bytes, { executionProviders: ["wasm"] }),
+	);
 model.then(
 	() => post({ type: "ready" }),
 	(error: Error) => post({ type: "failed", error: error.message }),
@@ -43,13 +55,11 @@ async function embed(from: number, to: number): Promise<Float32Array> {
 	const samples = new Float32Array(Math.max(0, end - start));
 	for (let i = 0; i < samples.length; i++)
 		samples[i] = kept[(start + i) % KEPT] ?? 0;
-	const features = fbank(samples);
-	const frames = features.length / FBANK_BINS;
-	const embedding = new Float32Array(512);
-	if (frames < 10) return embedding;
+	const embedding = new Float32Array(DIMENSIONS);
+	if (samples.length < SHORTEST) return embedding;
 	const session = await model;
 	const out = await session.run({
-		x: new ort.Tensor("float32", features, [1, frames, FBANK_BINS]),
+		wave: new ort.Tensor("float32", samples, [1, samples.length]),
 	});
 	embedding.set(out.embedding?.data as Float32Array);
 	const norm = Math.hypot(...embedding) || 1;
@@ -61,6 +71,7 @@ async function embed(from: number, to: number): Promise<Float32Array> {
 /** Requests are answered one after another, as the model answers in turn. */
 let queue: Promise<unknown> = Promise.resolve();
 self.onmessage = ({ data }: MessageEvent<ToSpeakers>) => {
+	if (data.type === "open") return opened(data.page);
 	if (data.type === "audio") {
 		for (const s of new Int16Array(data.pcm)) kept[heard++ % KEPT] = s / 32768;
 		return;

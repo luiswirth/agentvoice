@@ -1,6 +1,7 @@
-// The local models of turn detection, on ONNX Runtime Web: Silero VAD hears
-// whether the person speaks, Smart Turn whether they sound finished. Each is
-// fetched once, at a pinned revision, checked against its hash.
+// The reflexes' models, on ONNX Runtime Web: Silero VAD hears whether the
+// person speaks, Smart Turn whether they sound finished, and ReDimNet2 gives
+// each stretch its voice fingerprint. Each is fetched once, at a pinned
+// revision, checked against its hash.
 import mjs from "onnxruntime-web/ort-wasm-simd-threaded.mjs?url";
 import wasm from "onnxruntime-web/ort-wasm-simd-threaded.wasm?url";
 import * as ort from "onnxruntime-web/wasm";
@@ -13,8 +14,9 @@ import { CONTEXT, type Models, WINDOW } from "./turns.ts";
  * shared memory's whole maximum up front: the iPhone runs out after a few.
  * ONNX Runtime's maximum of 4 GiB is fixed in its build, so voice carries a
  * patch of its glue (`patches/`) that lowers it to 256 MiB, which it loads
- * rather than the glue in its bundle. The speaker model needs 93 MiB at most,
- * turn detection 49 MiB, as measured in Chromium.
+ * rather than the glue in its bundle. Turn detection needs 49 MiB; in it, the
+ * fingerprint model embeds up to 15 s at once, as measured in Chromium, and
+ * the listener gives it at most 10.
  */
 export function setUpOnnxRuntime(): void {
 	ort.env.wasm.wasmPaths = { mjs, wasm };
@@ -36,11 +38,14 @@ export const SMART_TURN: Model = {
 	integrity: "sha256-K7AmMWsUpmBIanWxczzT+6uML9AxTcmve+SfjMqWfk8=",
 };
 
-/** 3D-Speaker's CAM++, trained on VoxCeleb, in sherpa-onnx's export, 30 MB:
- * the speaker model, a 512-dimensional embedding of a stretch of speech. */
-export const CAMPLUS: Model = {
-	url: "https://huggingface.co/csukuangfj/speaker-embedding-models/resolve/0743f301363dec56491a490f6d6cbc9d67f9a3bf/3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx",
-	integrity: "sha256-NXqDT3ArgBYeW5gRgsA44YVTwfLKdS7WzsIFI2XUEps=",
+/** The voice fingerprint: ReDimNet2 b3, trained on VoxBlink2, VoxCeleb2 and
+ * CN-Celeb, in voice's own export (`models/export-redimnet2.py`), 19 MB, which
+ * the page serves itself. It takes raw 16 kHz audio of any length and gives a
+ * 192-dimensional embedding, compared by cosine. `url` is relative to the
+ * page, which a worker doesn't know on its own. */
+export const REDIMNET2: Model = {
+	url: "models/redimnet2-b3-vb2-vox2-cnc2-lm.onnx",
+	integrity: "sha256-moKKovf+N6NMQ8i2uGjyyNqXAwybYvwVLvKXYvFF+ac=",
 };
 
 const CACHE = "voice-models";

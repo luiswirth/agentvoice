@@ -2,14 +2,16 @@
 // it sounds like, the closest voice heard before if close enough, a new one
 // otherwise if it is long enough, and the words of a segment are tagged by the voice of their
 // stretch, as `[voice 1] ...`. The page doesn't know who a voice is.
-// Embeddings are kept across reloads, so are voices' numbers.
+// Embeddings are kept across reloads, so are voices' numbers, as long as the
+// fingerprint model stays the same.
 import type { Word } from "./engines.ts";
+import { REDIMNET2 } from "./models.ts";
 
 /** How close an embedding must be to a voice's mean to be that voice, as
- * the cosine: on Luis's recordings, his stretches of a second or more are
- * all above 0.35 and other voices' below 0.25, and two videos' voices come
- * apart above 0.3. */
-const SAME = 0.3;
+ * the cosine: on LibriSpeech, 1% of other voices' stretches of a second come
+ * this close, fewer of longer ones and on VoxCeleb, and in Luis's live
+ * tests every stretch and probe of his own came closer, at 0.39 or above. */
+const SAME = 0.38;
 
 /** The shortest stretch of speech, in seconds, whose voice shows on its own:
  * a shorter one takes the voice of a longer one in its segment, and only
@@ -41,10 +43,13 @@ export class Voices {
 
 	constructor(key: string) {
 		this.key = key;
-		const stored = JSON.parse(localStorage.getItem(key) ?? "{}") as {
+		const kept = JSON.parse(localStorage.getItem(key) ?? "{}") as {
+			model?: string;
 			sums?: number[][];
 			numbers?: (number | null)[];
 		};
+		// Another model's embeddings can't be compared with this one's.
+		const stored = kept.model === REDIMNET2.integrity ? kept : {};
 		this.sums = (stored.sums ?? []).map((sum) => Float32Array.from(sum));
 		this.numbers = stored.numbers ?? [];
 	}
@@ -132,7 +137,11 @@ export class Voices {
 		const sums = this.sums.map((sum) => Array.from(sum));
 		localStorage.setItem(
 			this.key,
-			JSON.stringify({ sums, numbers: this.numbers }),
+			JSON.stringify({
+				model: REDIMNET2.integrity,
+				sums,
+				numbers: this.numbers,
+			}),
 		);
 	}
 }
