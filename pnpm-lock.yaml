@@ -34,7 +34,7 @@ importers:
         version: https://codeload.github.com/luiswirth/polylogue/tar.gz/0e02aed42659b7b2ef4506c8fabb7c2958f26206
       polylogue-web:
         specifier: github:luiswirth/polylogue-web
-        version: https://codeload.github.com/luiswirth/polylogue-web/tar.gz/407f64b04345fec1a38c0aa538cd4bbf9dd8dda1(polylogue@https://codeload.github.com/luiswirth/polylogue/tar.gz/0e02aed42659b7b2ef4506c8fabb7c2958f26206)(react@19.3.1)
+        version: https://codeload.github.com/luiswirth/polylogue-web/tar.gz/89a4fb1b2b64dfb1d27997f51ed01358d6576e3d(polylogue@https://codeload.github.com/luiswirth/polylogue/tar.gz/0e02aed42659b7b2ef4506c8fabb7c2958f26206)(react@19.3.1)
       react:
         specifier: ^19.3.1
         version: 19.3.1
@@ -2048,8 +2048,8 @@ packages:
     engines: {node: '>=20'}
     hasBin: true
 
-  polylogue-web@https://codeload.github.com/luiswirth/polylogue-web/tar.gz/407f64b04345fec1a38c0aa538cd4bbf9dd8dda1:
-    resolution: {gitHosted: true, integrity: sha512-keLBd/vjD8tWYNW8ZiPKaTx74xH5pwDPNgwom+bYnYFJ39Y5MKEAndcX8oKzw/gKNx0fxmYBLueVMA0VMJbSvA==, tarball: https://codeload.github.com/luiswirth/polylogue-web/tar.gz/407f64b04345fec1a38c0aa538cd4bbf9dd8dda1}
+  polylogue-web@https://codeload.github.com/luiswirth/polylogue-web/tar.gz/89a4fb1b2b64dfb1d27997f51ed01358d6576e3d:
+    resolution: {gitHosted: true, integrity: sha512-3WCoikijBAksFBCtfGoRXDrlIBDBqbrkqI/fZPwALTQbm00z0iMHvQxkg4x4cdyauJ8fGkAZtFjHp1yIKBUsug==, tarball: https://codeload.github.com/luiswirth/polylogue-web/tar.gz/89a4fb1b2b64dfb1d27997f51ed01358d6576e3d}
     version: 0.0.0
     peerDependencies:
       polylogue: github:luiswirth/polylogue
@@ -4136,7 +4136,7 @@ snapshots:
 
   playwright-core@1.64.1: {}
 
-  polylogue-web@https://codeload.github.com/luiswirth/polylogue-web/tar.gz/407f64b04345fec1a38c0aa538cd4bbf9dd8dda1(polylogue@https://codeload.github.com/luiswirth/polylogue/tar.gz/0e02aed42659b7b2ef4506c8fabb7c2958f26206)(react@19.3.1):
+  polylogue-web@https://codeload.github.com/luiswirth/polylogue-web/tar.gz/89a4fb1b2b64dfb1d27997f51ed01358d6576e3d(polylogue@https://codeload.github.com/luiswirth/polylogue/tar.gz/0e02aed42659b7b2ef4506c8fabb7c2958f26206)(react@19.3.1):
     dependencies:
       polylogue: https://codeload.github.com/luiswirth/polylogue/tar.gz/0e02aed42659b7b2ef4506c8fabb7c2958f26206
       react: 19.3.1
