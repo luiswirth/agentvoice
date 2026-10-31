@@ -28,12 +28,15 @@ const ECHO = 4;
  * played for them to be its echo: Scribe mishears some of them. */
 const ECHOED = 0.7;
 
-/** How long before the speaker turns on a message may have arrived and
+/** How long before the speaker started a message may have arrived and
  * still be read, in seconds: one that came during a reload. */
 const RECENT = 10;
 
 export class Speaker {
-	private readonly speech: Synthesizer;
+	/** What speaks, while the tier can. */
+	private speech: Synthesizer | null = null;
+	/** The last entry before the speaker started. */
+	private readonly started: number;
 	private readonly player = new Player();
 	private readonly session: Session;
 	private readonly name: string;
@@ -54,32 +57,52 @@ export class Speaker {
 	changed: (n: number | null) => void = () => {};
 	failed: (error: Error) => void = () => {};
 
-	/** Reads the messages not from `name` that arrive from now on, and those
-	 * that arrived just before, as during a reload, except those this tab
-	 * already read, heard or dropped. None from further back: the person may
-	 * have heard or read them, and can have the last read again. */
-	constructor(session: Session, name: string, speech: Synthesizer) {
+	/** Reads the messages not from `name` once it has something to speak
+	 * with, as `use` gives it. */
+	constructor(session: Session, name: string) {
 		this.session = session;
 		this.name = name;
-		this.speech = speech;
 		this.player.changed = () => this.settle();
-		const since = Number(sessionStorage.getItem(this.key) ?? 0);
-		const recent = Date.now() - RECENT * 1000;
-		for (const entry of session.log)
-			if (
-				entry.n > since &&
-				Date.parse(entry.time) > recent &&
-				entry.from !== name &&
-				spoken(entry)
-			)
-				this.read(entry);
-		const after = session.log.at(-1)?.n ?? 0;
+		this.started = session.log.at(-1)?.n ?? 0;
 		this.unsubscribe = session.subscribe({
 			entry: (entry) => {
-				if (entry.n > after && entry.from !== name && spoken(entry))
+				if (entry.n > this.started && this.speech && this.wanted(entry))
 					this.read(entry);
 			},
 		});
+	}
+
+	private wanted(entry: Entry): entry is Entry & { text: string } {
+		return entry.from !== this.name && spoken(entry);
+	}
+
+	/** Whether it has something to speak with. */
+	get ready(): boolean {
+		return this.speech !== null;
+	}
+
+	/**
+	 * Speaks with `speech` from now on, or with nothing while the tier can't
+	 * speak, when the messages that arrive go unread. Given something, it
+	 * reads at once the messages after entry `after`, from which on the tier
+	 * could speak, except those this tab already read, heard or dropped; of
+	 * those from before it started, only the ones that arrived just before,
+	 * as during a reload. None from further back: the person may have heard
+	 * or read them, and can have the last read again.
+	 */
+	use(speech: Synthesizer | null, after = 0): void {
+		this.speech?.close();
+		this.speech = speech;
+		if (!speech) return;
+		const since = Number(sessionStorage.getItem(this.key) ?? 0);
+		const recent = Date.now() - RECENT * 1000;
+		for (const entry of this.session.log)
+			if (
+				entry.n > Math.max(after, since) &&
+				(entry.n > this.started || Date.parse(entry.time) > recent) &&
+				this.wanted(entry)
+			)
+				this.read(entry);
 	}
 
 	/** Where the tab keeps the last message it is done with, so that a reload
@@ -182,7 +205,7 @@ export class Speaker {
 	/** Reads the last message again from its start, before anything queued. */
 	replay(): void {
 		const last = this.last;
-		if (last === undefined) return;
+		if (last === undefined || !this.speech) return;
 		for (const { n } of this.readings) this.drop(n);
 		this.read(last);
 	}
@@ -219,10 +242,12 @@ export class Speaker {
 		for (const { line } of this.readings) this.dropped.add(line);
 		this.readings = [];
 		this.player.stop();
-		this.speech.close();
+		this.speech?.close();
 	}
 
 	private read(entry: Entry & { text: string }): void {
+		const synthesizer = this.speech;
+		if (!synthesizer) return;
 		const line = ++this.lines;
 		const reading: Reading = { n: entry.n, line, chars: [], done: false };
 		this.readings.push(reading);
@@ -233,7 +258,7 @@ export class Speaker {
 		let start = 0;
 		const lines = speech(entry.text).map((paragraph, i) => {
 			let from: number | undefined;
-			return this.speech.say(paragraph, (piece: Piece) => {
+			return synthesizer.say(paragraph, (piece: Piece) => {
 				if (this.dropped.has(line)) return false;
 				if (from === undefined) {
 					from = start;

@@ -85,6 +85,8 @@ export type VoiceState = Modes & {
 	refused: boolean;
 	/** Whether an engine is in the session, which the local tier needs. */
 	engine: boolean;
+	/** Whether the tier can speak now: an engine is in, or there is a key. */
+	ready: boolean;
 };
 
 const TIER = "voice-tier";
@@ -143,10 +145,15 @@ function transcripts(): string[] {
 	}
 }
 
+/** Voice as the page has it from joining the session: it sends its modes at
+ * once, and its speaker, on by default, reads what the others send once the
+ * tier can speak. It opens no microphone until the listener is turned on, or
+ * a reload of a tab where it was on turns it back on, and plays nothing
+ * before the first gesture on the page. */
 export class Voice {
 	private readonly session: Session;
 	private readonly name: string;
-	private readonly key: string | null;
+	private key: string | null;
 	private readonly engines: Engines;
 	private listener: Listener | null = null;
 	private speaker: Speaker | null = null;
@@ -200,10 +207,11 @@ export class Voice {
 		refused: false,
 		tier: chosenTier(),
 		engine: false,
+		ready: false,
 	};
 
 	/** `name` is the person's in the session, `key` their ElevenLabs key,
-	 * which only what runs on ElevenLabs needs. */
+	 * which only what runs on ElevenLabs needs, and `setKey` gives later. */
 	constructor(session: Session, name: string, key: string | null) {
 		this.session = session;
 		this.name = name;
@@ -220,7 +228,11 @@ export class Voice {
 		};
 		message();
 		named();
-		this.engines = new Engines(session, (engine) => this.set({ engine }));
+		this.engines = new Engines(session, (engine) => {
+			this.set({ engine });
+			this.arm();
+		});
+		this.arm();
 		this.unsubscribe = session.subscribe({
 			entry: (entry) => {
 				message();
@@ -448,15 +460,39 @@ export class Voice {
 		chooseTier(tier);
 		this.set({ tier, error: null, refused: false });
 		await this.modes();
+		this.speaker?.use(null);
+		this.arm();
 		await this.reopen();
-		if (!this.state.speaker || this.state.switching) return;
-		this.speaker?.close();
-		this.speaker = null;
-		this.set({ speaker: false });
-		this.restoring = true;
-		await this.setSpeaker(true);
-		this.restoring = false;
-		if (!this.state.speaker) await this.modes();
+	}
+
+	/** Gives the ElevenLabs key, or takes it away, with the entry that
+	 * brought it, if one did: what the others sent after it is read once
+	 * ElevenLabs can speak. */
+	async setKey(key: string | null, after?: number): Promise<void> {
+		if (key === this.key) return;
+		this.key = key;
+		if (this.state.tier !== "elevenlabs") return;
+		this.set({ error: null, refused: false });
+		this.speaker?.use(null);
+		this.arm(after ?? this.session.log.at(-1)?.n ?? 0);
+		await this.reopen();
+	}
+
+	/** Has the speaker, if on, speak with the tier once it can, and read
+	 * what the others sent from then on: after the latest engine's offer, or
+	 * after entry `after` for a key. */
+	private arm(after = 0): void {
+		const local = this.state.tier === "local";
+		// The engine's presence as its state, which the engines set as they
+		// are made, before `this.engines` is.
+		const ready = local ? this.state.engine : this.key !== null;
+		if (ready !== this.state.ready) this.set({ ready });
+		const speaker = this.speaker;
+		if (!speaker || speaker.ready === ready) return;
+		speaker.use(
+			ready ? this.synthesizer() : null,
+			local ? this.engines.offer : after,
+		);
 	}
 
 	/** Opens listening again, if it is on and nothing is being heard, for
@@ -478,14 +514,7 @@ export class Voice {
 	async setSpeaker(on: boolean): Promise<void> {
 		if (on === this.state.speaker || this.state.switching) return;
 		if (on) {
-			let speech: Synthesizer;
-			try {
-				speech = this.synthesizer();
-			} catch (error) {
-				this.set(failure(error as Error));
-				return;
-			}
-			const speaker = new Speaker(this.session, this.name, speech);
+			const speaker = new Speaker(this.session, this.name);
 			speaker.changed = (reading) => {
 				this.trace.event("reading", { n: reading });
 				// A message read right after another, so that the break
@@ -504,6 +533,7 @@ export class Voice {
 				this.set(failure(error));
 			};
 			this.speaker = speaker;
+			this.arm();
 		} else {
 			this.speaker?.close();
 			this.speaker = null;

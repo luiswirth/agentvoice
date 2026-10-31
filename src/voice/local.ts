@@ -27,6 +27,8 @@ type Answer = Entry | Error;
 export class Engines {
 	/** The engines in the session that offered, by name. */
 	private offered = new Set<string>();
+	/** The latest offer's entry. */
+	offer = 0;
 	private waiting = new Map<number, (answer: Answer) => void>();
 	private early = new Map<number, Answer>();
 	private ready: (() => void)[] = [];
@@ -47,6 +49,7 @@ export class Engines {
 		const [type, ...params] = entry.type.split(";").map((part) => part.trim());
 		if (type === `${PREFIX}offer+json`) {
 			this.offered.add(entry.from);
+			this.offer = entry.n;
 			for (const resolve of this.ready.splice(0)) resolve();
 			this.changed(true);
 		} else if (

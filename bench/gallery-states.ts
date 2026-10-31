@@ -25,6 +25,7 @@ export const base: VoiceState = {
 	refused: false,
 	tier: "elevenlabs",
 	engine: false,
+	ready: true,
 };
 
 export const states: Record<string, Partial<VoiceState>> = {
