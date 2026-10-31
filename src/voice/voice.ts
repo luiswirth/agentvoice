@@ -201,6 +201,13 @@ export class Voice {
 	/** Whether listening is off, with the listener still finishing the
 	 * segment in progress, whose words go to the draft. */
 	private stopping = false;
+	/** Whether listening waits, as while there is no one to talk with: the
+	 * microphone stays closed, and whether the person wants it on is kept
+	 * for when the wait ends. It waits from the start, so that listening
+	 * kept from before a reload opens only once there is someone to hear. */
+	private standing = true;
+	/** Whether the person wants to listen, while listening waits. */
+	private wanted = false;
 	/** Whether the segment in progress has words, and whether they took the floor. */
 	private words = false;
 	private floor = false;
@@ -395,8 +402,34 @@ export class Voice {
 		return this.speaker?.level() ?? 0;
 	}
 
-	/** Call it from a click, since it starts the page's audio. */
+	/** Call it from a click, since it starts the page's audio. While
+	 * listening waits, it only keeps whether the person wants it. */
 	async setListener(on: boolean): Promise<void> {
+		if (this.standing) {
+			this.wanted = on;
+			this.keepModes();
+			return;
+		}
+		return this.listen(on);
+	}
+
+	/** Has listening wait, or ends the wait: waiting closes the microphone,
+	 * keeping the words in progress in the draft, and the end of the wait
+	 * opens it again if the person wants it on. */
+	async standby(on: boolean): Promise<void> {
+		if (on === this.standing) return;
+		this.standing = on;
+		this.trace.event("standby", { on });
+		if (on) {
+			this.wanted = this.state.listener || this.state.switching === "listener";
+			if (this.state.listener) await this.listen(false);
+		} else if (this.wanted) {
+			this.wanted = false;
+			await this.listen(true);
+		}
+	}
+
+	private async listen(on: boolean): Promise<void> {
 		if (on === this.state.listener || this.state.switching) return;
 		if (!on) {
 			// Words in progress still go to the draft, unsent: the microphone
@@ -471,6 +504,8 @@ export class Voice {
 				() => !this.stopping,
 			);
 			this.set({ listener: true, switching: null });
+			// Listening came to wait while the microphone opened.
+			if (this.standing) return this.listen(false);
 			this.cue("listen");
 			await this.modes();
 		} catch (error) {
@@ -930,7 +965,7 @@ export class Voice {
 		const { draft, hearing } = this.state;
 		if (draft || hearing) this.send();
 		else if (this.state.reading !== null) this.hold(!this.state.held);
-		else void this.setListener(!this.state.listener);
+		else void this.setListener(!(this.state.listener || this.wanted));
 	};
 
 	private modes(): Promise<void> {
@@ -942,14 +977,21 @@ export class Voice {
 			previous: () => void this.replay(),
 		});
 		if (this.restoring) return Promise.resolve();
-		sessionStorage.setItem(
-			this.modesKey,
-			JSON.stringify({ listener, speaker }),
-		);
+		this.keepModes();
 		const modes: Modes = { listener, speaker, tier: this.state.tier };
 		this.trace.event("modes", modes);
 		return this.queue(() =>
 			this.session.send(JSON.stringify(modes), { type: MODES }),
+		);
+	}
+
+	/** Keeps the modes for the tab, listening as the person wants it, so
+	 * that a reload keeps them. */
+	private keepModes(): void {
+		const { listener, speaker } = this.state;
+		sessionStorage.setItem(
+			this.modesKey,
+			JSON.stringify({ listener: listener || this.wanted, speaker }),
 		);
 	}
 
