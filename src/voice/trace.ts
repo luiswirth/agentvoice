@@ -2,7 +2,8 @@
 // fix voice from, with the audio the listener heard. Kept on the page from
 // when it opens, the events across reloads of its tab too, and sent into the
 // session only while the person shares it, which is off until they turn it
-// on: at once as they turn it on, and then with each message they send.
+// on: at once as they turn it on, and then with each message they send. The
+// person can also download what is kept, as a file to hand on themselves.
 
 /** A trace of what voice did since the last one was sent, or since the page
  * opened. */
@@ -28,6 +29,10 @@ type Stretch = { start: number; chunks: Int16Array[]; length: number };
 
 /** A stretch of what the listener heard, as a WAV, and when it starts. */
 export type Heard = { start: string; wav: Blob };
+
+/** A stretch of what the listener heard, at `LISTEN_RATE`, from `start`, in
+ * ms since the epoch. */
+export type Piece = { start: number; pcm: Int16Array };
 
 export class Trace {
 	/** Kept for the tab and the page's link, so that a reload keeps it and
@@ -92,12 +97,40 @@ export class Trace {
 		return { events, audio };
 	}
 
+	/** Everything kept so far, shared or not, which stays kept: for the
+	 * person to download. */
+	snapshot(): { events: TraceEvent[]; audio: Piece[] } {
+		const audio = this.audio.map(({ start, chunks, length }) => {
+			const pcm = new Int16Array(length);
+			let at = 0;
+			for (const chunk of chunks) {
+				pcm.set(chunk, at);
+				at += chunk.length;
+			}
+			return { start, pcm };
+		});
+		return { events: [...this.events], audio };
+	}
+
 	/** Past the storage's quota, the trace is kept in memory only. */
 	private keep(): void {
 		try {
 			sessionStorage.setItem(this.key, JSON.stringify(this.events));
 		} catch {}
 	}
+}
+
+/** Pieces as one recording, each at its time with silence between, as a
+ * WAV, and when its first sample was heard, in ms since the epoch: the
+ * `audio.wav` of a recording that `just bench` replays. */
+export function recording(pieces: Piece[]): { wav: Blob; start: number } {
+	const first = Math.min(...pieces.map((piece) => piece.start));
+	const at = (piece: Piece) =>
+		Math.round(((piece.start - first) / 1000) * LISTEN_RATE);
+	const length = Math.max(0, ...pieces.map((p) => at(p) + p.pcm.length));
+	const samples = new Int16Array(length);
+	for (const piece of pieces) samples.set(piece.pcm, at(piece));
+	return { wav: wave([samples], length), start: first };
 }
 
 /** 16-bit mono PCM at `LISTEN_RATE`, as a WAV. */

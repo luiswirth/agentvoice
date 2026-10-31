@@ -38,7 +38,8 @@ import {
 } from "./protocol.ts";
 import { type Cue, onPlay, play, setSounds, soundsOn } from "./sounds.ts";
 import { Speaker } from "./speaker.ts";
-import { TRACE, Trace } from "./trace.ts";
+import { recording, TRACE, Trace } from "./trace.ts";
+import { zip } from "./zip.ts";
 
 export type VoiceState = Modes & {
 	/** Whether a turn ends by itself, after a pause. Kept in this browser. */
@@ -795,6 +796,35 @@ export class Voice {
 		this.hold(false);
 		this.trace.event("replay");
 		this.speaker?.replay();
+	}
+
+	/** What the page kept of its trace and of the audio it heard, as a
+	 * recording such as `just record` keeps, for the person to download and
+	 * hand on themselves: `audio.wav` and `session.json` in a folder, zipped.
+	 * The session's link, keys and secrets stay out. */
+	async download(): Promise<{ name: string; blob: Blob }> {
+		this.trace.event("download");
+		const { events, audio } = this.trace.snapshot();
+		const heard = audio.length > 0 ? recording(audio) : null;
+		const messages = this.session.log.filter(
+			({ type }) =>
+				!/^application\/vnd\.polylogue\.(key|secret)/.test(type) &&
+				!type.startsWith(TRACE) &&
+				!type.startsWith("audio/"),
+		);
+		const session = {
+			audioStart: heard && new Date(heard.start).toISOString(),
+			messages,
+			trace: events,
+		};
+		const name = `voice-${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}`;
+		const blob = await zip({
+			...(heard && { [`${name}/audio.wav`]: heard.wav }),
+			[`${name}/session.json`]: new Blob([JSON.stringify(session, null, 1)], {
+				type: "application/json",
+			}),
+		});
+		return { name: `${name}.zip`, blob };
 	}
 
 	/** Shares the page's trace with the session, at once what it kept so far,

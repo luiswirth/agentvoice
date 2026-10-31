@@ -16,6 +16,7 @@ import {
 	Check,
 	Copy,
 	CornerDownLeft,
+	Download,
 	Mic,
 	MicOff,
 	Pause,
@@ -785,9 +786,18 @@ function Settings(props: {
 						flip={() => voice.setSounds(!state.sounds)}
 					/>
 				</Row>
+				<p className="mt-2 border-t border-white/10 px-4 pt-4 text-xs tracking-widest text-muted-foreground uppercase">
+					Debugging
+				</p>
+				<Row
+					title="Download trace"
+					detail="What voice did and the audio it heard, the last 5 minutes, as one file for whoever develops voice."
+				>
+					<DownloadTrace voice={voice} />
+				</Row>
 				<Row
 					title="Share trace"
-					detail="Sends your agent what voice does, with the audio it heard, so that it can improve voice."
+					detail="Sends the same into the session with each message, for your agent to improve voice."
 				>
 					<Toggle
 						label="Share trace"
@@ -816,6 +826,34 @@ function Settings(props: {
 				)}
 			</div>
 		</dialog>
+	);
+}
+
+/** Saves the trace as a file, through the browser's own download. */
+function DownloadTrace({ voice }: { voice: Voice }) {
+	const [busy, setBusy] = useState(false);
+	return (
+		<button
+			type="button"
+			disabled={busy}
+			className="flex h-8 items-center gap-1.5 rounded-full bg-white/10 px-3 text-sm transition hover:bg-white/15 disabled:opacity-50"
+			onClick={async () => {
+				setBusy(true);
+				try {
+					const { name, blob } = await voice.download();
+					const link = document.createElement("a");
+					link.href = URL.createObjectURL(blob);
+					link.download = name;
+					link.click();
+					setTimeout(() => URL.revokeObjectURL(link.href), 10_000);
+				} finally {
+					setBusy(false);
+				}
+			}}
+		>
+			<Download className="size-4" />
+			Download
+		</button>
 	);
 }
 
