@@ -23,7 +23,11 @@ export type Step =
 	/** The agent speaks, and the person follows the cues while it does. */
 	| { agent: string; cues?: Cue[]; note?: string }
 	/** The person stays quiet, or coughs once at its start. */
-	| { silence: number; cough?: true; note?: string };
+	| { silence: number; cough?: true; note?: string }
+	/** The agent asks `ask`, and the person answers in their own words,
+	 * thinking out loud, until they tap: one turn whose words are only known
+	 * from the recording. The agent answers `reply`, if any. */
+	| { ask: string; reply?: string; note?: string };
 
 export const conversation: Step[] = [
 	{ silence: 3, note: "Stay quiet: the room alone." },
@@ -142,3 +146,39 @@ export const conversation: Step[] = [
 	{ turn: ["Okay, that's it. Thanks."], reply: "Thanks, bye." },
 	{ silence: 3 },
 ];
+
+// Free speech: questions to think about out loud, with the pauses, "uhm"s
+// and restarts of real thinking, which no script can make.
+const THINK =
+	"Answer in your own words, thinking out loud. Tap once you're done.";
+export const thinking: Step[] = [
+	{ silence: 3, note: "Stay quiet: the room alone." },
+	{
+		ask: "If you had to explain finite element exterior calculus to a first-year student, how would you start?",
+		reply: "Nice, that makes sense.",
+		note: THINK,
+	},
+	{
+		ask: "What should the voice mode do when you stop talking for a while?",
+		reply: "Okay, got it.",
+		note: THINK,
+	},
+	{
+		ask: "If you started Hivemind over today, what would you do differently?",
+		reply: "Interesting.",
+		note: THINK,
+	},
+	{
+		ask: "What's the next motorcycle trip you'd like to do, and why there?",
+		reply: "Sounds great.",
+		note: THINK,
+	},
+	{
+		ask: "Is there anything about how agents work with you that still bugs you?",
+		reply: "Thanks, that's all.",
+		note: THINK,
+	},
+	{ silence: 3 },
+];
+
+export const scripts = { conversation, thinking };

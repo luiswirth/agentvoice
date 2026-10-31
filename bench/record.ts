@@ -4,7 +4,9 @@
 // through, it keeps what the page heard, its trace, the session's messages
 // and the prompter's times, in `out`.
 //
-//   just record <out directory> [port]
+//   just record <out directory> [script] [port]
+//
+// The script is one of `scripts` in bench/conversation.ts.
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { homedir, hostname } from "node:os";
@@ -16,7 +18,7 @@ import {
 	SECRET,
 	Session,
 } from "polylogue/participant";
-import { conversation } from "./conversation.ts";
+import { scripts } from "./conversation.ts";
 import { joined } from "./recording.ts";
 
 const RELAY = "https://polylogue.agentics.lwirth.com";
@@ -24,8 +26,12 @@ const VOICE = "https://voice.agentics.lwirth.com";
 const TRACE = "application/vnd.polylogue.voice.trace+json";
 const NAMES = "application/vnd.polylogue.voice.names+json";
 
-const [out, port = "8794"] = process.argv.slice(2);
-if (!out) throw new Error("usage: record.ts <out directory> [port]");
+const [out, script = "conversation", port = "8794"] = process.argv.slice(2);
+if (!out || !(script in scripts))
+	throw new Error(
+		`usage: record.ts <out directory> [${Object.keys(scripts).join("|")}] [port]`,
+	);
+const conversation = scripts[script as keyof typeof scripts];
 await mkdir(out, { recursive: true });
 const key = (
 	await readFile(join(homedir(), "secrets/elevenlabs-api-key.txt"), "utf8")
@@ -114,6 +120,7 @@ async function keep(): Promise<void> {
 		JSON.stringify(
 			{
 				link: agent.link,
+				script,
 				audioStart: start && new Date(start).toISOString(),
 				messages,
 				trace: events,

@@ -76,9 +76,30 @@ async function countdown(seconds) {
 const preview = (step) =>
 	step?.turn ? `Next: ${step.turn.join(" … ")}` : "";
 
+async function reply(step, i, after, next) {
+	if (step.reply) {
+		show("Listen", step.reply, "", { quiet: true, next });
+		await sleep(1.5);
+		tell("agent", { step: i, text: step.reply });
+		await countdown(speaking(step.reply));
+	} else if (!after?.silence) {
+		show("Wait", "…", "", { quiet: true, next });
+		await countdown(2);
+	}
+}
+
 async function run(step, i, after) {
 	const next = preview(after);
-	if (step.turn) {
+	if (step.ask) {
+		show("Listen", step.ask, "", { quiet: true });
+		tell("agent", { step: i, text: step.ask });
+		await countdown(speaking(step.ask));
+		show("Think out loud", step.ask, step.note ?? "Then tap.");
+		tell("think", { step: i });
+		await tap();
+		tell("turn.said", { step: i });
+		await reply(step, i, after, next);
+	} else if (step.turn) {
 		for (const [j, part] of step.turn.entries()) {
 			show("Say", part, step.note ?? "Then tap.", { next: j === step.turn.length - 1 ? next : "" });
 			tell("part", { step: i, part: j, text: part });
@@ -93,15 +114,7 @@ async function run(step, i, after) {
 			}
 		}
 		tell("turn.said", { step: i });
-		if (step.reply) {
-			show("Listen", step.reply, "", { quiet: true, next });
-			await sleep(1.5);
-			tell("agent", { step: i, text: step.reply });
-			await countdown(speaking(step.reply));
-		} else if (!after?.silence) {
-			show("Wait", "…", "", { quiet: true, next });
-			await countdown(2);
-		}
+		await reply(step, i, after, next);
 	} else if (step.agent) {
 		show("Listen", step.agent, step.note ?? "", { quiet: true });
 		tell("agent", { step: i, text: step.agent });

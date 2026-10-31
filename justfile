@@ -21,11 +21,11 @@ bench scenario="turns":
 recording link out="recording.wav":
     pnpm exec tsx bench/recording.ts {{ link }} {{ out }}
 
-# Records a conversation of bench/conversation.ts as ground truth into `out`:
+# Records a script of bench/conversation.ts as ground truth into `out`:
 # plays the agent in a real voice session, and serves a prompter at `port`
 # that tells the person what to say.
-record out port="8794":
-    pnpm exec tsx bench/record.ts {{ out }} {{ port }}
+record out script="conversation" port="8794":
+    pnpm exec tsx bench/record.ts {{ out }} {{ script }} {{ port }}
 
 # Labels a recording of `just record` with when each line was said, into
 # labels.json beside it.

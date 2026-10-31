@@ -3,15 +3,33 @@
 // bench/conversation.ts, the times from Scribe's words, matched to the text.
 // Where Scribe heard other words than the script's, the label keeps both, so
 // that a line the person misread can be told from a word Scribe got wrong.
+// A free answer, which has no script, is the words Scribe heard between the
+// prompter showing the question and the person's tap.
 //
 //   just label <recording directory>
 import { readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { conversation } from "./conversation.ts";
+import { scripts } from "./conversation.ts";
 
 const dir = process.argv[2];
 if (!dir) throw new Error("usage: label.ts <recording directory>");
+
+const session = JSON.parse(
+	await readFile(join(dir, "session.json"), "utf8"),
+) as {
+	script?: keyof typeof scripts;
+	audioStart: string;
+	messages: { from: string; time: string; type: string; text?: string }[];
+	prompter: { time: string; event: string; step?: number }[];
+};
+const conversation = scripts[session.script ?? "conversation"];
+const t0 = Date.parse(session.audioStart);
+/** When the prompter did `event` for `step`, on the recording's clock. */
+const at = (event: string, step: number) => {
+	const e = session.prompter.find((p) => p.event === event && p.step === step);
+	return e ? (Date.parse(e.time) - t0) / 1000 : null;
+};
 
 type Word = { text: string; start: number; end: number; type: string };
 
@@ -52,7 +70,7 @@ const tokens = (s: string) => s.split(/\s+/).map(norm).filter(Boolean);
 type Line = {
 	step: number;
 	part: number;
-	kind: "part" | "backchannel" | "cut-in";
+	kind: "part" | "backchannel" | "cut-in" | "free";
 	text: string;
 };
 const lines: Line[] = [];
@@ -70,7 +88,19 @@ const script = lines.flatMap((line, i) =>
 );
 
 const all = await scribe();
-const heard = all.filter((w) => w.type === "word" && norm(w.text));
+const words = all.filter((w) => w.type === "word" && norm(w.text));
+
+// The free answers, from the prompter's times; the tap comes after the last
+// word, and the recorder hears of it a little later.
+const free = conversation.flatMap((s, step) => {
+	if (!("ask" in s)) return [];
+	const from = at("think", step);
+	const to = at("turn.said", step);
+	if (from === null || to === null) return [];
+	const mine = words.filter((w) => w.start >= from && w.end <= to + 0.5);
+	return [{ step, from, to, words: mine }];
+});
+const heard = words.filter((w) => !free.some((f) => f.words.includes(w)));
 
 // The alignment of the script's words to Scribe's, by least edits.
 const n = script.length;
@@ -116,7 +146,7 @@ for (let j = 0, last: number | undefined; j < m; j++) {
 	if (last !== undefined && next === last) lineOf[j] = last;
 }
 
-const said = lines.map((line, i) => {
+const scripted = lines.map((line, i) => {
 	const words = heard.filter((_, j) => lineOf[j] === i);
 	const hits = heard.filter((_, j) => lineOf[j] === i && matched[j]);
 	const first = words[0];
@@ -131,12 +161,29 @@ const said = lines.map((line, i) => {
 	};
 });
 
+const said = [
+	...scripted,
+	...free.map((f) => ({
+		step: f.step,
+		part: 0,
+		kind: "free" as const,
+		text: f.words.map((w) => w.text).join(" "),
+		start: f.words[0]?.start ?? null,
+		end: f.words.at(-1)?.end ?? null,
+		scribe: f.words.map((w) => w.text).join(" "),
+		match: 1,
+		/** The gaps between words of 1 s or more: the pauses of thinking. */
+		gaps: f.words
+			.slice(1)
+			.map((w, i) => +(w.start - (f.words[i]?.end ?? w.start)).toFixed(2))
+			.filter((g) => g >= 1),
+	})),
+].sort((a, b) => (a.start ?? Infinity) - (b.start ?? Infinity));
+
 // The turns the agent should get, each a message: the parts of a turn
-// together, and a cut-in on its own.
+// together, a free answer, and a cut-in on its own.
 const turns = conversation.flatMap((s, step) => {
-	const mine = said.filter(
-		(l) => l.step === step && (l.kind === "part" || l.kind === "cut-in"),
-	);
+	const mine = said.filter((l) => l.step === step && l.kind !== "backchannel");
 	if (mine.length === 0) return [];
 	return [
 		{
@@ -157,13 +204,6 @@ const turns = conversation.flatMap((s, step) => {
 });
 
 // The agent's lines, at when they were sent, on the recording's clock.
-const session = JSON.parse(
-	await readFile(join(dir, "session.json"), "utf8"),
-) as {
-	audioStart: string;
-	messages: { from: string; time: string; type: string; text?: string }[];
-};
-const t0 = Date.parse(session.audioStart);
 const agent = session.messages
 	.filter((e) => e.from === "agent" && e.type.startsWith("text/plain"))
 	.map((e) => ({ text: e.text, sent: (Date.parse(e.time) - t0) / 1000 }));
