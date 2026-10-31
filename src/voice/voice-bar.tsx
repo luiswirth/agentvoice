@@ -1,12 +1,13 @@
-// Voice as layers, each with one job, top to bottom: the session, the stage,
-// the words and the bar. The session is who is here, and leaving it. The stage
-// shows one thing large: the person's words once there are any, else who has
-// the floor, or that the agent left and how to bring it back. The words' line
-// above the bar is the one place for what happens to the person's words, the
-// same with auto-send on and off: where they go, and Delete and Send, or the
-// words just deleted or not sent, with the way back. The bar holds the rest.
+// Voice as two things: the stage, to read from across the room, and the
+// player, to act on, as a media player's now-playing panel. The stage shows
+// one thing large: the person's words once there are any, else who has the
+// floor, or that the agent left and how to bring it back. The player is one
+// card of layers, from what changes least to what is pressed most: the
+// session, who is here and leaving it; the words, what happens to the person's
+// words, the same with auto-send on and off, with Delete and Send, or the words
+// just deleted or not sent, with the way back; and the transport.
 //
-// The bar is a media player's playback bar: one fixed piece of two halves,
+// The transport is a media player's playback bar: one fixed row of two halves,
 // listening on the left and speaking on the right, mirrored. Each half has one
 // switch at its end and the controls that act on what it holds: the person's
 // words not yet sent, the agent's message being read. A switch that is on is
@@ -102,31 +103,34 @@ export function VoiceBar({
 				agent={state.speaker}
 				working={state.progress === "working" && state.reading === null}
 			/>
-			<header className="flex w-full shrink-0 items-center gap-2">
-				<People people={room?.people ?? []} />
-				<Who state={state} />
-				<div className="flex flex-1 items-center justify-end gap-1">
+			<Stage voice={voice} state={state} left={room?.left ?? null} />
+			<section
+				aria-label="Player"
+				className="flex w-full max-w-[30rem] shrink-0 flex-col rounded-[2rem] border border-white/10 bg-neutral-950/55 p-2 shadow-2xl shadow-black/60 backdrop-blur-xl"
+			>
+				<header className="flex h-10 items-center gap-1 pl-3">
+					<People people={room?.people ?? []} />
 					{room && <Leave leave={room.leave} />}
 					<button
 						type="button"
 						title="Settings"
 						aria-label="Settings"
 						aria-haspopup="dialog"
-						className="grid size-11 place-items-center rounded-full text-muted-foreground transition hover:bg-white/10 hover:text-foreground [&_svg]:size-[18px]"
+						className="grid size-10 shrink-0 place-items-center rounded-full text-muted-foreground transition hover:bg-white/10 hover:text-foreground [&_svg]:size-4"
 						onClick={() => setSettings(true)}
 					>
 						<SlidersHorizontal />
 					</button>
-				</div>
-			</header>
-			<Stage voice={voice} state={state} left={room?.left ?? null} />
-			{state.error && (
-				<p className="max-w-xl text-center text-sm text-pretty text-destructive">
-					{state.error}
-				</p>
-			)}
-			<Line voice={voice} state={state} />
-			<Bar voice={voice} state={state} />
+				</header>
+				<div className="mx-3 h-px bg-white/[0.07]" />
+				{state.error && (
+					<p className="px-3 pt-2 text-sm text-pretty text-destructive">
+						{state.error}
+					</p>
+				)}
+				<Line voice={voice} state={state} />
+				<Bar voice={voice} state={state} />
+			</section>
 			<Settings
 				open={settings}
 				close={() => setSettings(false)}
@@ -213,39 +217,6 @@ function who({
 		name: voice === null ? "new voice" : `voice ${voice}`,
 		named: false,
 	};
-}
-
-/** The voice heard now, as a name lit by the person's level, which fades
- * out between turns. Only there once the agent named any voice, so that one
- * person alone sees nothing of it. */
-function Who({ state }: { state: VoiceState }) {
-	const now = who(state);
-	// The last voice heard stays as it fades out.
-	const last = useRef(now);
-	if (now) last.current = now;
-	const shown = last.current;
-	if (Object.keys(state.names).length === 0) return null;
-	return (
-		<p
-			aria-live="polite"
-			className={`flex h-7 shrink-0 items-center gap-2.5 rounded-full bg-black/30 px-3.5 text-xs tracking-widest uppercase transition-opacity duration-500 ${now ? "opacity-100" : "opacity-0"}`}
-		>
-			<span
-				className={`size-2 rounded-full ${shown?.named ? "bg-you" : "bg-muted-foreground"}`}
-				style={{
-					boxShadow: `0 0 calc(4px + var(--you-level, 0) * 16px) ${shown?.named ? "var(--you)" : "transparent"}`,
-					transform: "scale(calc(1 + var(--you-level, 0) * 0.8))",
-				}}
-			/>
-			<span
-				className={
-					shown?.named ? "text-foreground" : "text-muted-foreground/70"
-				}
-			>
-				{shown?.name}
-			</span>
-		</p>
-	);
 }
 
 /** The levels of both voices, eased, as the CSS variables `--you-level` and
@@ -396,7 +367,7 @@ function Left({ name, prompt }: { name: string; prompt: string }) {
  * heard into it. */
 function Words({ voice, state }: { voice: Voice; state: VoiceState }) {
 	return (
-		<div className="flex min-h-0 w-full max-w-2xl flex-1 flex-col pt-4 text-2xl leading-snug font-light sm:text-3xl">
+		<div className="flex min-h-0 w-full max-w-2xl flex-1 flex-col pt-10 text-2xl sm:pt-16 leading-snug font-light sm:text-3xl">
 			{state.hearing ? (
 				<p className="min-h-0 flex-1 overflow-y-auto text-pretty">
 					{state.draft && <>{state.draft} </>}
@@ -472,7 +443,7 @@ function Line({ voice, state }: { voice: Voice; state: VoiceState }) {
 		);
 	}
 	return (
-		<div className="flex h-11 w-full max-w-xl shrink-0 items-center gap-2 px-1 text-sm">
+		<div className="flex h-12 w-full shrink-0 items-center gap-2 pr-1 pl-3 text-sm">
 			{text}
 			<div className="flex shrink-0 items-center gap-1 sm:gap-2">{actions}</div>
 		</div>
@@ -480,22 +451,28 @@ function Line({ voice, state }: { voice: Voice; state: VoiceState }) {
 }
 
 /** Where the person's words go: whether more are heard into them, and
- * whether they go out by themselves. */
+ * whether they go out by themselves; and once the agent named any voice,
+ * whose voice is heard now, by name, or by number where it can't cut in. */
 function Status({ state }: { state: VoiceState }) {
-	const text = !state.listener
+	const voice = state.hearing ? who(state) : null;
+	const where = !state.listener
 		? state.hearing
 			? "Finishing your words…"
 			: "Microphone off"
 		: state.autoEnd
 			? "Sends as you pause"
 			: "Waits for Send";
+	const lit = state.listener && (voice?.named ?? true);
 	return (
-		<p className="mr-auto flex min-w-0 items-center gap-2 text-muted-foreground">
+		<p
+			aria-live="polite"
+			className="mr-auto flex min-w-0 items-center gap-2 text-muted-foreground"
+		>
 			<span
 				aria-hidden
-				className={`size-2 shrink-0 rounded-full ${state.listener ? "bg-you" : "bg-white/25"}`}
+				className={`size-2 shrink-0 rounded-full ${lit ? "bg-you" : "bg-white/25"}`}
 				style={
-					state.listener
+					lit
 						? {
 								boxShadow:
 									"0 0 calc(2px + var(--you-level, 0) * 10px) var(--you)",
@@ -503,7 +480,14 @@ function Status({ state }: { state: VoiceState }) {
 						: undefined
 				}
 			/>
-			<span className="truncate">{text}</span>
+			{voice && (
+				<span
+					className={`shrink-0 text-xs tracking-widest uppercase ${voice.named ? "text-foreground" : "text-muted-foreground/70"}`}
+				>
+					{voice.name}
+				</span>
+			)}
+			<span className="truncate">{where}</span>
 		</p>
 	);
 }
@@ -564,7 +548,10 @@ function label(name: string): string {
  * presence can't tell apart. Speech engines show as such. */
 function People({ people }: { people: Present[] }) {
 	return (
-		<ul className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+		<ul className="flex min-w-0 flex-1 items-center gap-4 overflow-hidden">
+			{people.length === 0 && (
+				<li className="text-sm text-muted-foreground">Only you</li>
+			)}
 			{people.map((person) => (
 				<li
 					key={person.name}
@@ -573,7 +560,7 @@ function People({ people }: { people: Present[] }) {
 							? "here, listening"
 							: `busy${person.since ? ` since ${new Date(person.since).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}`
 					}`}
-					className="flex h-7 min-w-0 animate-[arrive_0.4s_ease-out] items-center gap-2 rounded-full bg-white/[0.06] px-3 text-xs text-foreground/80"
+					className="flex min-w-0 animate-[arrive_0.4s_ease-out] items-center gap-2 text-sm text-foreground/85"
 				>
 					{person.engine ? (
 						<Cpu
@@ -586,7 +573,11 @@ function People({ people }: { people: Present[] }) {
 						/>
 					)}
 					<span className="truncate">
-						{person.engine ? "engine" : label(person.name)}
+						{person.engine ? (
+							<span className="text-muted-foreground">engine</span>
+						) : (
+							label(person.name)
+						)}
 					</span>
 				</li>
 			))}
@@ -607,7 +598,7 @@ function Leave({ leave }: { leave: () => void }) {
 		<button
 			type="button"
 			title="Leave the session: once everyone has left, it is deleted"
-			className={`flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-sm transition [&_svg]:size-4 ${sure ? "bg-destructive/15 text-destructive" : "text-muted-foreground hover:bg-white/10 hover:text-foreground"}`}
+			className={`flex h-10 shrink-0 items-center gap-1.5 rounded-full px-3 text-sm transition [&_svg]:size-4 ${sure ? "bg-destructive/15 text-destructive" : "text-muted-foreground hover:bg-white/10 hover:text-foreground"}`}
 			onClick={() => (sure ? leave() : setSure(true))}
 		>
 			<LogOut />
@@ -621,7 +612,7 @@ function Leave({ leave }: { leave: () => void }) {
 function Bar({ voice, state }: { voice: Voice; state: VoiceState }) {
 	const reading = state.reading !== null;
 	return (
-		<div className="flex max-w-full shrink-0 items-center rounded-full border border-white/10 bg-neutral-950/50 p-1 shadow-2xl shadow-black/60 backdrop-blur-xl sm:p-1.5">
+		<div className="flex w-full shrink-0 items-center justify-between rounded-full bg-black/35 p-1">
 			<Half side="left" on={state.listener} color="--you">
 				<Switch
 					label={state.listener ? "Stop listening (Space)" : "Listen (Space)"}
