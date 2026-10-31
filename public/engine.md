@@ -15,7 +15,7 @@ Every entry of the extension has a type starting with `application/vnd.polylogue
 so a participant that leaves the conversion to the engine skips them with `skip=application/vnd.polylogue.engine.`.
 An answer names the entry it answers in its type, as `; of=<n>`.
 
-- `application/vnd.polylogue.engine.offer+json`, as `{"transcription":"granite-speech-5.0-turbo","synthesis":"phonon-31m","source":"<url>"}`, which the engine sends once it has joined and its models are loaded:
+- `application/vnd.polylogue.engine.offer+json`, as `{"transcription":"parakeet-tdt-0.6b-v2-int8","synthesis":"kokoro-v1.0-af_heart","source":"<url>"}`, which the engine sends once it has joined and its models are loaded:
   what it converts with, and where its code is.
   Either job may be missing, for an engine that does only one.
   An engine counts while it is in the session; its latest offer holds.
