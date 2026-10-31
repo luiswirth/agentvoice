@@ -409,7 +409,11 @@ function hint({ listener, speaker, autoEnd }: VoiceState): string {
  * were the person's. */
 function Missed({ voice, state }: { voice: Voice; state: VoiceState }) {
 	if (!state.missed) return null;
-	const why = state.missed.echoed ? "sounded like your agent" : "too quiet";
+	const why = {
+		echo: "sounded like your agent",
+		quiet: "too quiet",
+		backchannel: "said while your agent spoke",
+	}[state.missed.why];
 	return (
 		<p className="flex max-w-xl items-center gap-2 text-sm text-muted-foreground">
 			<span className="truncate">

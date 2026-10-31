@@ -43,7 +43,7 @@ export const states: Record<string, Partial<VoiceState>> = {
 		listener: true,
 		speaker: true,
 		reading: 1,
-		missed: { text: "Yes.", echoed: true },
+		missed: { text: "Yes.", why: "echo" },
 	},
 	named: {
 		listener: true,

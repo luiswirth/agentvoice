@@ -10,10 +10,10 @@
 // named none, only a named voice's once it named any. The voice the speaker
 // plays is its own, heard back as echo, which never takes the floor and is
 // never sent. While the speaker plays, words take the floor only once their
-// voice is known, and only a few words or a word to stop, so that a short
-// answer or a "mhm" goes out and the speaker reads on. Words that didn't
-// count, as its echo or too quiet while it played, show for a while, to
-// send. The listener only perceives, and this decides. What happens is heard
+// voice is known, and only a few words or a word to stop, so that the speaker
+// reads on over a "mhm", which is no turn and is not sent. Words that
+// didn't count, as its echo, too quiet or such a backchannel while it
+// played, show for a while, to send. The listener only perceives, and this decides. What happens is heard
 // as short cues, so that voice seems responsive while nothing is said.
 // With turns ended by hand, the person records each message deliberately,
 // and sends or deletes it. Transcription and speech synthesis run on
@@ -79,9 +79,10 @@ export type VoiceState = Modes & {
 	/** The voice heard now, by its number, null for one without a number,
 	 * undefined while none is heard. */
 	voice?: number | null | undefined;
-	/** Words heard last that didn't count, as the speaker's echo or too
-	 * quiet while it played, for the person to send if they were theirs. */
-	missed: { text: string; echoed: boolean } | null;
+	/** Words heard last that didn't count, as the speaker's echo, too quiet,
+	 * or a backchannel while it played, for the person to send if they were
+	 * theirs, or meant as a turn. */
+	missed: { text: string; why: "echo" | "quiet" | "backchannel" } | null;
 	error: string | null;
 	/** Whether the error is ElevenLabs refusing the key, which another key
 	 * fixes. */
@@ -166,6 +167,9 @@ export class Voice {
 	/** Whether the segment in progress has words, and whether they took the floor. */
 	private words = false;
 	private floor = false;
+	/** Whether its words were too few to take the floor while the speaker
+	 * played. */
+	private backchannel = false;
 	/** What was heard so far of the segment in progress, shown as `hearing`
 	 * once it may be the person's. */
 	private heard = "";
@@ -366,6 +370,7 @@ export class Voice {
 		this.set({ switching: "listener", error: null, refused: false });
 		this.words = false;
 		this.floor = false;
+		this.backchannel = false;
 		this.heard = "";
 		this.known = false;
 		this.played = false;
@@ -461,18 +466,22 @@ export class Voice {
 	}
 
 	/** A segment heard: its words go to the draft, but for the speaker's
-	 * echo, or all of them if it never got loud. Those show for a while, to
-	 * send if they were the person's. */
+	 * echo, all of them if it never got loud, and all of a backchannel while
+	 * turns end by themselves. Those show for a while, to send if they were
+	 * the person's, or meant as a turn. */
 	private heardSegment({ runs, loud }: Segment): void {
 		const echo = runs.filter((run) => run.played);
 		const theirs = runs.filter((run) => !run.played);
 		const words = (some: typeof runs) => some.map((r) => r.text).join(" ");
 		if (echo.length > 0) this.trace.event("echo", { text: words(echo) });
-		const missed = !loud
-			? { text: words(runs), echoed: false }
+		const backchannel = this.backchannel && !this.floor && this.state.autoEnd;
+		const missed: VoiceState["missed"] = !loud
+			? { text: words(runs), why: "quiet" }
 			: theirs.length === 0
-				? { text: words(echo), echoed: true }
-				: null;
+				? { text: words(echo), why: "echo" }
+				: backchannel
+					? { text: words(theirs), why: "backchannel" }
+					: null;
 		if (missed?.text) {
 			this.trace.event("missed", missed);
 			clearTimeout(this.missedClear);
@@ -482,7 +491,7 @@ export class Voice {
 				MISSED * 1000,
 			);
 		}
-		const text = loud ? (this.listener?.tag(theirs) ?? "") : "";
+		const text = loud && !backchannel ? (this.listener?.tag(theirs) ?? "") : "";
 		this.trace.event("segment", { text });
 		if (text) this.set({ missed: null });
 		this.segment(text);
@@ -647,8 +656,10 @@ export class Voice {
 			return;
 		if (this.speaker?.playing) {
 			const said = this.heard.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
-			if (said.length < FLOOR_WORDS && !said.some((word) => STOP.has(word)))
+			if (said.length < FLOOR_WORDS && !said.some((word) => STOP.has(word))) {
+				this.backchannel = true;
 				return;
+			}
 		}
 		this.floor = true;
 		this.trace.event("floor", { voice, reading: this.state.reading });
@@ -819,6 +830,7 @@ export class Voice {
 		this.ending = null;
 		this.words = false;
 		this.floor = false;
+		this.backchannel = false;
 		this.heard = "";
 		this.known = false;
 		this.played = false;
