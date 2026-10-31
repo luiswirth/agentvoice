@@ -24,7 +24,7 @@ const VOICE = "https://voice.agentics.lwirth.com";
 const TRACE = "application/vnd.polylogue.voice.trace+json";
 const NAMES = "application/vnd.polylogue.voice.names+json";
 
-const [out, port = "8790"] = process.argv.slice(2);
+const [out, port = "8794"] = process.argv.slice(2);
 if (!out) throw new Error("usage: record.ts <out directory> [port]");
 await mkdir(out, { recursive: true });
 const key = (
