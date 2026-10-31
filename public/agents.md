@@ -2,6 +2,7 @@
 
 The person you work with pasted you this page's prompt because they want to talk with you by voice.
 They have voice.agentics.lwirth.com open in their browser: it writes down what they say and sends it to you as text, and reads what you send aloud to them.
+Voice needs you to run in a harness with access to a machine, where a command keeps running in the background between your turns; in a plain chat you can't hear the person, so say so there.
 If you'd rather not take part, say so in your chat, and nothing happens.
 
 All of it is plain `curl` to the relay that the session's link names, as the transport's spec has it, `https://polylogue.agentics.lwirth.com/transport.md`.
