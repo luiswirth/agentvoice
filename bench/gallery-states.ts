@@ -99,6 +99,7 @@ export const states: Record<string, Partial<VoiceState>> = {
 		held: true,
 		message: "Hi.",
 	},
+	"agent-left": { listener: true, speaker: true },
 	"agent-sent": { listener: true, speaker: true, progress: "sent" },
 	settings: {
 		listener: true,

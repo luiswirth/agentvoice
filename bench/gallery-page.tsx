@@ -3,7 +3,7 @@
 import { createRoot } from "react-dom/client";
 import "../src/index.css";
 import type { Voice, VoiceState } from "../src/voice/voice.ts";
-import { VoiceBar } from "../src/voice/voice-bar.tsx";
+import { type Room, VoiceBar } from "../src/voice/voice-bar.tsx";
 import { base, states } from "./gallery-states.ts";
 
 const name = new URLSearchParams(location.search).get("state") ?? "off";
@@ -45,6 +45,33 @@ setInterval(() => {
 	voice.state = { ...voice.state, level: state.hearing ? speech(0) : 0.01 };
 }, 30);
 
+// The agent, receiving unless it works, and the engine on the local tier.
+const room: Room = {
+	people:
+		name === "agent-left"
+			? []
+			: [
+					{
+						name: "luis/claude",
+						receiving: state.progress !== "working",
+						engine: false,
+					},
+					...(state.engine
+						? [{ name: "luis/claude/engine", receiving: true, engine: true }]
+						: []),
+				],
+	left:
+		name === "agent-left"
+			? {
+					name: "luis/claude",
+					prompt:
+						"Read https://voice.agentics.lwirth.com/agents.md, join the session https://polylogue.agentics.lwirth.com/s/abc123 as luis/<your name> and set up voice on the ElevenLabs tier so we can talk.",
+				}
+			: null,
+	link: "https://polylogue.agentics.lwirth.com/s/abc123",
+	leave: () => {},
+};
+
 const root = document.getElementById("root");
 // A state named settings opens them, as a press on their button does.
 if (name.startsWith("settings"))
@@ -58,6 +85,6 @@ if (name.startsWith("settings"))
 if (root)
 	createRoot(root).render(
 		<main className="mx-auto flex h-dvh max-w-2xl flex-col gap-4 px-3 pt-3 pb-6 sm:px-4 sm:pb-8">
-			<VoiceBar voice={voice} leave={() => {}} changeKey={() => {}} />
+			<VoiceBar voice={voice} room={room} changeKey={() => {}} />
 		</main>,
 	);

@@ -1,4 +1,12 @@
-// Voice as a playback bar, as a media player's: one fixed piece of two halves,
+// Voice as layers, each with one job, top to bottom: the session, the stage,
+// the words and the bar. The session is who is here, and leaving it. The stage
+// shows one thing large: the person's words once there are any, else who has
+// the floor, or that the agent left and how to bring it back. The words' line
+// above the bar is the one place for what happens to the person's words, the
+// same with auto-send on and off: where they go, and Delete and Send, or the
+// words just deleted or not sent, with the way back. The bar holds the rest.
+//
+// The bar is a media player's playback bar: one fixed piece of two halves,
 // listening on the left and speaking on the right, mirrored. Each half has one
 // switch at its end and the controls that act on what it holds: the person's
 // words not yet sent, the agent's message being read. A switch that is on is
@@ -8,15 +16,16 @@
 //
 // The page is mostly open in the background, so it shows one thing loud: who
 // has the floor, as a word and as light, the person's warm and the agent's
-// cool. Once the person speaks, their words take its place, large, as one
-// text, with what happens to them below: the agent's words belong to its
-// harness. What is set once, such as the tier, waits behind the settings. The
-// system's media controls work it too, so that it needs no looking at.
+// cool. The agent's words belong to its harness. What is set once, such as the
+// tier, waits behind the settings. The system's media controls work it too,
+// so that it needs no looking at.
 import {
 	Check,
 	Copy,
 	CornerDownLeft,
+	Cpu,
 	Download,
+	LogOut,
 	Mic,
 	MicOff,
 	Pause,
@@ -42,14 +51,35 @@ import {
 import { showMedia } from "./media.ts";
 import type { Voice, VoiceState } from "./voice.ts";
 
+/** Someone else in the session, as its presence has them. */
+export type Present = {
+	name: string;
+	/** Whether a receive of theirs waits: an agent between turns, listening. */
+	receiving: boolean;
+	/** If not receiving, since when. */
+	since?: string | undefined;
+	/** Whether it is a speech engine rather than someone to talk with. */
+	engine: boolean;
+};
+
+/** The session as the page sees it. */
+export type Room = {
+	/** The others in it now. */
+	people: Present[];
+	/** Where everyone to talk with left: who left last, and the prompt that
+	 * brings an agent back. */
+	left: { name: string; prompt: string } | null;
+	link: string;
+	leave: () => void;
+};
+
 export function VoiceBar({
 	voice,
-	leave,
+	room,
 	changeKey,
 }: {
 	voice: Voice;
-	/** Leaves the session, from the settings. */
-	leave?: (() => void) | undefined;
+	room?: Room | undefined;
 	/** Asks for another ElevenLabs key, from the settings. */
 	changeKey?: (() => void) | undefined;
 }) {
@@ -72,12 +102,11 @@ export function VoiceBar({
 				agent={state.speaker}
 				working={state.progress === "working" && state.reading === null}
 			/>
-			<header className="flex w-full shrink-0 items-center gap-3">
-				<p className="flex-1 truncate text-xs tracking-[0.2em] text-muted-foreground/70 uppercase">
-					{mode(state)}
-				</p>
+			<header className="flex w-full shrink-0 items-center gap-2">
+				<People people={room?.people ?? []} />
 				<Who state={state} />
-				<div className="flex flex-1 justify-end">
+				<div className="flex flex-1 items-center justify-end gap-1">
+					{room && <Leave leave={room.leave} />}
 					<button
 						type="button"
 						title="Settings"
@@ -90,20 +119,20 @@ export function VoiceBar({
 					</button>
 				</div>
 			</header>
-			<Stage voice={voice} state={state} />
+			<Stage voice={voice} state={state} left={room?.left ?? null} />
 			{state.error && (
 				<p className="max-w-xl text-center text-sm text-pretty text-destructive">
 					{state.error}
 				</p>
 			)}
-			<Missed voice={voice} state={state} />
+			<Line voice={voice} state={state} />
 			<Bar voice={voice} state={state} />
 			<Settings
 				open={settings}
 				close={() => setSettings(false)}
 				voice={voice}
 				state={state}
-				leave={leave}
+				link={room?.link}
 				changeKey={changeKey}
 			/>
 		</div>
@@ -156,14 +185,8 @@ function floor(state: VoiceState): {
 		};
 	if (state.progress === "sent")
 		return { word: "Sent", tone: "agent", hint: "Waiting for your agent." };
-	if (state.listener)
-		return {
-			word: "Listening",
-			tone: "you",
-			hint: state.autoEnd
-				? "Speak, and your words go to your agent as you pause."
-				: "Speak, and send your words when you're done.",
-		};
+	// Where the words go, the line above the bar says.
+	if (state.listener) return { word: "Listening", tone: "you", hint: "" };
 	if (state.speaker)
 		return {
 			word: "Ready",
@@ -284,40 +307,25 @@ function Aura({
 	);
 }
 
-/** The middle of the page: the person's words once there are any, else who
- * has the floor, with the words last deleted to bring back. */
-function Stage({ voice, state }: { voice: Voice; state: VoiceState }) {
+/** The middle of the page: the person's words once there are any, else that
+ * everyone to talk with left, else who has the floor. */
+function Stage({
+	voice,
+	state,
+	left,
+}: {
+	voice: Voice;
+	state: VoiceState;
+	left: Room["left"];
+}) {
 	if (state.draft || state.hearing)
-		return (
-			<Words voice={voice} state={state}>
-				<Actions>
-					<Status state={state} />
-					<Action
-						label="Delete it (Escape): Undo brings it back"
-						onClick={() => voice.clear()}
-					>
-						<Trash2 />
-						Delete
-					</Action>
-					<SendButton voice={voice} />
-				</Actions>
-			</Words>
-		);
-	return (
-		<Floor state={state}>
-			{state.dropped && <Dropped voice={voice} text={state.dropped} />}
-		</Floor>
-	);
+		return <Words voice={voice} state={state} />;
+	if (left) return <Left {...left} />;
+	return <Floor state={state} />;
 }
 
 /** Who has the floor, large enough to read from across the room. */
-function Floor({
-	state,
-	children,
-}: {
-	state: VoiceState;
-	children?: ReactNode;
-}) {
+function Floor({ state }: { state: VoiceState }) {
 	const { word, tone, hint, breathing } = floor(state);
 	const color =
 		tone === "none"
@@ -325,7 +333,6 @@ function Floor({
 			: `var(--${tone === "you" ? "you" : "agent"})`;
 	return (
 		<div className="flex min-h-0 w-full flex-1 flex-col items-center justify-center gap-4 text-center">
-			{children}
 			<p
 				aria-live="polite"
 				className={`text-5xl font-extralight tracking-tight transition-colors duration-500 sm:text-6xl ${breathing ? "animate-[breathe_2.4s_ease-in-out_infinite]" : ""}`}
@@ -346,20 +353,50 @@ function Floor({
 	);
 }
 
+/** Where everyone to talk with left: who left, and the prompt that brings an
+ * agent back into this session, as the person gave the first. */
+function Left({ name, prompt }: { name: string; prompt: string }) {
+	const [copied, setCopied] = useState(false);
+	useEffect(() => {
+		if (!copied) return;
+		const timer = setTimeout(() => setCopied(false), 1500);
+		return () => clearTimeout(timer);
+	}, [copied]);
+	return (
+		<div className="flex min-h-0 w-full flex-1 flex-col items-center justify-center gap-4 text-center">
+			<p className="text-5xl font-extralight tracking-tight text-muted-foreground sm:text-6xl">
+				Alone
+			</p>
+			<p className="max-w-sm text-base text-balance text-muted-foreground/70">
+				{label(name)} left. To bring your agent back, give it this prompt.
+			</p>
+			<div className="flex w-full max-w-md flex-col gap-2 rounded-2xl border border-white/10 bg-white/[0.03] p-2 text-left">
+				<p className="max-h-32 overflow-y-auto rounded-xl bg-black/30 p-3 font-mono text-xs leading-relaxed text-foreground/80 wrap-anywhere">
+					{prompt}
+				</p>
+				<button
+					type="button"
+					className="flex h-10 items-center justify-center gap-2 rounded-xl bg-white/10 text-sm transition hover:bg-white/15"
+					onClick={() =>
+						void navigator.clipboard
+							.writeText(prompt)
+							.then(() => setCopied(true))
+					}
+				>
+					{copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+					{copied ? "Copied" : "Copy the prompt"}
+				</button>
+			</div>
+		</div>
+	);
+}
+
 /** The person's words, large, as one text: what is still being heard follows
  * the draft, quieter, and the draft can be edited once nothing more is being
- * heard into it. What acts on them is underneath. */
-function Words({
-	voice,
-	state,
-	children,
-}: {
-	voice: Voice;
-	state: VoiceState;
-	children: ReactNode;
-}) {
+ * heard into it. */
+function Words({ voice, state }: { voice: Voice; state: VoiceState }) {
 	return (
-		<div className="flex min-h-0 w-full max-w-2xl flex-1 flex-col gap-3 pt-4 text-2xl leading-snug font-light sm:text-3xl">
+		<div className="flex min-h-0 w-full max-w-2xl flex-1 flex-col pt-4 text-2xl leading-snug font-light sm:text-3xl">
 			{state.hearing ? (
 				<p className="min-h-0 flex-1 overflow-y-auto text-pretty">
 					{state.draft && <>{state.draft} </>}
@@ -373,13 +410,77 @@ function Words({
 					onChange={(event) => voice.setDraft(event.target.value)}
 				/>
 			)}
-			{children}
 		</div>
 	);
 }
 
-/** What happens to the words: whether more are heard into them, and whether
- * they go out by themselves. */
+/** The words' line, right above the bar, in one place whatever the mode: on
+ * the left what happens to the person's words, on the right what acts on them.
+ * With words, where they go, with Delete and Send; else the words just not
+ * sent, or just deleted, with the way back; else only where words would go. */
+function Line({ voice, state }: { voice: Voice; state: VoiceState }) {
+	const words = Boolean(state.draft || state.hearing);
+	let text: ReactNode = <Status state={state} />;
+	let actions: ReactNode = null;
+	if (words)
+		actions = (
+			<>
+				<Action
+					label="Delete it (Escape): Undo brings it back"
+					onClick={() => voice.clear()}
+				>
+					<Trash2 />
+					Delete
+				</Action>
+				<SendButton voice={voice} />
+			</>
+		);
+	else if (state.missed) {
+		const why = {
+			echo: "sounded like your agent",
+			quiet: "too quiet",
+			backchannel: "said while your agent spoke",
+		}[state.missed.why];
+		text = (
+			<Note>
+				Not sent, {why}: “{state.missed.text}”
+			</Note>
+		);
+		actions = (
+			<Action
+				label="Send it to your agent, as yours"
+				onClick={() => voice.sendMissed()}
+			>
+				<CornerDownLeft />
+				Send
+			</Action>
+		);
+	} else if (state.dropped) {
+		text = (
+			<Note>
+				Deleted:{" "}
+				<span className="line-through decoration-muted-foreground/50">
+					{state.dropped}
+				</span>
+			</Note>
+		);
+		actions = (
+			<Action label="Bring your words back" onClick={() => voice.undo()}>
+				<Undo2 />
+				Undo
+			</Action>
+		);
+	}
+	return (
+		<div className="flex h-11 w-full max-w-xl shrink-0 items-center gap-2 px-1 text-sm">
+			{text}
+			<div className="flex shrink-0 items-center gap-1 sm:gap-2">{actions}</div>
+		</div>
+	);
+}
+
+/** Where the person's words go: whether more are heard into them, and
+ * whether they go out by themselves. */
 function Status({ state }: { state: VoiceState }) {
 	const text = !state.listener
 		? state.hearing
@@ -387,7 +488,7 @@ function Status({ state }: { state: VoiceState }) {
 			: "Microphone off"
 		: state.autoEnd
 			? "Sends as you pause"
-			: "Listening";
+			: "Waits for Send";
 	return (
 		<p className="mr-auto flex min-w-0 items-center gap-2 text-muted-foreground">
 			<span
@@ -407,11 +508,12 @@ function Status({ state }: { state: VoiceState }) {
 	);
 }
 
-function Actions({ children }: { children: ReactNode }) {
+/** Something that happened to the person's words, in the line's place. */
+function Note({ children }: { children: ReactNode }) {
 	return (
-		<div className="flex shrink-0 items-center justify-end gap-1 text-sm font-normal sm:gap-2">
+		<p className="mr-auto min-w-0 animate-[arrive_0.3s_ease-out] truncate text-muted-foreground">
 			{children}
-		</div>
+		</p>
 	);
 }
 
@@ -450,53 +552,67 @@ function SendButton({ voice }: { voice: Voice }) {
 	);
 }
 
-/** The words last deleted, with a way back. */
-function Dropped({ voice, text }: { voice: Voice; text: string }) {
+/** A name in the session as the person reads it: without the person's own
+ * prefix, which every agent they invite carries. */
+function label(name: string): string {
+	const slash = name.indexOf("/");
+	return slash < 0 ? name : name.slice(slash + 1);
+}
+
+/** Who else is in the session, each lit while it listens: an agent that is
+ * not receiving is busy on a turn, or gone without leaving, which the
+ * presence can't tell apart. Speech engines show as such. */
+function People({ people }: { people: Present[] }) {
 	return (
-		<div className="mb-6 flex max-w-md flex-col items-center gap-2 text-sm">
-			<p className="flex items-center gap-1.5 text-xs tracking-widest text-muted-foreground uppercase">
-				<Trash2 className="size-3.5" />
-				Deleted
-			</p>
-			<p className="line-clamp-3 text-base text-muted-foreground/80 line-through decoration-muted-foreground/40">
-				{text}
-			</p>
-			<button
-				type="button"
-				title="Bring your words back"
-				className="flex h-11 items-center gap-1.5 rounded-full px-4 text-foreground/80 transition hover:bg-white/10 hover:text-foreground sm:h-9"
-				onClick={() => voice.undo()}
-			>
-				<Undo2 className="size-4" />
-				Undo
-			</button>
-		</div>
+		<ul className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+			{people.map((person) => (
+				<li
+					key={person.name}
+					title={`${person.name}${person.engine ? ", the speech engine" : ""}: ${
+						person.receiving
+							? "here, listening"
+							: `busy${person.since ? ` since ${new Date(person.since).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}`
+					}`}
+					className="flex h-7 min-w-0 animate-[arrive_0.4s_ease-out] items-center gap-2 rounded-full bg-white/[0.06] px-3 text-xs text-foreground/80"
+				>
+					{person.engine ? (
+						<Cpu
+							className={`size-3.5 shrink-0 ${person.receiving ? "text-agent" : "text-muted-foreground"}`}
+						/>
+					) : (
+						<span
+							aria-hidden
+							className={`size-2 shrink-0 rounded-full transition ${person.receiving ? "bg-agent shadow-[0_0_8px_var(--agent)]" : "border border-agent/70"}`}
+						/>
+					)}
+					<span className="truncate">
+						{person.engine ? "engine" : label(person.name)}
+					</span>
+				</li>
+			))}
+		</ul>
 	);
 }
 
-/** Words heard while the agent spoke that didn't count, to send if they
- * were the person's. */
-function Missed({ voice, state }: { voice: Voice; state: VoiceState }) {
-	if (!state.missed) return null;
-	const why = {
-		echo: "sounded like your agent",
-		quiet: "too quiet",
-		backchannel: "said while your agent spoke",
-	}[state.missed.why];
+/** Leaving the session, which then starts a new one: a second press within
+ * a few seconds confirms, since the agent can't follow into the new one. */
+function Leave({ leave }: { leave: () => void }) {
+	const [sure, setSure] = useState(false);
+	useEffect(() => {
+		if (!sure) return;
+		const timer = setTimeout(() => setSure(false), 4000);
+		return () => clearTimeout(timer);
+	}, [sure]);
 	return (
-		<p className="flex max-w-xl items-center gap-2 rounded-full bg-white/[0.04] py-1 pr-1 pl-4 text-sm text-muted-foreground">
-			<span className="truncate">
-				Not sent, {why}: “{state.missed.text}”
-			</span>
-			<button
-				type="button"
-				title="Send it to your agent, as yours"
-				className="h-11 shrink-0 rounded-full px-4 font-medium text-foreground transition hover:bg-white/10 sm:h-8"
-				onClick={() => voice.sendMissed()}
-			>
-				Send
-			</button>
-		</p>
+		<button
+			type="button"
+			title="Leave the session: once everyone has left, it is deleted"
+			className={`flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-sm transition [&_svg]:size-4 ${sure ? "bg-destructive/15 text-destructive" : "text-muted-foreground hover:bg-white/10 hover:text-foreground"}`}
+			onClick={() => (sure ? leave() : setSure(true))}
+		>
+			<LogOut />
+			{sure ? "Leave for good?" : "Leave"}
+		</button>
 	);
 }
 
@@ -689,13 +805,13 @@ function Small(props: {
 }
 
 /** What is set once and then left: where speech runs, its voice and
- * languages, the sounds, sharing the trace, and leaving. */
+ * languages, the sounds, the session's link, and debugging. */
 function Settings(props: {
 	open: boolean;
 	close: () => void;
 	voice: Voice;
 	state: VoiceState;
-	leave?: (() => void) | undefined;
+	link?: string | undefined;
 	changeKey?: (() => void) | undefined;
 }) {
 	const { voice, state } = props;
@@ -786,6 +902,14 @@ function Settings(props: {
 						flip={() => voice.setSounds(!state.sounds)}
 					/>
 				</Row>
+				{props.link && (
+					<Row
+						title="Session link"
+						detail="Keep it secret: whoever holds it can talk to your agent."
+					>
+						<CopyLink link={props.link} />
+					</Row>
+				)}
 				<p className="mt-2 border-t border-white/10 px-4 pt-4 text-xs tracking-widest text-muted-foreground uppercase">
 					Debugging
 				</p>
@@ -805,27 +929,35 @@ function Settings(props: {
 						flip={() => voice.share(!state.sharing)}
 					/>
 				</Row>
-				{props.leave && (
-					<div className="mt-2 flex items-center gap-3 border-t border-white/10 px-4 pt-4 pb-2">
-						<p className="flex-1 text-sm text-pretty text-muted-foreground">
-							Keep this page's link secret: whoever holds it can talk to your
-							agent.
-						</p>
-						<button
-							type="button"
-							title="Leave the session: once everyone has left, it is deleted"
-							className="h-9 shrink-0 rounded-full border border-white/15 px-4 text-sm transition hover:border-destructive/60 hover:text-destructive"
-							onClick={() => {
-								props.close();
-								props.leave?.();
-							}}
-						>
-							Leave
-						</button>
-					</div>
-				)}
 			</div>
 		</dialog>
+	);
+}
+
+/** Copies the page's link, which joins this session as the person. */
+function CopyLink({ link }: { link: string }) {
+	const [copied, setCopied] = useState(false);
+	useEffect(() => {
+		if (!copied) return;
+		const timer = setTimeout(() => setCopied(false), 1500);
+		return () => clearTimeout(timer);
+	}, [copied]);
+	return (
+		<button
+			type="button"
+			className="flex h-8 items-center gap-1.5 rounded-full bg-white/10 px-3 text-sm transition hover:bg-white/15"
+			onClick={() =>
+				void navigator.clipboard
+					.writeText(
+						new URL(`#${new URLSearchParams({ session: link })}`, location.href)
+							.href,
+					)
+					.then(() => setCopied(true))
+			}
+		>
+			{copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+			{copied ? "Copied" : "Copy"}
+		</button>
 	);
 }
 

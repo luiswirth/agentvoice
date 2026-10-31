@@ -3,7 +3,7 @@
 // a prompt with its link, or the agent, which gives the person the page with
 // the link as `#session=<link>`. The ElevenLabs key comes encrypted from the
 // agent, or typed in, and stays in this browser; the local tier needs none.
-import { type Entry, Secrets } from "polylogue/participant";
+import { type Entry, LEAVE, Secrets } from "polylogue/participant";
 import { Frame, Named, Onboard } from "polylogue-web/onboard";
 import { useSession } from "polylogue-web/react";
 import {
@@ -22,12 +22,14 @@ import {
 	Voice,
 	type VoiceState,
 } from "./voice/voice.ts";
-import { VoiceBar } from "./voice/voice-bar.tsx";
+import { type Present, type Room, VoiceBar } from "./voice/voice-bar.tsx";
 
 const KEY = "elevenlabs-key";
 const SERVICE = "voice.agentics.lwirth.com";
 /** What the engine is doing before it offers, as public/engine.md has it. */
 const STATUS = "application/vnd.polylogue.engine.status+json";
+/** What an engine sends once it is ready, which marks a participant as one. */
+const OFFER = "application/vnd.polylogue.engine.offer+json";
 
 /** The text of a status entry's payload, empty where it has none. */
 function statusText(payload: string): string {
@@ -69,7 +71,8 @@ const TIERS = [
 
 /** The page, taking part under the person's `name`. */
 function Page({ name, rename }: { name: string; rename: () => void }) {
-	const { session, entries, alone, problem, taken, leave } = useSession(name);
+	const { session, entries, presence, alone, problem, taken, leave } =
+		useSession(name);
 	const [key, setKey] = useState(() => localStorage.getItem(KEY));
 	// The entry that brought the key, if the agent sent it.
 	const [keyEntry, setKeyEntry] = useState<number | undefined>();
@@ -200,6 +203,7 @@ function Page({ name, rename }: { name: string; rename: () => void }) {
 		);
 	}
 	const current = state?.tier ?? tier;
+	const room = session ? roomOf(name, entries, presence) : undefined;
 	if (session && voice && state && !state.ready) {
 		return (
 			<Setup
@@ -219,11 +223,62 @@ function Page({ name, rename }: { name: string; rename: () => void }) {
 					voice={voice}
 					forget={forget}
 					keyed={key !== null}
-					leave={session ? () => void leave() : undefined}
+					room={
+						session && room
+							? {
+									people: room.people,
+									link: session.link,
+									left: room.left
+										? {
+												name: room.left,
+												prompt: invite(session.link, name, current),
+											}
+										: null,
+									leave: () => void leave(),
+								}
+							: undefined
+					}
 				/>
 			)}
 		</main>
 	);
+}
+
+/** The session as the voice page shows it: the others in it now, and,
+ * once everyone to talk with left, who left last. An engine is no one to
+ * talk with. */
+function roomOf(
+	name: string,
+	entries: Entry[],
+	presence: Record<string, { receiving: boolean; since?: string }>,
+): { people: Present[]; left: string | null } | undefined {
+	const engines = new Set(
+		entries.filter((e) => e.type.startsWith(OFFER)).map((e) => e.from),
+	);
+	// Until the page itself is in the presence, it holds no one yet.
+	if (!(name in presence)) return undefined;
+	const people = Object.entries(presence)
+		.filter(([other]) => other !== name)
+		.map(([other, { receiving, since }]) => ({
+			name: other,
+			receiving,
+			since,
+			engine: engines.has(other),
+		}));
+	const gone = people.every((person) => person.engine)
+		? entries.findLast(
+				(e) =>
+					e.type.startsWith(LEAVE) && e.from !== name && !engines.has(e.from),
+			)
+		: undefined;
+	return { people, left: gone?.from ?? null };
+}
+
+/** The prompt that brings an agent into the session, as the onboarding
+ * gives it, for the tier already chosen. */
+function invite(link: string, name: string, tier: Tier): string {
+	const goal = TIERS.find((option) => option.id === tier)?.goal;
+	return `Read ${new URL("agents.md", document.baseURI)}, join the session ${link} as ${name}/<your name> and ${goal}.`;
 }
 
 function useVoiceState(voice: Voice | null): VoiceState | null {
@@ -243,19 +298,19 @@ function Refusable({
 	voice,
 	forget,
 	keyed,
-	leave,
+	room,
 }: {
 	voice: Voice;
 	forget: (why: string) => void;
 	keyed: boolean;
-	leave?: (() => void) | undefined;
+	room?: Room | undefined;
 }) {
 	const state = useSyncExternalStore(voice.watch, () => voice.state);
 	return (
 		<>
 			<VoiceBar
 				voice={voice}
-				leave={leave}
+				room={room}
 				changeKey={keyed ? () => forget("") : undefined}
 			/>
 			{state.refused && state.error && (
