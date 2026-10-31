@@ -129,7 +129,10 @@ export class Speaker {
 	progress(): number {
 		const reading = this.readings[0];
 		if (reading === undefined || reading.length === 0) return 0;
-		return Math.min(this.heard(reading).length / reading.length, 1);
+		const played = this.player.progress(reading.line);
+		const unplayed = reading.chars.findIndex(({ at }) => at >= played);
+		const heard = unplayed < 0 ? reading.chars.length : unplayed;
+		return Math.min(heard / reading.length, 1);
 	}
 
 	/** How loud the speaker sounds now, from 0 to 1. */
