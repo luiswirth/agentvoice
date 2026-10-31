@@ -21,6 +21,11 @@ export const SYNTHESIZE = `${PREFIX}synthesize+json`;
 /** The engine's answer to entry `n`: its payload's entry, or why it failed. */
 type Answer = Entry | Error;
 
+/** The types the engine answers with. */
+const ANSWERS = new Set(
+	["transcript+json", "speech", "failed+json"].map((type) => PREFIX + type),
+);
+
 /** The engines in a session, as the page sees them: whether one is in, and
  * the answers to the page's requests as they come. */
 export class Engines {
@@ -33,6 +38,8 @@ export class Engines {
 	voices: string[] = [];
 	private waiting = new Map<number, (answer: Answer) => void>();
 	private early = new Map<number, Answer>();
+	/** Who hears the partial answers to an entry, until its answer. */
+	private partials = new Map<number, (entry: Entry) => void>();
 	private ready: (() => void)[] = [];
 	private readonly unsubscribe: () => void;
 	private readonly session: Session;
@@ -74,8 +81,13 @@ export class Engines {
 		)
 			this.changed(this.present, this.voices);
 		const of = params.find((param) => param.startsWith("of="));
-		if (!type?.startsWith(PREFIX) || !of) return;
+		if (!type || !ANSWERS.has(type) || !of) return;
 		const n = Number(of.slice(3));
+		if (params.includes("partial")) {
+			this.partials.get(n)?.(entry);
+			return;
+		}
+		this.partials.delete(n);
 		const answer =
 			type === `${PREFIX}failed+json`
 				? new Error(
@@ -101,12 +113,24 @@ export class Engines {
 
 	/** Sends a request once an engine is in, and waits for its answer. */
 	async ask(body: Blob | string, type: string): Promise<Entry> {
+		return this.answer(await this.send(body, type));
+	}
+
+	/** Sends an entry once an engine is in; its number. */
+	async send(body: Blob | string, type: string): Promise<number> {
 		await this.arrived();
-		const n = await this.session.send(body, { type });
-		const answer =
-			this.early.get(n) ??
-			(await new Promise<Answer>((resolve) => this.waiting.set(n, resolve)));
+		return this.session.send(body, { type });
+	}
+
+	/** The engine's answer to entry `n`, with `partial` hearing the partial
+	 * answers that come before it. */
+	async answer(n: number, partial?: (entry: Entry) => void): Promise<Entry> {
+		const early = this.early.get(n);
 		this.early.delete(n);
+		if (partial && early === undefined) this.partials.set(n, partial);
+		const answer =
+			early ??
+			(await new Promise<Answer>((resolve) => this.waiting.set(n, resolve)));
 		if (answer instanceof Error) throw answer;
 		return answer;
 	}
@@ -165,28 +189,54 @@ function samples(data: ArrayBuffer, rate: number): Float32Array {
  * goes on keeps going, rather than ending at each pause. */
 const CONTEXT = 2;
 
-/** Hears through the engine, a stretch at a time: each is transcribed as the
- * person pauses after it, with the speech before it as context, whose words
- * are dropped by their times, so that a turn's end waits only for its last
- * stretch. What is heard between two commits is one segment. */
+/** How often the audio of a stretch still going on is sent, in seconds: the
+ * engine answers each with the words heard so far. */
+const CHUNK = 0.25;
+
+/** A stretch on its way to the engine: where its audio starts, after its
+ * context, how far it is sent, where it ends once it did, and the entry that
+ * opened it once that is sent; whether an entry is on its way, and whether
+ * the last is sent. */
+type Sending = {
+	start: number;
+	sent: number;
+	end: number | null;
+	n: number | null;
+	busy: boolean;
+	done: boolean;
+	opened: (n: number) => void;
+	failed: (error: Error) => void;
+};
+
+/** Hears through the engine, a stretch at a time: each is sent as it is
+ * heard, with the speech before it as context, whose words are dropped by
+ * their times, and the engine answers with the words so far as they come and
+ * with all of them once the person paused after it. So a turn's end waits
+ * only for the last hearing of its last stretch. What is heard between two
+ * commits is one segment. */
 export class LocalTranscriber implements Transcriber {
 	sent = 0;
 	/** What was heard, as chunks with where each starts in the stream, in
-	 * seconds, back to the context of the stretch in progress. */
+	 * seconds, back to what a stretch may still need. */
 	private heard: { pcm: Int16Array; at: number }[] = [];
 	/** Seconds of the stream, heard or skipped. */
 	private stream = 0;
 	/** Where the stretch in progress starts, null while the person is silent. */
 	private from: number | null = null;
+	/** The stretch in progress on its way, once it started. */
+	private open: Sending | null = null;
+	/** The stretches still being sent, the one in progress included. */
+	private sending: Sending[] = [];
 	/** Where the last stretch ended: the words before are its. */
 	private ended = Number.NEGATIVE_INFINITY;
 	/** Where the pauses heard but not yet reached by the audio are. */
 	private cuts: number[] = [];
-	/** The stretches of the segment in progress, in order: their words, and
-	 * the words once they came. */
+	/** The stretches of the segment in progress, in order: their words, the
+	 * words once they came, and the words heard so far until then. */
 	private stretches: {
 		words: Promise<Transcribed>;
 		came: Transcribed | null;
+		partial: Transcribed | null;
 	}[] = [];
 	/** The words of the segment committed last, spacing left out: the first
 	 * stretch after it may have heard them again in its context, and a commit
@@ -209,6 +259,17 @@ export class LocalTranscriber implements Transcriber {
 		this.sent += pcm.length;
 		while ((this.cuts[0] ?? Number.POSITIVE_INFINITY) <= this.stream)
 			this.cut(this.cuts.shift() as number);
+		if (this.from !== null) this.pump(this.open ?? this.start(this.from));
+		// What a stretch may still need: its context, and what is not yet sent.
+		const kept = Math.min(
+			this.stream - CONTEXT - 1,
+			...this.sending.map((sending) => sending.sent),
+		);
+		while (
+			this.heard[0] &&
+			this.heard[0].at + this.heard[0].pcm.length / LISTEN_RATE < kept
+		)
+			this.heard.shift();
 	}
 
 	skip(samples: number): void {
@@ -254,15 +315,8 @@ export class LocalTranscriber implements Transcriber {
 		return true;
 	}
 
-	/** Ends the stretch in progress at `at`, and has it transcribed. */
-	private cut(at: number): void {
-		const from = this.from;
-		if (from === null || at <= from) return;
-		this.from = null;
-		// Speech detection hears a soft start late, so the stretch's words
-		// start where the last stretch's end, not where speech was heard.
-		const owned = this.ended;
-		this.ended = at;
+	/** Starts sending the stretch that starts at `from`, after its context. */
+	private start(from: number): Sending {
 		// The context reaches back only over what was heard without a gap.
 		let start = from;
 		for (let i = this.heard.length - 1; i >= 0; i--) {
@@ -272,8 +326,104 @@ export class LocalTranscriber implements Transcriber {
 			if (end < start - 1e-6 || start <= from - CONTEXT) break;
 			start = Math.max(chunk.at, from - CONTEXT);
 		}
-		const first = Math.round(start * LISTEN_RATE);
-		const last = Math.round(at * LISTEN_RATE);
+		// Speech detection hears a soft start late, so the stretch's words
+		// start where the last stretch's end, not where speech was heard.
+		const owned = this.ended;
+		let opened: (n: number) => void = () => {};
+		let failed: (error: Error) => void = () => {};
+		const n = new Promise<number>((resolve, reject) => {
+			opened = resolve;
+			failed = reject;
+		});
+		const open: Sending = {
+			start,
+			sent: start,
+			end: null,
+			n: null,
+			busy: false,
+			done: false,
+			opened,
+			failed,
+		};
+		const transcribed = (entry: Entry): Transcribed => {
+			const { words } = JSON.parse(entry.text ?? "{}") as { words: Word[] };
+			const placed = words.map((w) => ({
+				...w,
+				start: w.start + start,
+				end: w.end + start,
+			}));
+			return { words: placed, start, from, owned };
+		};
+		const stretch: (typeof this.stretches)[number] = {
+			words: n.then((n) =>
+				this.engines
+					.answer(n, (entry) => {
+						if (stretch.came !== null) return;
+						stretch.partial = transcribed(entry);
+						this.show();
+					})
+					.then(transcribed),
+			),
+			came: null,
+			partial: null,
+		};
+		this.stretches.push(stretch);
+		stretch.words.then(
+			(words) => {
+				stretch.came = words;
+				this.show();
+			},
+			() => {},
+		);
+		this.open = open;
+		this.sending.push(open);
+		return open;
+	}
+
+	/** Sends what is heard of a stretch and not yet sent, one entry at a
+	 * time, with its end once it ended. */
+	private pump(sending: Sending): void {
+		if (sending.busy || sending.done || this.closed) return;
+		const to = sending.end ?? this.stream;
+		if (sending.end === null && to - sending.sent < CHUNK) return;
+		sending.busy = true;
+		const type = [
+			TRANSCRIBE,
+			...(sending.n === null ? [] : [`of=${sending.n}`]),
+			...(sending.end === null
+				? []
+				: [`end=${(sending.end - sending.start).toFixed(3)}`]),
+		].join("; ");
+		const pcm = this.audio(sending.sent, Math.max(sending.sent, to));
+		const ending = sending.end !== null;
+		this.engines.send(wav(pcm, LISTEN_RATE), type).then(
+			(n) => {
+				if (sending.n === null) {
+					sending.n = n;
+					sending.opened(n);
+				}
+				sending.sent = Math.max(sending.sent, to);
+				sending.busy = false;
+				if (ending) {
+					sending.done = true;
+					this.sending = this.sending.filter((other) => other !== sending);
+					return;
+				}
+				this.pump(sending);
+			},
+			(error: Error) => {
+				sending.busy = false;
+				this.sending = this.sending.filter((other) => other !== sending);
+				sending.failed(error);
+			},
+		);
+	}
+
+	/** The audio heard from `from` to `to`, in seconds of the stream, with
+	 * silence where nothing was heard. */
+	private audio(from: number, to: number): Int16Array {
+		const first = Math.round(from * LISTEN_RATE);
+		const last = Math.round(to * LISTEN_RATE);
 		const pcm = new Int16Array(Math.max(0, last - first));
 		for (const chunk of this.heard) {
 			const offset = Math.round(chunk.at * LISTEN_RATE) - first;
@@ -281,49 +431,39 @@ export class LocalTranscriber implements Transcriber {
 			const tail = Math.min(chunk.pcm.length, pcm.length - offset);
 			if (tail > head) pcm.set(chunk.pcm.subarray(head, tail), offset + head);
 		}
-		// What the next stretch's context may still need.
-		while (
-			(this.heard[0]?.at ?? at) +
-				(this.heard[0]?.pcm.length ?? 0) / LISTEN_RATE <
-			at - CONTEXT
-		)
-			this.heard.shift();
-		const stretch: (typeof this.stretches)[number] = {
-			words: this.engines
-				.ask(wav(pcm, LISTEN_RATE), TRANSCRIBE)
-				.then((entry) => {
-					const { words } = JSON.parse(entry.text ?? "{}") as { words: Word[] };
-					const placed = words.map((w) => ({
-						...w,
-						start: w.start + start,
-						end: w.end + start,
-					}));
-					return { words: placed, start, from, owned };
-				}),
-			came: null,
-		};
-		this.stretches.push(stretch);
-		// What came so far of the segment in progress, as its partial.
-		stretch.words.then(
-			(words) => {
-				stretch.came = words;
-				this.committed.then((prior) => {
-					const segment = this.stretches;
-					if (this.closed || !segment.includes(stretch)) return;
-					const came: Transcribed[] = [];
-					for (const { came: words } of segment) {
-						if (words === null) break;
-						came.push(words);
-					}
-					this.heardBy.partial(
-						spaced(joined(prior, came))
-							.map((word) => word.text)
-							.join(""),
-					);
-				});
-			},
-			() => {},
-		);
+		return pcm;
+	}
+
+	/** Ends the stretch in progress at `at`, and has the rest of it sent. */
+	private cut(at: number): void {
+		const from = this.from;
+		if (from === null || at <= from) return;
+		const open = this.open ?? this.start(from);
+		this.from = null;
+		this.open = null;
+		this.ended = at;
+		open.end = at;
+		this.pump(open);
+	}
+
+	/** What came so far of the segment in progress, as its partial. */
+	private show(): void {
+		const committed = this.committed;
+		committed.then((prior) => {
+			if (this.closed || committed !== this.committed) return;
+			const came: Transcribed[] = [];
+			for (const { came: words, partial } of this.stretches) {
+				const heard = words ?? partial;
+				if (heard === null) break;
+				came.push(heard);
+			}
+			if (came.length === 0) return;
+			this.heardBy.partial(
+				spaced(joined(prior, came))
+					.map((word) => word.text)
+					.join(""),
+			);
+		});
 	}
 
 	close(): void {

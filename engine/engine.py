@@ -18,7 +18,7 @@ in ~/.cache/polylogue-voice-engine, and runs no commands.
 It runs until stopped, by SIGTERM or SIGINT, and then leaves the session.
 """
 
-import hashlib, io, json, os, queue, shutil, signal, sys, tempfile, threading, time, wave
+import difflib, hashlib, io, json, os, queue, shutil, signal, sys, tempfile, threading, time, wave
 import urllib.parse, urllib.request, urllib.error
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -146,24 +146,104 @@ def synthesizer(d):
     return so.OfflineTts(so.OfflineTtsConfig(model=so.OfflineTtsModelConfig(kokoro=kokoro, num_threads=THREADS)))
 
 
-def transcribe(recognizer, payload):
+RATE = 16000  # of the audio to transcribe
+# A stretch still open is heard in pieces, so that each hearing takes about as long however long the
+# stretch is: once the open piece is longer than PIECE + SETTLE seconds, it is cut at its quietest
+# point between two words at least SETTLE seconds back, whose words are then final. The next piece is
+# heard after CONTEXT seconds before the cut, whose words are dropped, so that it is heard in context.
+# A hearing takes at least SHORTEST seconds, as far as the stretch reaches back, since Parakeet
+# misses words in a short one. A stretch's end is heard the same way, as its last piece: as few words
+# are wrong as when it is heard whole, and the hearing is short, so its words come soon after it ends.
+PIECE, SETTLE, CONTEXT, SHORTEST = 1.5, 0.5, 1.5, 3.0
+
+
+def pcm(payload):
     with wave.open(io.BytesIO(payload)) as w:
-        if (w.getnchannels(), w.getsampwidth(), w.getframerate()) != (1, 2, 16000):
+        if (w.getnchannels(), w.getsampwidth(), w.getframerate()) != (1, 2, RATE):
             raise ValueError("expected a WAV of 16-bit mono PCM at 16 kHz")
-        audio = np.frombuffer(w.readframes(w.getnframes()), np.int16).astype(np.float32) / 32768
+        return np.frombuffer(w.readframes(w.getnframes()), np.int16).astype(np.float32) / 32768
+
+
+def heard(recognizer, audio, at):
+    """The words in the audio, timed in seconds from `at`, where the audio starts."""
     stream = recognizer.create_stream()
-    stream.accept_waveform(16000, audio)
+    stream.accept_waveform(RATE, audio)
     recognizer.decode_stream(stream)
     result = stream.result
     # A token that starts with a space starts a word; the others, such as punctuation, continue it.
     words = []
     for token, start, duration in zip(result.tokens, result.timestamps, result.durations, strict=True):
         if token.startswith(" ") or not words:
-            words.append({"text": token.strip(), "start": round(start, 2), "end": round(start + duration, 2)})
+            words.append({"text": token.strip(), "start": at + start, "end": at + start + duration})
         else:
             words[-1]["text"] += token
-            words[-1]["end"] = round(start + duration, 2)
-    return "transcript+json", json.dumps({"text": result.text.strip(), "words": words}).encode()
+            words[-1]["end"] = at + start + duration
+    return words
+
+
+def quietest(audio, spans, window=int(0.06 * RATE), hop=int(0.01 * RATE)):
+    """The sample at the middle of the quietest window inside one of the spans, by energy."""
+    best, at = None, None
+    for lo, hi in spans:
+        width = min(window, hi - lo)
+        for start in range(lo, max(lo, hi - width) + 1, hop):
+            energy = float(np.mean(audio[start:start + width] ** 2)) if width > 0 else 0.0
+            if best is None or energy < best:
+                best, at = energy, start + width // 2
+    return at
+
+
+class Stretch:
+    """A stretch being transcribed as its audio comes: the audio so far, where its open piece starts,
+    the words before that, which are final, and where the stretch ends, once it is known."""
+
+    def __init__(self):
+        self.audio, self.cut, self.final, self.end = np.zeros(0, np.float32), 0, [], None
+        self.touched = time.monotonic()
+
+    def add(self, audio, end):
+        self.audio = np.concatenate([self.audio, audio])
+        if end is not None:
+            self.end = round(end * RATE)
+        self.touched = time.monotonic()
+
+    def words(self, recognizer):
+        """Its words so far, in seconds into its audio; cuts the open piece once it is long enough."""
+        audio = self.audio[:self.end]
+        start = max(0, min(self.cut - round(CONTEXT * RATE), len(audio) - round(SHORTEST * RATE)))
+        words = stitched(self.final, heard(recognizer, audio[start:], start / RATE), start / RATE, self.cut / RATE)
+        if self.end is None and len(audio) - self.cut >= (PIECE + SETTLE) * RATE:
+            lo, hi = self.cut + round(PIECE / 2 * RATE), len(audio) - round(SETTLE * RATE)
+            gaps = [(max(lo, round(a["end"] * RATE)), min(hi, round(b["start"] * RATE))) for a, b in zip(words, words[1:])]
+            self.cut = quietest(audio, [g for g in gaps if g[1] >= g[0]] or [(lo, hi)])
+            self.final = [w for w in words if middle(w) < self.cut / RATE]
+        return words
+
+
+def middle(word):
+    return (word["start"] + word["end"]) / 2
+
+
+def stitched(before, piece, start, cut):
+    """The words `before` a cut, and those of the `piece` heard from `start` on, which reaches back
+    across the cut at `cut`. The two hearings overlap in between, and are split at a word both heard,
+    the one nearest the middle of the overlap, where each is farthest from the edge of its audio;
+    where there is none, at the cut."""
+    key = lambda w: "".join(c for c in w["text"].lower() if c.isalnum())
+    first = next((i for i, w in enumerate(before) if w["end"] > start), len(before))
+    last = next((j for j, w in enumerate(piece) if middle(w) >= cut), len(piece))
+    a, b = [key(w) for w in before[first:]], [key(w) for w in piece[:last]]
+    pairs = [(first + m.a + k, m.b + k) for m in difflib.SequenceMatcher(None, a, b, autojunk=False).get_matching_blocks()
+             for k in range(m.size) if a[m.a + k]]
+    if not pairs:
+        return before + piece[last:]
+    i, j = min(pairs, key=lambda p: abs(middle(before[p[0]]) - (start + cut) / 2))
+    return before[:i + 1] + piece[j + 1:]
+
+
+def transcript(words):
+    words = [{**w, "start": round(w["start"], 2), "end": round(w["end"], 2)} for w in words]
+    return json.dumps({"text": " ".join(w["text"] for w in words), "words": words}).encode()
 
 
 def synthesize(tts, payload):
@@ -177,7 +257,7 @@ def synthesize(tts, payload):
     with wave.open(out, "wb") as w:
         w.setnchannels(1), w.setsampwidth(2), w.setframerate(audio.sample_rate)
         w.writeframes(pcm.tobytes())
-    return "speech", out.getvalue()
+    return out.getvalue()
 
 
 class Session:
@@ -255,29 +335,76 @@ def serve(session):
         asr, tts = pool.map(lambda model: fetch(model, progress), ["parakeet", "kokoro"])
     fetched.set()
     status("Loading the models.")
-    jobs = {
-        PREFIX + "transcribe": (transcribe, transcriber(asr)),
-        PREFIX + "synthesize+json": (synthesize, synthesizer(tts)),
-    }
+    recognizer, tts = transcriber(asr), synthesizer(tts)
 
-    # One worker per job, so that a transcript never waits for speech, nor speech for a transcript.
-    work = {type: queue.Queue() for type in jobs}
+    def answer(type, n, payload):
+        try:
+            session.send(f"{type}; of={n}", payload)
+        except OSError as error:
+            log(f"couldn't answer entry {n}: {error}")
 
-    def worker(type):
-        convert, model = jobs[type]
+    def failed(n, error):
+        answer("failed+json", n, json.dumps({"error": str(error)}).encode())
+
+    # One worker each, so that a transcript never waits for speech, nor speech for a transcript.
+    speaking, hearing = queue.Queue(), queue.Queue()
+
+    def speak():
         while True:
-            n = work[type].get()
+            n = speaking.get()
             try:
-                answer, payload = convert(model, session.payload(n))
+                payload = synthesize(tts, session.payload(n))
             except Exception as error:
-                answer, payload = "failed+json", json.dumps({"error": str(error)}).encode()
-            try:
-                session.send(f"{answer}; of={n}", payload)
-            except OSError as error:
-                log(f"couldn't answer entry {n}: {error}")
+                failed(n, error)
+            else:
+                answer("speech", n, payload)
 
-    for type in jobs:
-        threading.Thread(target=worker, args=(type,), daemon=True).start()
+    def hear():
+        # The stretches answered in full, or failed, whose later entries are skipped.
+        stretches, done = {}, set()
+        while True:
+            # All the audio that came is taken at once, so that a hearing that fell behind catches up.
+            batch = [hearing.get()]
+            while not hearing.empty():
+                batch.append(hearing.get())
+            touched = []
+            for n, of, end in batch:
+                key = of or n
+                if key in done:
+                    continue
+                if of is not None and of not in stretches:
+                    done.add(of)
+                    failed(of, "the start of the stretch never came")
+                    continue
+                try:
+                    stretches.setdefault(key, Stretch()).add(pcm(session.payload(n)), end)
+                except Exception as error:
+                    done.add(key)
+                    stretches.pop(key, None)
+                    failed(key, error)
+                    continue
+                if key not in touched:
+                    touched.append(key)
+            for key in touched:
+                stretch = stretches[key]
+                try:
+                    words = stretch.words(recognizer)
+                except Exception as error:
+                    del stretches[key]
+                    failed(key, error)
+                    continue
+                if stretch.end is None:
+                    answer("transcript+json; partial", key, transcript(words))
+                else:
+                    del stretches[key]
+                    done.add(key)
+                    answer("transcript+json", key, transcript(words))
+            # A stretch whose end never came, such as of a page that closed.
+            for key in [k for k, s in stretches.items() if time.monotonic() - s.touched > 60]:
+                del stretches[key]
+
+    threading.Thread(target=speak, daemon=True).start()
+    threading.Thread(target=hear, daemon=True).start()
     session.send("offer+json", json.dumps({
         "transcription": "parakeet-tdt-0.6b-v2-int8",
         "synthesis": "kokoro-v1.0",
@@ -298,9 +425,18 @@ def serve(session):
             time.sleep(1)
             continue
         for entry in entries:
-            type = entry["type"].split(";")[0].strip()
-            if type in work:
-                work[type].put(entry["n"])
+            type, *params = (part.strip() for part in entry["type"].split(";"))
+            params = dict(param.partition("=")[::2] for param in params)
+            if type == PREFIX + "synthesize+json":
+                speaking.put(entry["n"])
+            elif type == PREFIX + "transcribe":
+                try:
+                    of = int(params["of"]) if "of" in params else None
+                    end = float(params["end"]) if "end" in params else None
+                except ValueError:
+                    failed(entry["n"], "of and end must be numbers")
+                    continue
+                hearing.put((entry["n"], of, end))
 
 
 if __name__ == "__main__":
