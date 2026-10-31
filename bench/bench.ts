@@ -30,8 +30,11 @@ const key = (
 	await readFile(join(homedir(), "secrets/elevenlabs-api-key.txt"), "utf8")
 ).trim();
 
-const { wav, timeline, duration } = scenario
-	? await speech(scenario, key)
+const { wav, timeline, duration, said } = scenario
+	? {
+			...(await speech(scenario, key)),
+			said: scenario.turns.map((t) => t.parts.join(" ")),
+		}
 	: await recording(name);
 
 const server = await preview({ preview: { port: 0 }, logLevel: "silent" });
@@ -136,12 +139,7 @@ try {
 	console.log(
 		`the microphone's processing: echo cancellation ${echoCancellation}, noise suppression ${noiseSuppression}, gain control ${autoGainControl}`,
 	);
-	report(
-		agent.log,
-		opened,
-		timeline,
-		scenario?.turns.map((t) => t.parts.join(" ")) ?? [],
-	);
+	report(agent.log, opened, timeline, said);
 } finally {
 	await browser.close();
 	engine?.kill();
@@ -194,12 +192,17 @@ function report(
 		const all = words(t);
 		return all.filter((w) => heard.has(w)).length / all.length;
 	};
-	// Each send belongs to the turn it holds most of, and holds two turns
-	// when it holds most of a second one too.
+	// Each send belongs to the turn said last before it, where it comes at
+	// most `LATE` seconds after that turn's end, and else to none: words
+	// nobody said as a turn, such as echo or noise. It holds two turns when
+	// it holds most of the turn before too.
+	const LATE = 3;
 	const turnOf = sends.map((s) => {
-		const shares = said.map((t) => share(s.text, t));
-		const best = shares.indexOf(Math.max(...shares));
-		const merged = shares.some((x, i) => i !== best && x >= 0.6);
+		const best = timeline.findLastIndex((t) => t.start <= s.at);
+		if (best < 0 || s.at > (timeline[best]?.end ?? 0) + LATE)
+			return { best: -1, merged: false };
+		const before = said[best - 1];
+		const merged = before !== undefined && share(s.text, before) >= 0.6;
 		return { best, merged };
 	});
 	// Silero's first speech, or else Scribe's first words, against when the
@@ -239,16 +242,44 @@ function report(
 				`    at ${s.at.toFixed(2)} s${s.reason ? `, ended as ${s.reason}` : ""}: "${s.text}"`,
 			);
 	}
+	const stray = sends.filter((_, j) => turnOf[j]?.best === -1);
+	if (stray.length > 0) console.log(`${stray.length} send(s) of no turn:`);
+	for (const s of stray)
+		console.log(
+			`    at ${s.at.toFixed(2)} s${s.reason ? `, ended as ${s.reason}` : ""}: "${s.text}"`,
+		);
 	const merged = turnOf.filter((t) => t.merged).length;
-	console.log(`cut off: ${cut}, merged: ${merged}`);
+	console.log(
+		`cut off: ${cut}, merged: ${merged}, of no turn: ${stray.length}`,
+	);
 }
 
-/** A recording to replay: its turns are unknown, so only its sends are told. */
-async function recording(
-	wav: string,
-): Promise<{ wav: string; timeline: Timeline; duration: number }> {
+/** A recording to replay, with its turns where `just label` labeled it,
+ * else with its sends told only. */
+async function recording(wav: string): Promise<{
+	wav: string;
+	timeline: Timeline;
+	duration: number;
+	said: string[];
+}> {
 	const header = new DataView((await readFile(wav)).buffer, 0, 44);
 	const rate = header.getUint32(24, true);
 	const bytes = header.getUint32(40, true);
-	return { wav, timeline: [], duration: bytes / 2 / rate };
+	const labels = await readFile(join(dirname(wav), "labels.json"), "utf8")
+		.then(
+			(text) =>
+				JSON.parse(text).turns as {
+					text: string;
+					start: number | null;
+					end: number | null;
+				}[],
+		)
+		.catch(() => []);
+	const turns = labels.filter((t) => t.start !== null && t.end !== null);
+	return {
+		wav,
+		timeline: turns.map((t) => ({ start: t.start ?? 0, end: t.end ?? 0 })),
+		duration: bytes / 2 / rate,
+		said: turns.map((t) => t.text),
+	};
 }
