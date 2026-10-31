@@ -577,10 +577,53 @@ function spaced(words: Word[]): Word[] {
 
 const sentences = new Intl.Segmenter("en", { granularity: "sentence" });
 
-/** The silence before a sentence that follows another, in seconds: the
- * engine's speech has hardly any at its ends, and without it a sentence's
- * end isn't heard. */
-const PAUSE = 0.4;
+/** The silence put before a sentence that follows another, in seconds: the
+ * engine's speech has about 0.17 s of its own between two sentences, too
+ * little to hear a sentence's end. A clause of a split sentence gets none. */
+const PAUSE = 0.25;
+
+/** The engine's speech of a text is about this long, in seconds, and takes
+ * about `making` to come back, round trip included: Kokoro on the server. */
+const spoken = (text: string) => 0.15 + [...text].length / 17;
+const making = (text: string) => 0.45 + spoken(text) / 3;
+
+/** The sentences of a line as they are asked of the engine, one at a time:
+ * a sentence that would take longer to make than the one before it plays is
+ * split at a comma, so that its first part is there in time; the rest goes
+ * on likewise. Only there, since a split changes the sentence's melody. */
+function units(texts: string[]): { text: string; clause: boolean }[] {
+	const all: { text: string; clause: boolean }[] = [];
+	for (const sentence of texts) {
+		let rest = sentence;
+		let clause = false;
+		for (;;) {
+			const before = all.at(-1);
+			const commas = [...rest.matchAll(/,\s+/g)].map((m) => ({
+				at: (m.index ?? 0) + 1,
+				next: (m.index ?? 0) + m[0].length,
+			}));
+			if (
+				before === undefined ||
+				commas.length === 0 ||
+				making(rest) <= spoken(before.text)
+			)
+				break;
+			// The longest first part made in time, else the shortest.
+			const fits = commas.filter(
+				(c) => making(rest.slice(0, c.at)) <= spoken(before.text),
+			);
+			const cut = fits.at(-1) ?? (commas[0] as { at: number; next: number });
+			all.push({ text: rest.slice(0, cut.at), clause });
+			rest = rest.slice(cut.next);
+			clause = true;
+		}
+		all.push({ text: rest, clause });
+	}
+	return all;
+}
+
+const sleep = (ms: number) =>
+	new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /** Kokoro's voices that sound most apart, from the one before and from
  * af_heart, its default: for the agents after the first. */
@@ -610,14 +653,22 @@ export function voiceOrder(chosen: string | null, offered: string[]): string[] {
 }
 
 /** Speaks through the engine a sentence at a time, so that the first plays
- * while the rest is made. The engine gets one sentence at a time, the next as
- * soon as the last is back: so it never idles while there is more to say, and
- * nothing waits at it behind a line no longer wanted. */
+ * while the rest is made. A sentence is asked once the audio still to play
+ * would run out before it is made, the sentences asked before it included:
+ * so the speech goes on without a hole, and little waits at the engine
+ * behind a line no longer wanted. */
 export class LocalSynthesizer implements Synthesizer {
 	/** The audio of lines, handed over in order. */
 	private queue: Promise<void> = Promise.resolve();
-	/** The requests to the engine, one after the other. */
+	/** The requests to the engine, sent one after the other. */
 	private asking: Promise<unknown> = Promise.resolve();
+	/** When the audio handed over is played to, by `performance.now()`, as if
+	 * each piece played as it came. */
+	private played = 0;
+	/** Of the sentences asked and not yet back: their expected audio and the
+	 * time they take to make, in seconds. */
+	private coming = 0;
+	private unmade = 0;
 	/** Lines not yet handed over in full. */
 	private pending = 0;
 	private closed = false;
@@ -650,19 +701,28 @@ export class LocalSynthesizer implements Synthesizer {
 		const follows = this.pending > 0;
 		this.pending++;
 		let wanted = true;
-		const asked = texts.map((text) => {
-			const audio = this.asking.then(() =>
-				wanted && !this.closed
-					? this.engines
-							.ask(
-								JSON.stringify({ text, voice: this.voice(voice) }),
-								SYNTHESIZE,
-							)
-							.then((entry) => this.engines.payload(entry))
-					: null,
-			);
-			this.asking = audio.catch(() => {});
-			return audio;
+		const parts = units(texts);
+		const asked = parts.map(({ text }) => {
+			const sent = this.asking.then(async () => {
+				while (wanted && !this.closed && !this.due(text)) await sleep(50);
+				if (!wanted || this.closed) return null;
+				this.coming += spoken(text);
+				this.unmade += making(text);
+				return this.engines.send(
+					JSON.stringify({ text, voice: this.voice(voice) }),
+					SYNTHESIZE,
+				);
+			});
+			this.asking = sent.catch(() => {});
+			return sent.then(async (n) => {
+				if (n === null) return null;
+				try {
+					return await this.engines.payload(await this.engines.answer(n));
+				} finally {
+					this.coming -= spoken(text);
+					this.unmade -= making(text);
+				}
+			});
 		});
 		const said = this.queue
 			.then(async () => {
@@ -670,19 +730,23 @@ export class LocalSynthesizer implements Synthesizer {
 					const data = await audio;
 					if (data === null || this.closed) return;
 					const speech = samples(data, SPEECH_RATE);
-					const pause = i > 0 || follows ? PAUSE : 0;
+					const clause = parts[i]?.clause ?? false;
+					const pause = !clause && (i > 0 || follows) ? PAUSE : 0;
 					const all = new Float32Array(
 						Math.round(pause * SPEECH_RATE) + speech.length,
 					);
 					all.set(speech, all.length - speech.length);
 					// The engine times no characters, so they are spread evenly
 					// over the sentence, which joins the one before with a space.
-					const text = (i > 0 ? " " : "") + (texts[i] ?? "");
+					const text = (i > 0 ? " " : "") + (parts[i]?.text ?? "");
 					const seconds = speech.length / SPEECH_RATE;
 					const chars = [...text].map((char, j) => ({
 						char,
 						at: pause + (j / text.length) * seconds,
 					}));
+					const now = performance.now();
+					this.played =
+						Math.max(now, this.played) + (all.length / SPEECH_RATE) * 1000;
 					if (!piece({ samples: all, chars })) {
 						wanted = false;
 						return;
@@ -692,6 +756,14 @@ export class LocalSynthesizer implements Synthesizer {
 			.finally(() => this.pending--);
 		this.queue = said.catch(() => {});
 		return said;
+	}
+
+	/** Whether `text` is to be asked now: the audio still to play, that
+	 * coming included, would run out before it and the sentences ahead of it
+	 * are made. */
+	private due(text: string): boolean {
+		const left = Math.max(0, this.played - performance.now()) / 1000;
+		return this.unmade + making(text) >= left + this.coming;
 	}
 
 	close(): void {
