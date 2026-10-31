@@ -11,7 +11,8 @@
 // plays is its own, heard back as echo, which never takes the floor and is
 // never sent. While the speaker plays, words take the floor only once their
 // voice is known, and only a few words or a word to stop, so that the speaker
-// reads on over a "mhm", which is no turn and is not sent. Words that
+// reads on over a "mhm". Few words that only signal listening, a
+// backchannel, are no turn and are not sent; other few words are. Words that
 // didn't count, as its echo, too quiet or such a backchannel while it
 // played, show for a while, to send. The listener only perceives, and this decides. What happens is heard
 // as short cues, so that voice seems responsive while nothing is said.
@@ -138,8 +139,35 @@ const ECHO_FLOOR = -35;
 const FLOOR_WORDS = 3;
 /** Words that take the floor alone, in the languages voice is used in. */
 const STOP = new Set(["stop", "stopp", "wait", "halt", "pause", "warte"]);
+/** Words that only signal listening, as transcribed, "mm-hmm" as "mm" and
+ * "hmm". An answer such as "yes" or "no" is none: it is meant for the agent. */
+const BACKCHANNEL = new Set([
+	// English
+	"mhm",
+	"mm",
+	"hmm",
+	"hm",
+	"uh",
+	"huh",
+	"ah",
+	"aha",
+	"oh",
+	"yeah",
+	"yep",
+	"okay",
+	"ok",
+	"right",
+	// German
+	"ja",
+	"genau",
+]);
 /** How long words that didn't count show, in seconds. */
 const MISSED = 12;
+
+/** The words of a text, lower case, without punctuation. */
+function wordsOf(text: string): string[] {
+	return text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+}
 
 function transcripts(): string[] {
 	try {
@@ -169,7 +197,7 @@ export class Voice {
 	private floor = false;
 	/** Whether its words were too few to take the floor while the speaker
 	 * played. */
-	private backchannel = false;
+	private few = false;
 	/** What was heard so far of the segment in progress, shown as `hearing`
 	 * once it may be the person's. */
 	private heard = "";
@@ -370,7 +398,7 @@ export class Voice {
 		this.set({ switching: "listener", error: null, refused: false });
 		this.words = false;
 		this.floor = false;
-		this.backchannel = false;
+		this.few = false;
 		this.heard = "";
 		this.known = false;
 		this.played = false;
@@ -466,15 +494,20 @@ export class Voice {
 	}
 
 	/** A segment heard: its words go to the draft, but for the speaker's
-	 * echo, all of them if it never got loud, and all of a backchannel while
-	 * turns end by themselves. Those show for a while, to send if they were
+	 * echo, all of them if it never got loud, and all of a backchannel, few
+	 * words while the speaker played that only signal listening, while turns
+	 * end by themselves. Those show for a while, to send if they were
 	 * the person's, or meant as a turn. */
 	private heardSegment({ runs, loud }: Segment): void {
 		const echo = runs.filter((run) => run.played);
 		const theirs = runs.filter((run) => !run.played);
 		const words = (some: typeof runs) => some.map((r) => r.text).join(" ");
 		if (echo.length > 0) this.trace.event("echo", { text: words(echo) });
-		const backchannel = this.backchannel && !this.floor && this.state.autoEnd;
+		const backchannel =
+			this.few &&
+			!this.floor &&
+			this.state.autoEnd &&
+			wordsOf(words(theirs)).every((word) => BACKCHANNEL.has(word));
 		const missed: VoiceState["missed"] = !loud
 			? { text: words(runs), why: "quiet" }
 			: theirs.length === 0
@@ -655,9 +688,9 @@ export class Voice {
 		if (Object.keys(names).length > 0 && !(voice != null && voice in names))
 			return;
 		if (this.speaker?.playing) {
-			const said = this.heard.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+			const said = wordsOf(this.heard);
 			if (said.length < FLOOR_WORDS && !said.some((word) => STOP.has(word))) {
-				this.backchannel = true;
+				this.few = true;
 				return;
 			}
 		}
@@ -830,7 +863,7 @@ export class Voice {
 		this.ending = null;
 		this.words = false;
 		this.floor = false;
-		this.backchannel = false;
+		this.few = false;
 		this.heard = "";
 		this.known = false;
 		this.played = false;
