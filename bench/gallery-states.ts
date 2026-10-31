@@ -39,6 +39,7 @@ export const states: Record<string, Partial<VoiceState>> = {
 	},
 	conversation: { listener: true, speaker: true },
 	"agent-working": { listener: true, speaker: true, progress: "working" },
+	blocked: { speaker: true, reading: 1, blocked: true },
 	languages: { listener: true, languages: ["en", "de"] },
 	"agent-speaking": { listener: true, speaker: true, reading: 1 },
 	missed: {

@@ -168,6 +168,14 @@ function floor(state: VoiceState): {
 			tone: "you",
 			hint: "",
 		};
+	// The browser holds the page's sound until a tap or a key on it, as
+	// after a reload: until then the agent can't be heard, nor the cues.
+	if (state.blocked)
+		return {
+			word: "Tap to hear",
+			tone: "agent",
+			hint: "Your browser keeps this page quiet until you tap or click it, or press a key.",
+		};
 	if (state.reading !== null)
 		return state.held
 			? { word: "Paused", tone: "agent", hint: "Press play to hear the rest." }
@@ -303,7 +311,7 @@ function Floor({ state }: { state: VoiceState }) {
 			>
 				{word}
 			</p>
-			{state.reading !== null && (
+			{state.reading !== null && !state.blocked && (
 				<div
 					aria-hidden
 					className="h-0.5 w-48 animate-[arrive_0.4s_ease-out] overflow-hidden rounded-full bg-white/10"
