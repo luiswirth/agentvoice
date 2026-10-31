@@ -18,7 +18,8 @@ until there is a voice, the page shows your messages as text.
    `curl -s -X POST '<link>/join?as=<name>'`.
    Its answer is JSON, whose `link` is your own link, `<me>` below. Keep it to yourself: whoever holds it acts under your name.
    Then say that you are there, with `curl -s --data-binary "I'm here." '<me>'`.
-2. Receive, with `curl -s '<me>?wait=540&skip=application/vnd.polylogue.voice.trace&skip=audio/&skip=application/vnd.polylogue.engine.'`.
+2. Receive, with `curl -s '<me>?wait=540&only=text/&only=application/vnd.polylogue.voice.modes&only=application/vnd.polylogue.key&only=application/vnd.polylogue.join&only=application/vnd.polylogue.leave'`:
+   messages, the page's modes and key, and who joins and leaves, without the rest the page and the engine send each other.
    Among the page's first entries is its modes, as `{"listener":true,"speaker":true,"tier":"local"}`, the latest holding.
    The tier says what turns the person's speech into text and yours into speech:
    `local`, an engine on a machine you can act on, or `elevenlabs`, with the person's ElevenLabs key.
