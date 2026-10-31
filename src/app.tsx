@@ -26,6 +26,18 @@ import { VoiceBar } from "./voice/voice-bar.tsx";
 
 const KEY = "elevenlabs-key";
 const SERVICE = "voice.agentics.lwirth.com";
+/** What the engine is doing before it offers, as public/engine.md has it. */
+const STATUS = "application/vnd.polylogue.engine.status+json";
+
+/** The text of a status entry's payload, empty where it has none. */
+function statusText(payload: string): string {
+	try {
+		const { text } = JSON.parse(payload) as { text?: unknown };
+		return typeof text === "string" ? text : "";
+	} catch {
+		return "";
+	}
+}
 
 export function App() {
 	return (
@@ -244,8 +256,8 @@ function Refusable({
 }
 
 /** While the agent sets voice up: what it narrates, as text until there is a
- * voice, and on ElevenLabs the key, which the agent sends or the person
- * enters. */
+ * voice, with the engine's latest status in its place, and on ElevenLabs the
+ * key, which the agent sends or the person enters. */
 function Setup({
 	name,
 	entries,
@@ -262,7 +274,13 @@ function Setup({
 	switchTier: () => void;
 }) {
 	const agent = entries.find((entry) => entry.from !== name)?.from;
-	const said = entries.filter((entry) => entry.from !== name && spoken(entry));
+	const status = entries.findLast(
+		(entry) => entry.type.startsWith(STATUS) && entry.text !== undefined,
+	);
+	const said = entries.filter(
+		(entry): entry is Entry & { text: string } =>
+			(entry.from !== name && spoken(entry)) || entry === status,
+	);
 	const local = tier === "local";
 	return (
 		<Frame
@@ -278,7 +296,7 @@ function Setup({
 				<Step done>{agent ?? "Your agent"} joined.</Step>
 				{said.map((entry, i) => (
 					<Step key={entry.n} done={i < said.length - 1}>
-						{entry.text}
+						{entry === status ? statusText(entry.text) : entry.text}
 					</Step>
 				))}
 				{said.length === 0 && <Step>Waiting for its first step…</Step>}
