@@ -16,7 +16,7 @@ in ~/.cache/polylogue-voice-engine, and runs no commands.
 It runs until stopped, and then leaves the session.
 """
 
-import hashlib, io, json, os, queue, shutil, signal, sys, threading, time, wave
+import hashlib, io, json, os, queue, shutil, signal, sys, tempfile, threading, time, wave
 import urllib.parse, urllib.request, urllib.error
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -77,15 +77,21 @@ def fetch(name):
         tree = json.load(response)
     paths = sorted(entry["path"] for entry in tree if entry["type"] == "file"
                    and any(entry["path"] == w or w.endswith("/") and entry["path"].startswith(w) for w in wanted))
-    partial = CACHE / f"{name}.partial"
-    shutil.rmtree(partial, ignore_errors=True)
-    with ThreadPoolExecutor(16) as pool:
-        hashes = pool.map(lambda p: download(f"https://huggingface.co/{repo}/resolve/{revision}/{urllib.parse.quote(p)}", partial / p), paths)
-        listing = "".join(f"{h}  {p}\n" for p, h in zip(paths, hashes))
-    if hashlib.sha256(listing.encode()).hexdigest() != digest:
-        shutil.rmtree(partial)
-        raise SystemExit(f"{repo} doesn't match its hash: not used")
-    partial.rename(target)
+    # A directory of this run's own, so that engines started together never touch each other's download.
+    CACHE.mkdir(parents=True, exist_ok=True)
+    partial = Path(tempfile.mkdtemp(dir=CACHE, prefix=f"{name}.partial."))
+    try:
+        with ThreadPoolExecutor(16) as pool:
+            hashes = pool.map(lambda p: download(f"https://huggingface.co/{repo}/resolve/{revision}/{urllib.parse.quote(p)}", partial / p), paths)
+            listing = "".join(f"{h}  {p}\n" for p, h in zip(paths, hashes))
+        if hashlib.sha256(listing.encode()).hexdigest() != digest:
+            raise SystemExit(f"{repo} doesn't match its hash: not used")
+        partial.rename(target)
+    except OSError:  # another engine got there first, with the same files
+        if not target.exists():
+            raise
+    finally:
+        shutil.rmtree(partial, ignore_errors=True)
     return target
 
 
