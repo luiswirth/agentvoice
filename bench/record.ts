@@ -37,7 +37,9 @@ const key = (
 	await readFile(join(homedir(), "secrets/elevenlabs-api-key.txt"), "utf8")
 ).trim();
 
-const agent = new Session(await create(RELAY), "agent");
+// It joins under a name of an agent's form, so that the page counts it as one
+// and shows its answers on the stage, whatever the person is called.
+const agent = new Session(await create(RELAY), "bench/agent");
 await agent.join();
 await agent.send("I'm here.", { type: "text/plain" });
 const voice = `${VOICE}/#session=${agent.link}`;

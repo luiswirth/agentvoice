@@ -10,6 +10,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { agent } from "../src/voice/protocol.ts";
 import { scripts } from "./conversation.ts";
 
 const dir = process.argv[2];
@@ -209,9 +210,10 @@ const turns = conversation.flatMap((_, step) => {
 	];
 });
 
-// The agent's lines, at when they were sent, on the recording's clock.
-const agent = session.messages
-	.filter((e) => e.from === "agent" && e.type.startsWith("text/plain"))
+// The agent's lines, told by the form of its name, at when they were sent, on
+// the recording's clock.
+const answers = session.messages
+	.filter((e) => agent(e.from) && e.type.startsWith("text/plain"))
 	.map((e) => ({ text: e.text, sent: (Date.parse(e.time) - t0) / 1000 }));
 const events = all
 	.filter((w) => w.type === "audio_event")
@@ -219,7 +221,7 @@ const events = all
 
 await writeFile(
 	join(dir, "labels.json"),
-	JSON.stringify({ turns, said, agent, events }, null, 1),
+	JSON.stringify({ turns, said, agent: answers, events }, null, 1),
 );
 for (const l of said)
 	console.log(
