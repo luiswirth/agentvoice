@@ -252,7 +252,22 @@ async function run(
 	return id;
 }
 
-function parse(line: string): Record<string, any> | null {
+/** What the agent harness's JSON events carry, of what the bench reads. */
+type Event = {
+	type?: string;
+	session_id?: string;
+	thread_id?: string;
+	message?: { content?: Part[] };
+	item?: { type?: string; text?: string; command?: string };
+};
+type Part = {
+	type: string;
+	text?: string;
+	name?: string;
+	input?: { command?: string; url?: string };
+};
+
+function parse(line: string): Event | null {
 	try {
 		return JSON.parse(line);
 	} catch {
@@ -261,25 +276,25 @@ function parse(line: string): Record<string, any> | null {
 }
 
 /** What the agent said in its chat, from either harness's JSON events. */
-function text(event: Record<string, any> | null): string | null {
+function text(event: Event | null): string | null {
 	if (event?.type === "assistant") {
 		const parts = event.message?.content ?? [];
 		const said = parts
-			.filter((p: any) => p.type === "text")
-			.map((p: any) => p.text)
+			.filter((p) => p.type === "text")
+			.map((p) => p.text)
 			.join("");
 		return said || null;
 	}
 	if (event?.type === "item.completed" && event.item?.type === "agent_message")
-		return event.item.text;
+		return event.item.text ?? null;
 	return null;
 }
 
 /** A command the agent ran, from either harness's JSON events. */
-function shell(event: Record<string, any> | null): string | null {
+function shell(event: Event | null): string | null {
 	if (event?.type === "assistant") {
 		const call = (event.message?.content ?? []).find(
-			(p: any) => p.type === "tool_use",
+			(p) => p.type === "tool_use",
 		);
 		if (!call) return null;
 		return `${call.name} ${call.input?.command ?? call.input?.url ?? JSON.stringify(call.input)}`;
@@ -288,7 +303,7 @@ function shell(event: Record<string, any> | null): string | null {
 		event?.type === "item.started" &&
 		event.item?.type === "command_execution"
 	)
-		return event.item.command;
+		return event.item.command ?? null;
 	return null;
 }
 
@@ -327,8 +342,8 @@ server.close();
 
 await writeFile(
 	join(out, "session.jsonl"),
-	entries.map((e) => JSON.stringify(e)).join("\n") + "\n",
+	`${entries.map((e) => JSON.stringify(e)).join("\n")}\n`,
 );
-await writeFile(join(out, "milestones.txt"), milestones.join("\n") + "\n");
+await writeFile(join(out, "milestones.txt"), `${milestones.join("\n")}\n`);
 console.log(`recorded in ${out}`);
 process.exit(0);

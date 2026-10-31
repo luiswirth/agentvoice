@@ -109,34 +109,36 @@ const heard = words.filter((w) => !free.some((f) => f.words.includes(w)));
 // The alignment of the script's words to Scribe's, by least edits.
 const n = script.length;
 const m = heard.length;
-const cost = Array.from({ length: n + 1 }, () => new Int32Array(m + 1));
-for (let i = 0; i <= n; i++) cost[i]![0] = i;
-for (let j = 0; j <= m; j++) cost[0]![j] = j;
-for (let i = 1; i <= n; i++)
-	for (let j = 1; j <= m; j++) {
-		const same = script[i - 1]!.token === norm(heard[j - 1]!.text);
-		cost[i]![j] = Math.min(
-			cost[i - 1]![j - 1]! + (same ? 0 : 1),
-			cost[i - 1]![j]! + 1,
-			cost[i]![j - 1]! + 1,
-		);
-	}
+const scriptTokens = script.map((s) => s.token);
+const heardTokens = heard.map((w) => norm(w.text));
+const same = (i: number, j: number) =>
+	scriptTokens[i - 1] === heardTokens[j - 1];
+/** The least edits from the script's first `i` words to Scribe's first `j`. */
+const cost = new Int32Array((n + 1) * (m + 1));
+const edits = (i: number, j: number) => cost[i * (m + 1) + j] ?? 0;
+for (let i = 0; i <= n; i++)
+	for (let j = 0; j <= m; j++)
+		cost[i * (m + 1) + j] =
+			i === 0 || j === 0
+				? i + j
+				: Math.min(
+						edits(i - 1, j - 1) + (same(i, j) ? 0 : 1),
+						edits(i - 1, j) + 1,
+						edits(i, j - 1) + 1,
+					);
 /** For each of Scribe's words, the line it belongs to, if any. */
 const lineOf = new Array<number | undefined>(m);
 const matched = new Array<boolean>(m).fill(false);
 for (let i = n, j = m; i > 0 || j > 0; ) {
-	const here = cost[i]![j]!;
-	if (i > 0 && j > 0) {
-		const same = script[i - 1]!.token === norm(heard[j - 1]!.text);
-		if (here === cost[i - 1]![j - 1]! + (same ? 0 : 1)) {
-			lineOf[j - 1] = script[i - 1]!.line;
-			matched[j - 1] = same;
-			i--;
-			j--;
-			continue;
-		}
+	const here = edits(i, j);
+	if (i > 0 && j > 0 && here === edits(i - 1, j - 1) + (same(i, j) ? 0 : 1)) {
+		lineOf[j - 1] = script[i - 1]?.line;
+		matched[j - 1] = same(i, j);
+		i--;
+		j--;
+		continue;
 	}
-	if (i > 0 && here === cost[i - 1]![j]! + 1) i--;
+	if (i > 0 && here === edits(i - 1, j) + 1) i--;
 	else j--;
 }
 
@@ -186,7 +188,7 @@ const said = [
 
 // The turns the agent should get, each a message: the parts of a turn
 // together, a free answer, and a cut-in on its own.
-const turns = conversation.flatMap((s, step) => {
+const turns = conversation.flatMap((_, step) => {
 	const mine = said.filter((l) => l.step === step && l.kind !== "backchannel");
 	if (mine.length === 0) return [];
 	return [
