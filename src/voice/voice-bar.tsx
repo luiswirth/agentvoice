@@ -145,9 +145,9 @@ function floor(state: VoiceState): {
 				};
 	if (state.progress === "working")
 		return {
-			word: "Thinking",
+			word: "Working",
 			tone: "agent",
-			hint: "Your agent is working on your message.",
+			hint: "Your agent is on your message.",
 			breathing: true,
 		};
 	if (state.progress === "sent")
@@ -280,11 +280,11 @@ function Stage({ voice, state }: { voice: Voice; state: VoiceState }) {
 			<Words voice={voice} state={state} editable>
 				<Actions>
 					<Action
-						label="Drop it (Escape): it can still be copied"
+						label="Delete it (Escape): it can still be copied"
 						onClick={() => voice.clear()}
 					>
-						<X />
-						Drop
+						<Trash2 />
+						Delete
 					</Action>
 					<SendButton voice={voice} />
 				</Actions>
