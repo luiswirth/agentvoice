@@ -73,6 +73,12 @@ export interface Transcriber {
 	hear(pcm: Int16Array): void;
 	/** The stream's next `samples`, not to transcribe. */
 	skip(samples: number): void;
+	/** The person started speaking at `at`, in seconds of the stream: a
+	 * stretch of speech starts. */
+	spoke(at: number): void;
+	/** The person paused at `at`: the stretch in progress ended, and may be
+	 * transcribed already. */
+	paused(at: number): void;
 	/** Settles the segment in progress, if it holds enough audio to; whether it did. */
 	commit(): boolean;
 	close(): void;

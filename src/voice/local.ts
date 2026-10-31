@@ -6,7 +6,6 @@
 import {
 	type Heard,
 	LISTEN_RATE,
-	Offsets,
 	type Piece,
 	SPEECH_RATE,
 	type Synthesizer,
@@ -144,73 +143,279 @@ function samples(data: ArrayBuffer, rate: number): Float32Array {
 	throw new Error("The engine's speech has no audio.");
 }
 
-/** Hears through the engine: what is heard between two commits is one
- * stretch, transcribed as a whole. */
+/** How much of the speech before a stretch the engine hears with it, in
+ * seconds, so that the stretch is transcribed in its context: a sentence it
+ * goes on keeps going, rather than ending at each pause. */
+const CONTEXT = 2;
+
+/** Hears through the engine, a stretch at a time: each is transcribed as the
+ * person pauses after it, with the speech before it as context, whose words
+ * are dropped by their times, so that a turn's end waits only for its last
+ * stretch. What is heard between two commits is one segment. */
 export class LocalTranscriber implements Transcriber {
-	private readonly offsets = new Offsets();
-	private stretch: Int16Array[] = [];
+	sent = 0;
+	/** What was heard, as chunks with where each starts in the stream, in
+	 * seconds, back to the context of the stretch in progress. */
+	private heard: { pcm: Int16Array; at: number }[] = [];
+	/** Seconds of the stream, heard or skipped. */
+	private stream = 0;
+	/** Where the stretch in progress starts, null while the person is silent. */
+	private from: number | null = null;
+	/** Where the last stretch ended: the words before are its. */
+	private ended = Number.NEGATIVE_INFINITY;
+	/** Where the pauses heard but not yet reached by the audio are. */
+	private cuts: number[] = [];
+	/** The stretches of the segment in progress, in order: their words, and
+	 * the words once they came. */
+	private stretches: {
+		words: Promise<Transcribed>;
+		came: Transcribed | null;
+	}[] = [];
+	/** The words of the segment committed last, spacing left out: the first
+	 * stretch after it may have heard them again in its context, and a commit
+	 * is final, so they are joined to it as they are. */
+	private committed: Promise<Word[]> = Promise.resolve([]);
 	private closed = false;
-	/** Transcripts still to come, in the order of their stretches. */
+	/** Commits still to answer, in order. */
 	private queue: Promise<void> = Promise.resolve();
 	private readonly engines: Engines;
-	private readonly heard: Heard;
+	private readonly heardBy: Heard;
 
 	constructor(engines: Engines, heard: Heard) {
 		this.engines = engines;
-		this.heard = heard;
-	}
-
-	get sent(): number {
-		return this.offsets.sent;
+		this.heardBy = heard;
 	}
 
 	hear(pcm: Int16Array): void {
-		this.offsets.hear(pcm.length);
-		this.stretch.push(pcm.slice());
+		this.heard.push({ pcm: pcm.slice(), at: this.stream });
+		this.stream += pcm.length / LISTEN_RATE;
+		this.sent += pcm.length;
+		while ((this.cuts[0] ?? Number.POSITIVE_INFINITY) <= this.stream)
+			this.cut(this.cuts.shift() as number);
 	}
 
 	skip(samples: number): void {
-		this.offsets.skip(samples);
+		this.stream += samples / LISTEN_RATE;
+	}
+
+	spoke(at: number): void {
+		this.from = at;
+	}
+
+	paused(at: number): void {
+		if (at <= this.stream) this.cut(at);
+		else this.cuts.push(at);
 	}
 
 	commit(): boolean {
-		const length = this.stretch.reduce((sum, pcm) => sum + pcm.length, 0);
-		if (length < 0.3 * LISTEN_RATE) return false;
-		const pcm = new Int16Array(length);
-		let at = 0;
-		for (const part of this.stretch.splice(0)) {
-			pcm.set(part, at);
-			at += part.length;
+		for (const at of this.cuts.splice(0)) this.cut(Math.min(at, this.stream));
+		// Speech still going on is cut where it was heard to, and goes on.
+		if (this.from !== null) {
+			this.cut(this.stream);
+			this.from = this.stream;
 		}
-		const base = this.offsets.sent - length;
-		const asked = this.engines
-			.ask(wav(pcm, LISTEN_RATE), TRANSCRIBE)
-			.then(
-				(entry) =>
-					JSON.parse(entry.text ?? "{}") as { text: string; words: Word[] },
-			);
+		if (this.stretches.length === 0) return false;
+		const stretches = this.stretches.splice(0);
+		const committed = this.committed.then(async (prior) =>
+			joined(prior, await Promise.all(stretches.map((s) => s.words))),
+		);
+		this.committed = committed.catch(() => []);
 		this.queue = this.queue.then(async () => {
 			try {
-				const { text, words } = await asked;
+				const words = spaced(await committed);
 				if (this.closed) return;
-				this.heard.committed(
-					text,
+				this.heardBy.committed(
+					words.map((word) => word.text).join(""),
 					false,
-					words.map((word) => this.offsets.place(word, base)),
+					words,
 				);
 			} catch (error) {
-				if (!this.closed) this.heard.closed(error as Error);
+				if (!this.closed) this.heardBy.closed(error as Error);
 				this.closed = true;
 			}
 		});
 		return true;
 	}
 
+	/** Ends the stretch in progress at `at`, and has it transcribed. */
+	private cut(at: number): void {
+		const from = this.from;
+		if (from === null || at <= from) return;
+		this.from = null;
+		// Speech detection hears a soft start late, so the stretch's words
+		// start where the last stretch's end, not where speech was heard.
+		const owned = this.ended;
+		this.ended = at;
+		// The context reaches back only over what was heard without a gap.
+		let start = from;
+		for (let i = this.heard.length - 1; i >= 0; i--) {
+			const chunk = this.heard[i] as { pcm: Int16Array; at: number };
+			const end = chunk.at + chunk.pcm.length / LISTEN_RATE;
+			if (chunk.at >= from) continue;
+			if (end < start - 1e-6 || start <= from - CONTEXT) break;
+			start = Math.max(chunk.at, from - CONTEXT);
+		}
+		const first = Math.round(start * LISTEN_RATE);
+		const last = Math.round(at * LISTEN_RATE);
+		const pcm = new Int16Array(Math.max(0, last - first));
+		for (const chunk of this.heard) {
+			const offset = Math.round(chunk.at * LISTEN_RATE) - first;
+			const head = Math.max(0, -offset);
+			const tail = Math.min(chunk.pcm.length, pcm.length - offset);
+			if (tail > head) pcm.set(chunk.pcm.subarray(head, tail), offset + head);
+		}
+		// What the next stretch's context may still need.
+		while (
+			(this.heard[0]?.at ?? at) +
+				(this.heard[0]?.pcm.length ?? 0) / LISTEN_RATE <
+			at - CONTEXT
+		)
+			this.heard.shift();
+		const stretch: (typeof this.stretches)[number] = {
+			words: this.engines
+				.ask(wav(pcm, LISTEN_RATE), TRANSCRIBE)
+				.then((entry) => {
+					const { words } = JSON.parse(entry.text ?? "{}") as { words: Word[] };
+					const placed = words.map((w) => ({
+						...w,
+						start: w.start + start,
+						end: w.end + start,
+					}));
+					return { words: placed, start, from, owned };
+				}),
+			came: null,
+		};
+		this.stretches.push(stretch);
+		// What came so far of the segment in progress, as its partial.
+		stretch.words.then(
+			(words) => {
+				stretch.came = words;
+				this.committed.then((prior) => {
+					const segment = this.stretches;
+					if (this.closed || !segment.includes(stretch)) return;
+					const came: Transcribed[] = [];
+					for (const { came: words } of segment) {
+						if (words === null) break;
+						came.push(words);
+					}
+					this.heardBy.partial(
+						spaced(joined(prior, came))
+							.map((word) => word.text)
+							.join(""),
+					);
+				});
+			},
+			() => {},
+		);
+	}
+
 	close(): void {
 		if (this.closed) return;
 		this.closed = true;
-		this.heard.closed();
+		this.heardBy.closed();
 	}
+}
+
+/** What the engine heard of a stretch: the words of all it was sent, in
+ * seconds of the stream, where that starts, where the stretch itself starts
+ * after its context, and where the stretch before ended. */
+type Transcribed = {
+	words: Word[];
+	start: number;
+	from: number;
+	owned: number;
+};
+
+/**
+ * The words of a segment's stretches, in order, after `prior`, the words
+ * committed before them, which stay as they are; spacing left out. A stretch
+ * was heard with the end of the one before as context, so the two hearings
+ * overlap from where the context starts to where the stretch before ended.
+ * Each word is best heard where it is farthest from the edge of what was
+ * sent, so the overlap is split at its middle: before it, the words come from
+ * the stretch before; after it, from this one, which knows how the speech
+ * goes on, and drops the false end of a sentence at a pause. The split falls
+ * on a word both heard alike, so that none is lost or doubled. Where there is
+ * none, a word belongs to the stretch its middle lies in.
+ */
+function joined(prior: Word[], stretches: Transcribed[]): Word[] {
+	let words = prior;
+	for (const { words: heard, start, from, owned } of stretches) {
+		const split = splitting(words, prior.length, heard, start, from, owned);
+		words = split
+			? [...words.slice(0, split.before), ...heard.slice(split.from)]
+			: [
+					...words,
+					...heard.filter(
+						(w) =>
+							(w.start + w.end) / 2 >=
+							Math.max(owned, prior.at(-1)?.end ?? Number.NEGATIVE_INFINITY),
+					),
+				];
+	}
+	return words.slice(prior.length);
+}
+
+/** Where to split the overlap of `before` and `heard`: `before` keeps its
+ * words up to `before`, and `heard` gives its words from `from` on. Only
+ * words both heard alike are split at, as a longest common subsequence of
+ * the words in the overlap aligns them, and the first `fixed` of `before`
+ * stay. */
+function splitting(
+	before: Word[],
+	fixed: number,
+	heard: Word[],
+	start: number,
+	from: number,
+	owned: number,
+): { before: number; from: number } | null {
+	const key = (w: Word) => w.text.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+	// The words of each hearing the overlap may hold.
+	let first = before.length;
+	while (first > 0 && (before[first - 1] as Word).end > start) first--;
+	let last = 0;
+	while (last < heard.length && (heard[last] as Word).start < from) last++;
+	const a = before.slice(first).map(key);
+	const b = heard.slice(0, last).map(key);
+	// common(i, j): how many words a[i..] and b[j..] have in common, in order.
+	const width = b.length + 1;
+	const lcs = new Uint16Array((a.length + 1) * width);
+	const common = (i: number, j: number) => lcs[i * width + j] ?? 0;
+	for (let i = a.length - 1; i >= 0; i--)
+		for (let j = b.length - 1; j >= 0; j--)
+			lcs[i * width + j] =
+				a[i] === b[j] && a[i] !== ""
+					? common(i + 1, j + 1) + 1
+					: Math.max(common(i + 1, j), common(i, j + 1));
+	const middle = (start + owned) / 2;
+	let best: { before: number; from: number; off: number } | null = null;
+	const consider = (i: number, j: number, at: number) => {
+		const off = Math.abs(at - middle);
+		if (i >= fixed && (best === null || off < best.off))
+			best = { before: i, from: j, off };
+	};
+	for (let i = 0, j = 0; i < a.length && j < b.length; )
+		if (a[i] === b[j] && a[i] !== "") {
+			const was = before[first + i] as Word;
+			const is = heard[j] as Word;
+			// Split before the pair, or after it.
+			consider(first + i, j, (was.start + is.start) / 2);
+			consider(first + i + 1, j + 1, (was.end + is.end) / 2);
+			i++;
+			j++;
+		} else if (common(i + 1, j) >= common(i, j + 1)) i++;
+		else j++;
+	return best;
+}
+
+/** Words with the spacing between them. */
+function spaced(words: Word[]): Word[] {
+	return words.flatMap((word, i) => {
+		const last = words[i - 1];
+		return last
+			? [{ text: " ", start: last.end, end: word.start }, word]
+			: [word];
+	});
 }
 
 const sentences = new Intl.Segmenter("en", { granularity: "sentence" });

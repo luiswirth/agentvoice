@@ -330,6 +330,7 @@ export class Listener {
 							if (at + pcm.length / LISTEN_RATE > data.at - PREROLL)
 								transcriber.hear(pcm);
 							else transcriber.skip(pcm.length);
+						transcriber.spoke(data.at);
 						open = data.at;
 						since = data.at;
 						probed = null;
@@ -345,6 +346,7 @@ export class Listener {
 							if (stretch.to === Number.POSITIVE_INFINITY) stretch.to = data.at;
 						if (open !== null) embed(open, data.at);
 						open = null;
+						transcriber.paused(data.at);
 						since = null;
 						hearing.trace("vad.silence", { at: data.at });
 						hearing.voiced(false);

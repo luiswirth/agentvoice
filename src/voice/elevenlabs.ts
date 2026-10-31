@@ -189,6 +189,11 @@ export class Scribe implements Transcriber {
 		if (this.send(ALIVE)) this.offsets.pad(ALIVE.length);
 	}
 
+	/** Scribe hears a turn as one stream, since a commit at each pause gives
+	 * each stretch a sentence of its own. */
+	spoke(): void {}
+	paused(): void {}
+
 	/** Whether it was sent. */
 	private send(pcm: Int16Array): boolean {
 		if (this.socket.readyState !== WebSocket.OPEN) return false;

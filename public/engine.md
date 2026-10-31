@@ -20,7 +20,7 @@ An answer names the entry it answers in its type, as `; of=<n>`.
   Either job may be missing, for an engine that does only one.
   An engine counts while it is in the session; its latest offer holds.
 - `application/vnd.polylogue.engine.transcribe`, a WAV of 16-bit mono PCM at 16 kHz:
-  one stretch of speech, from one pause to the next, to transcribe.
+  speech to transcribe: one stretch, from one pause to the next, after up to 2 s of the speech before it, which the page hears it in and drops the words of.
 - `application/vnd.polylogue.engine.transcript+json; of=<n>`, as `{"text":"Can you check the relay?","words":[{"text":"Can","start":0.12,"end":0.3}]}`:
   what was said in the stretch of entry `n`, with each word's start and end in seconds into it.
 - `application/vnd.polylogue.engine.synthesize+json`, as `{"text":"Sure, I'll look into it."}`:
