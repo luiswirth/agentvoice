@@ -6,7 +6,9 @@
 //
 // It uses the ElevenLabs key in ~/secrets/elevenlabs-api-key.txt and the
 // public relay. `TIER=local` has the page hear and speak through voice's engine,
-// which the bench starts in the session.
+// which the bench starts in the session. `SHOTS=<seconds>` takes a screenshot of
+// the page that often, into bench/.cache/shots, at `VIEWPORT=<width>x<height>`.
+// A run fails where nothing reached the agent, or none of its answers was read.
 import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -73,7 +75,12 @@ const browser = await chromium.launch({
 	],
 });
 try {
-	const context = await browser.newContext();
+	const [width, height] = (process.env.VIEWPORT ?? "1280x800")
+		.split("x")
+		.map(Number);
+	const context = await browser.newContext({
+		viewport: { width: width ?? 1280, height: height ?? 800 },
+	});
 	await context.addInitScript(
 		([key, engine, recorded]) => {
 			localStorage.setItem("polylogue-name", "person");
@@ -131,7 +138,23 @@ try {
 			timeout: 120_000,
 		})
 		.catch(() => {});
-	await tab.waitForTimeout((duration + 3) * 1000);
+	const every = Number(process.env.SHOTS ?? 0);
+	if (every > 0) {
+		const shots = join(import.meta.dirname, ".cache", "shots");
+		await mkdir(shots, { recursive: true });
+		const until = Date.now() + (duration + 3) * 1000;
+		for (let i = 0; Date.now() < until; i++) {
+			const next = Date.now() + every * 1000;
+			await tab.screenshot({
+				path: join(
+					shots,
+					`${basename(name)}-${String(i).padStart(4, "0")}.png`,
+				),
+			});
+			await tab.waitForTimeout(Math.max(0, next - Date.now()));
+		}
+		console.log(`shots: ${shots}`);
+	} else await tab.waitForTimeout((duration + 3) * 1000);
 	const opened = await tab.evaluate(
 		() => (window as { opened?: number }).opened,
 	);
@@ -143,7 +166,9 @@ try {
 	console.log(
 		`the microphone's processing: echo cancellation ${echoCancellation}, noise suppression ${noiseSuppression}, gain control ${autoGainControl}`,
 	);
-	report(agent.log, opened, timeline, said);
+	const { sends, read } = report(agent.log, opened, timeline, said);
+	if (sends === 0) throw new Error("nothing the person said reached the agent");
+	if (read === 0) throw new Error("none of the agent's answers was read");
 } finally {
 	await browser.close();
 	engine?.kill();
@@ -158,7 +183,7 @@ function report(
 	t0: number,
 	timeline: Timeline,
 	said: string[],
-): void {
+): { sends: number; read: number } {
 	const events: Event[] = log
 		.filter((entry) => entry.from === "person" && entry.type === TRACE)
 		.flatMap((entry) => JSON.parse(entry.text ?? "[]"));
@@ -256,6 +281,11 @@ function report(
 	console.log(
 		`cut off: ${cut}, merged: ${merged}, of no turn: ${stray.length}`,
 	);
+	const read = events.filter(
+		(e) => e.event === "reading" && typeof e.n === "number",
+	).length;
+	console.log(`answers read: ${read}`);
+	return { sends: sends.length, read };
 }
 
 /** A recording to replay, with its turns where `just label` labeled it,
