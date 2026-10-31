@@ -4,7 +4,7 @@
 // the link as `#session=<link>`. The ElevenLabs key comes encrypted from the
 // agent, or typed in, and stays in this browser; the local tier needs none.
 import { type Entry, LEAVE, Secrets } from "polylogue/participant";
-import { Frame, Named, Onboard } from "polylogue-web/onboard";
+import { Frame, Named, Onboard, promptFor } from "polylogue-web/onboard";
 import { useSession } from "polylogue-web/react";
 import {
 	type ReactNode,
@@ -156,6 +156,11 @@ function Page({ name, rename }: { name: string; rename: () => void }) {
 	const room = session ? roomOf(name, entries, presence) : undefined;
 	const agent = room?.people.some((person) => !person.engine) ?? false;
 	const talking = Boolean(session && voice && state?.ready && agent);
+	// Waiting once the prompt is copied, or once any agent came, so that a
+	// reload doesn't go back to onboarding.
+	const [copied, setCopied] = useCopied(session?.link);
+	const others = entries.some((entry) => entry.from !== name);
+	const waiting = copied || others;
 	useMicWhile(voice, talking);
 	if (problem) {
 		return taken ? (
@@ -186,16 +191,14 @@ function Page({ name, rename }: { name: string; rename: () => void }) {
 	}
 	// Until the page is in the presence, it can't tell who is here.
 	if (session && !room) return null;
-	if (session && room && !agent) {
+	// Onboarding, on every visit, until the person copied the prompt, or an
+	// agent came into this session before, as after a reload.
+	if (session && room && !agent && !waiting) {
 		return (
 			<Onboard
 				name={SERVICE}
-				title={room.left ? "Your agent left" : "Talk with your agent"}
-				description={
-					room.left
-						? `${label(room.left)} left the session. To talk again, give your agent this prompt.`
-						: "Speak to the agent you already use, and hear its answers, here in your browser. First choose where the speech models run."
-				}
+				title="Talk with your agent"
+				description="Speak to the agent you already use, and hear its answers, here in your browser. First choose where the speech models run."
 				link={session.link}
 				choice={{
 					// The key can be entered as ElevenLabs is chosen, before the
@@ -218,15 +221,24 @@ function Page({ name, rename }: { name: string; rename: () => void }) {
 					choose: (id) => choose(id as Tier),
 				}}
 				person={name}
+				copied={() => setCopied(true)}
 			/>
 		);
 	}
-	if (session && voice && state && !state.ready) {
+	if (session && room && !talking) {
 		return (
-			<Setup
+			<Waiting
 				name={name}
 				entries={entries}
 				tier={current}
+				agent={room.people.find((person) => !person.engine)?.name ?? null}
+				left={room.left}
+				prompt={promptFor(
+					session.link,
+					name,
+					TIERS.find((option) => option.id === current)?.goal,
+				)}
+				back={others ? undefined : () => setCopied(false)}
 				refused={refused}
 				offer={offer}
 				switchTier={() => choose(current === "local" ? "elevenlabs" : "local")}
@@ -293,6 +305,24 @@ function label(name: string): string {
 	return name.slice(name.indexOf("/") + 1);
 }
 
+/** Whether the prompt for the session at `link` was copied, kept in the tab,
+ * since a reload is no new visit. */
+function useCopied(
+	link: string | undefined,
+): [boolean, (copied: boolean) => void] {
+	const key = `voice-copied:${link}`;
+	const [, changed] = useState(0);
+	const copied = link !== undefined && sessionStorage.getItem(key) !== null;
+	return [
+		copied,
+		(on) => {
+			if (on) sessionStorage.setItem(key, "");
+			else sessionStorage.removeItem(key);
+			changed((n) => n + 1);
+		},
+	];
+}
+
 /** Listening runs only while talking: it stops as the page leaves talking,
  * and comes back as it returns, if it was on, as after a reload. */
 function useMicWhile(voice: Voice | null, talking: boolean) {
@@ -357,13 +387,19 @@ function Refusable({
 	);
 }
 
-/** While the agent sets voice up: what it narrates, as text until there is a
- * voice, with the engine's latest status in its place, and on ElevenLabs the
- * key, which the agent sends or the person enters. */
-function Setup({
+/** Waiting for the agent: for it to join, with the prompt to give it, then
+ * while it sets voice up, what it narrates, as text until there is a voice,
+ * with the engine's latest status in its place, and on ElevenLabs the key,
+ * which the agent sends or the person enters. Once an agent left, the same
+ * page, which says so. */
+function Waiting({
 	name,
 	entries,
 	tier,
+	agent,
+	left,
+	prompt,
+	back,
 	refused,
 	offer,
 	switchTier,
@@ -371,19 +407,57 @@ function Setup({
 	name: string;
 	entries: Entry[];
 	tier: Tier;
+	/** The agent here now, by its name. */
+	agent: string | null;
+	/** Who left last, once everyone to talk with left. */
+	left: string | null;
+	prompt: string;
+	/** Back to onboarding, before any agent came. */
+	back?: (() => void) | undefined;
 	refused: string | null;
 	offer: (key: string) => Promise<void>;
 	switchTier: () => void;
 }) {
-	const agent = entries.find((entry) => entry.from !== name)?.from;
-	const status = entries.findLast(
+	const local = tier === "local";
+	if (!agent)
+		return (
+			<Frame
+				name={SERVICE}
+				title={left ? "Your agent left" : "Waiting for your agent"}
+				description={
+					left
+						? `${label(left)} left the session. To talk again, give your agent this prompt.`
+						: "Paste the prompt into your agent. This page goes on once it joins."
+				}
+			>
+				<Prompt prompt={prompt} />
+				{back && (
+					<p className="text-sm text-muted-foreground">
+						<button
+							type="button"
+							className="underline underline-offset-4 hover:text-foreground"
+							onClick={back}
+						>
+							Back
+						</button>
+						, to choose where the speech models run.
+					</p>
+				)}
+			</Frame>
+		);
+	// What happened since the agent last joined, not before an earlier one left.
+	const since =
+		entries.findLast(
+			(entry) => entry.type.startsWith(LEAVE) && entry.from !== name,
+		)?.n ?? -1;
+	const recent = entries.filter((entry) => entry.n > since);
+	const status = recent.findLast(
 		(entry) => entry.type.startsWith(STATUS) && entry.text !== undefined,
 	);
-	const said = entries.filter(
+	const said = recent.filter(
 		(entry): entry is Entry & { text: string } =>
 			(entry.from !== name && spoken(entry)) || entry === status,
 	);
-	const local = tier === "local";
 	return (
 		<Frame
 			name={SERVICE}
@@ -395,7 +469,7 @@ function Setup({
 			}
 		>
 			<ol className="flex flex-col gap-3 rounded-2xl border bg-card/40 p-5">
-				<Step done>{agent ?? "Your agent"} joined.</Step>
+				<Step done>{label(agent)} joined.</Step>
 				{said.map((entry, i) => (
 					<Step key={entry.n} done={i < said.length - 1}>
 						{entry === status ? statusText(entry.text) : entry.text}
@@ -415,6 +489,29 @@ function Setup({
 				, and your agent sets that up.
 			</p>
 		</Frame>
+	);
+}
+
+/** The prompt for the agent, to copy again. */
+function Prompt({ prompt }: { prompt: string }) {
+	const [copied, setCopied] = useState(false);
+	return (
+		<div className="flex flex-col gap-2 rounded-2xl border bg-card/60 p-2 shadow-2xl shadow-black/20 backdrop-blur">
+			<pre className="rounded-xl bg-background/80 p-4 font-mono text-sm leading-relaxed whitespace-pre-wrap wrap-anywhere">
+				{prompt}
+			</pre>
+			<button
+				type="button"
+				className="h-11 rounded-xl border bg-background/80 px-4 font-medium transition-all hover:bg-muted active:translate-y-px"
+				onClick={async () => {
+					await navigator.clipboard.writeText(prompt);
+					setCopied(true);
+					setTimeout(() => setCopied(false), 2000);
+				}}
+			>
+				{copied ? "Copied" : "Copy the prompt again"}
+			</button>
+		</div>
 	);
 }
 
