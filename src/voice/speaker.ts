@@ -18,6 +18,8 @@ type Reading = {
 	n: number;
 	line: number;
 	chars: { char: string; at: number }[];
+	/** How many characters the whole message is read as. */
+	length: number;
 	done: boolean;
 };
 
@@ -122,6 +124,14 @@ export class Speaker {
 		return this.player.playing;
 	}
 
+	/** How much of the message being read was heard, from 0 to 1, by its
+	 * characters: the length of its speech is only known once synthesized. */
+	progress(): number {
+		const reading = this.readings[0];
+		if (reading === undefined || reading.length === 0) return 0;
+		return Math.min(this.heard(reading).length / reading.length, 1);
+	}
+
 	/** How loud the speaker sounds now, from 0 to 1. */
 	level(): number {
 		return this.player.level();
@@ -220,7 +230,14 @@ export class Speaker {
 		const synthesizer = this.speech;
 		if (!synthesizer) return;
 		const line = ++this.lines;
-		const reading: Reading = { n: entry.n, line, chars: [], done: false };
+		const paragraphs = speech(entry.text);
+		const reading: Reading = {
+			n: entry.n,
+			line,
+			chars: [],
+			length: paragraphs.join(" ").length,
+			done: false,
+		};
 		this.readings.push(reading);
 		if (this.readings.length === 1) this.changed(entry.n);
 		// Each paragraph is a line of its own, timed on from the one before:
@@ -242,7 +259,7 @@ export class Speaker {
 			length = 0;
 			this.played(samples);
 		};
-		const lines = speech(entry.text).map((paragraph, i) => {
+		const lines = paragraphs.map((paragraph, i) => {
 			let from: number | undefined;
 			return synthesizer.say(paragraph, (piece: Piece) => {
 				if (this.dropped.has(line)) return false;

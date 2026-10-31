@@ -402,6 +402,12 @@ export class Voice {
 		return this.speaker?.level() ?? 0;
 	}
 
+	/** How much of the message being read was heard, from 0 to 1: read it as
+	 * often as needed, since it changes too fast for `state`. */
+	speakerProgress(): number {
+		return this.speaker?.progress() ?? 0;
+	}
+
 	/** Call it from a click, since it starts the page's audio. While
 	 * listening waits, it only keeps whether the person wants it. */
 	async setListener(on: boolean): Promise<void> {

@@ -22,6 +22,7 @@ const voice = {
 	watch: () => () => {},
 	speakerLevel: () =>
 		state.reading !== null && !state.hearing ? speech(3) : 0,
+	speakerProgress: () => 0.38,
 	setListener: async () => {},
 	setSpeaker: async () => {},
 	setAutoEnd: () => {},

@@ -50,6 +50,7 @@ import {
 	useState,
 	useSyncExternalStore,
 } from "react";
+import type { Progress } from "./activity.ts";
 import { showMedia } from "./media.ts";
 import type { Voice, VoiceState } from "./voice.ts";
 
@@ -107,7 +108,7 @@ export function VoiceBar({
 				className="flex w-full max-w-[30rem] shrink-0 flex-col rounded-[2rem] border border-white/10 bg-neutral-950/55 p-2 shadow-2xl shadow-black/60 backdrop-blur-xl"
 			>
 				<header className="flex h-10 items-center gap-1 pl-3">
-					<People people={room?.people ?? []} />
+					<People people={room?.people ?? []} progress={state.progress} />
 					{room && <Leave leave={room.leave} />}
 					<button
 						type="button"
@@ -160,7 +161,6 @@ function floor(state: VoiceState): {
 	word: string;
 	tone: Tone;
 	hint: string;
-	breathing?: boolean;
 } {
 	if (state.hearing)
 		return {
@@ -178,15 +178,6 @@ function floor(state: VoiceState): {
 						? "Speak to cut in: your agent pauses for you."
 						: "Press pause to hold it.",
 				};
-	if (state.progress === "working")
-		return {
-			word: "Working",
-			tone: "agent",
-			hint: "Your agent is on your message.",
-			breathing: true,
-		};
-	if (state.progress === "sent")
-		return { word: "Sent", tone: "agent", hint: "Waiting for your agent." };
 	// Where the words go, the line above the bar says.
 	if (state.listener) return { word: "Listening", tone: "you", hint: "" };
 	if (state.speaker)
@@ -218,7 +209,8 @@ function who({
 }
 
 /** The levels of both voices, eased, as the CSS variables `--you-level` and
- * `--agent-level` on `root`. */
+ * `--agent-level` on `root`, and how much of the agent's message was heard as
+ * `--agent-progress`. */
 function useLevels(voice: Voice, root: RefObject<HTMLDivElement | null>) {
 	useEffect(() => {
 		// Rises fast and falls slowly, as a meter does.
@@ -232,6 +224,10 @@ function useLevels(voice: Voice, root: RefObject<HTMLDivElement | null>) {
 			agent = ease(agent, voice.speakerLevel());
 			root.current?.style.setProperty("--you-level", you.toFixed(3));
 			root.current?.style.setProperty("--agent-level", agent.toFixed(3));
+			root.current?.style.setProperty(
+				"--agent-progress",
+				voice.speakerProgress().toFixed(4),
+			);
 		});
 		return () => cancelAnimationFrame(frame);
 	}, [voice, root]);
@@ -284,9 +280,10 @@ function Stage({ voice, state }: { voice: Voice; state: VoiceState }) {
 	return <Floor state={state} />;
 }
 
-/** Who has the floor, large enough to read from across the room. */
+/** Who has the floor, large enough to read from across the room, with how
+ * much of the agent's message was heard while it is read. */
 function Floor({ state }: { state: VoiceState }) {
-	const { word, tone, hint, breathing } = floor(state);
+	const { word, tone, hint } = floor(state);
 	const color =
 		tone === "none"
 			? "var(--muted-foreground)"
@@ -295,7 +292,7 @@ function Floor({ state }: { state: VoiceState }) {
 		<div className="flex min-h-0 w-full flex-1 flex-col items-center justify-center gap-4 text-center">
 			<p
 				aria-live="polite"
-				className={`text-5xl font-extralight tracking-tight transition-colors duration-500 sm:text-6xl ${breathing ? "animate-[breathe_2.4s_ease-in-out_infinite]" : ""}`}
+				className="text-5xl font-extralight tracking-tight transition-colors duration-500 sm:text-6xl"
 				style={{
 					color: `color-mix(in oklch, ${color} 85%, white)`,
 					textShadow:
@@ -306,6 +303,17 @@ function Floor({ state }: { state: VoiceState }) {
 			>
 				{word}
 			</p>
+			{state.reading !== null && (
+				<div
+					aria-hidden
+					className="h-0.5 w-48 animate-[arrive_0.4s_ease-out] overflow-hidden rounded-full bg-white/10"
+				>
+					<div
+						className="h-full origin-left rounded-full bg-agent shadow-[0_0_8px_var(--agent)]"
+						style={{ transform: "scaleX(var(--agent-progress, 0))" }}
+					/>
+				</div>
+			)}
 			<p className="max-w-sm text-base text-balance text-muted-foreground/70">
 				{hint}
 			</p>
@@ -496,8 +504,15 @@ function label(name: string): string {
 
 /** Who else is in the session, each lit while it listens: an agent that is
  * not receiving is busy on a turn, or gone without leaving, which the
- * presence can't tell apart. Speech engines show as such. */
-function People({ people }: { people: Present[] }) {
+ * presence can't tell apart. Speech engines show as such. Agents also show
+ * where the person's last message is: not read yet, or worked on. */
+function People({
+	people,
+	progress,
+}: {
+	people: Present[];
+	progress: Progress;
+}) {
 	return (
 		<ul className="flex min-w-0 flex-1 items-center gap-4 overflow-hidden">
 			{people.length === 0 && (
@@ -530,6 +545,13 @@ function People({ people }: { people: Present[] }) {
 							label(person.name)
 						)}
 					</span>
+					{!person.engine && progress && (
+						<span
+							className={`shrink-0 text-xs ${progress === "working" ? "animate-[breathe_2.4s_ease-in-out_infinite] text-agent" : "text-muted-foreground"}`}
+						>
+							{progress === "working" ? "working" : "not read yet"}
+						</span>
+					)}
 				</li>
 			))}
 		</ul>
@@ -613,7 +635,6 @@ function Bar({ voice, state }: { voice: Voice; state: VoiceState }) {
 					busy={state.switching === "speaker"}
 					color="--agent"
 					level="--agent-level"
-					working={state.progress === "working"}
 					onClick={() => void voice.setSpeaker(!state.speaker)}
 				>
 					{state.speaker ? <Volume2 /> : <VolumeX />}
@@ -653,8 +674,6 @@ function Switch(props: {
 	busy: boolean;
 	color: string;
 	level: string;
-	/** Whether to breathe, as the agent's while it works. */
-	working?: boolean;
 	onClick: () => void;
 	children: ReactNode;
 }) {
@@ -668,7 +687,7 @@ function Switch(props: {
 			aria-pressed={props.on}
 			disabled={props.busy}
 			onClick={props.onClick}
-			className={`grid size-12 shrink-0 place-items-center rounded-full transition-colors duration-150 [&_svg]:size-5 ${props.on ? "" : "bg-white/[0.07] text-foreground/60 hover:bg-white/15 hover:text-foreground"} ${props.busy ? "animate-pulse" : ""} ${props.working ? "animate-[working_2.4s_ease-in-out_infinite]" : ""}`}
+			className={`grid size-12 shrink-0 place-items-center rounded-full transition-colors duration-150 [&_svg]:size-5 ${props.on ? "" : "bg-white/[0.07] text-foreground/60 hover:bg-white/15 hover:text-foreground"} ${props.busy ? "animate-pulse" : ""}`}
 			style={
 				props.on
 					? {
