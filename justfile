@@ -21,6 +21,12 @@ bench scenario="turns":
 recording link out="recording.wav":
     pnpm exec tsx bench/recording.ts {{ link }} {{ out }}
 
+# Records a conversation of bench/conversation.ts as ground truth into `out`:
+# plays the agent in a real voice session, and serves a prompter at `port`
+# that tells the person what to say.
+record out port="8790":
+    pnpm exec tsx bench/record.ts {{ out }} {{ port }}
+
 # Builds the page and serves it at voice.agentics.lwirth.com.
 deploy: pinned ci
     pnpm exec wrangler deploy --domain voice.agentics.lwirth.com

@@ -1,0 +1,148 @@
+<!doctype html>
+<!-- The prompter of `just record`: shows the person what to say and when,
+     and tells the recorder each step, which plays the agent's side. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prompter</title>
+<style>
+	html, body { margin: 0; height: 100%; background: #111; color: #eee;
+		font: 17px -apple-system, system-ui, sans-serif; user-select: none;
+		-webkit-user-select: none; touch-action: manipulation; }
+	main { box-sizing: border-box; height: 100%; padding: 6vh 7vw;
+		display: flex; flex-direction: column; justify-content: center; gap: 4vh; }
+	#what { font-size: 15px; letter-spacing: .08em; text-transform: uppercase; color: #8ab; }
+	#line { font-size: clamp(28px, 7vw, 56px); line-height: 1.25; font-weight: 600; }
+	#line.quiet { color: #666; }
+	#hint { color: #999; }
+	#next { color: #555; font-size: 15px; }
+	#count { font-size: 15px; color: #8ab; font-variant-numeric: tabular-nums; }
+	button { font: inherit; font-size: 22px; padding: 14px 28px; border-radius: 12px;
+		border: 0; background: #2a6; color: white; align-self: flex-start; }
+	ol { line-height: 1.6; padding-left: 1.2em; }
+</style>
+</head>
+<body>
+<main id="main">
+	<div id="what">Before you start</div>
+	<ol>
+		<li>On the Mac, open the voice page from the link in the chat, and leave it in front.</li>
+		<li>Turn on Listen, Speak and Share there.</li>
+		<li>Then tap Start here, and do what this screen says. Tap the screen when you have said a line.</li>
+	</ol>
+	<button type="button" id="start">Start</button>
+</main>
+<script type="module">
+const { conversation } = await (await fetch("conversation")).json();
+const main = document.getElementById("main");
+const tell = (event, data = {}) =>
+	fetch("event", { method: "POST", body: JSON.stringify({ event, ...data }) });
+const sleep = (s) => new Promise((wake) => setTimeout(wake, s * 1000));
+/** How long the agent takes to say `text`, roughly, with its delay. */
+const speaking = (text) => 2.5 + text.split(/\s+/).length / 2.6;
+
+let tapped = null;
+let last = 0;
+document.body.addEventListener("pointerdown", () => {
+	const now = Date.now();
+	if (now - last < 400 || !tapped) return;
+	last = now;
+	const done = tapped;
+	tapped = null;
+	tell("tap");
+	done();
+});
+const tap = () => new Promise((resolve) => { tapped = resolve; });
+
+function show(what, line, hint = "", { quiet = false, next = "" } = {}) {
+	main.innerHTML = "";
+	for (const [id, text] of [["what", what], ["line", line], ["hint", hint], ["count", ""], ["next", next]]) {
+		const el = document.createElement("div");
+		el.id = id;
+		el.textContent = text;
+		if (id === "line" && quiet) el.className = "quiet";
+		main.append(el);
+	}
+}
+async function countdown(seconds) {
+	const count = document.getElementById("count");
+	for (let left = seconds; left > 0; left -= 0.1) {
+		count.textContent = `${left.toFixed(1)} s`;
+		await sleep(0.1);
+	}
+	count.textContent = "";
+}
+const preview = (step) =>
+	step?.turn ? `Next: ${step.turn.join(" … ")}` : "";
+
+async function run(step, i, after) {
+	const next = preview(after);
+	if (step.turn) {
+		for (const [j, part] of step.turn.entries()) {
+			show("Say", part, step.note ?? "Then tap.", { next: j === step.turn.length - 1 ? next : "" });
+			tell("part", { step: i, part: j, text: part });
+			await tap();
+			const pause = step.pauses?.[j];
+			if (pause !== undefined && j < step.turn.length - 1) {
+				show("Pause", "…", "Stay quiet, mid-thought.", { quiet: true });
+				tell("pause", { step: i, part: j, seconds: pause });
+				await countdown(pause);
+			}
+		}
+		tell("turn.said", { step: i });
+		if (step.reply) {
+			show("Listen", step.reply, "", { quiet: true, next });
+			await sleep(1.5);
+			tell("agent", { step: i, text: step.reply });
+			await countdown(speaking(step.reply));
+		} else if (!after?.silence) {
+			show("Wait", "…", "", { quiet: true, next });
+			await countdown(2);
+		}
+	} else if (step.agent) {
+		show("Listen", step.agent, step.note ?? "", { quiet: true });
+		tell("agent", { step: i, text: step.agent });
+		const start = Date.now();
+		const since = () => (Date.now() - start) / 1000;
+		for (const cue of step.cues ?? []) {
+			await sleep(cue.at - since());
+			if (cue.cough) {
+				show("Cough", "Cough once.", "", {});
+				tell("cue", { step: i, cough: true });
+				await sleep(2);
+			} else if (cue.kind === "backchannel") {
+				show("Say", cue.say, "Just say it, no tap.", {});
+				tell("cue", { step: i, say: cue.say, kind: cue.kind });
+				await sleep(2);
+			} else {
+				show("Cut in", cue.say, "Say it over the agent, then tap.", {});
+				tell("cue", { step: i, say: cue.say, kind: cue.kind });
+				await tap();
+				tell("turn.said", { step: i });
+				show("Wait", "…", "", { quiet: true, next });
+				await countdown(2);
+				return;
+			}
+			show("Listen", step.agent, "", { quiet: true });
+		}
+		await sleep(Math.max(0, speaking(step.agent) - since()));
+	} else {
+		show(step.cough ? "Cough" : "Quiet", step.cough ? "Cough once, then stay quiet." : "Stay quiet.", step.note ?? "", { quiet: !step.cough, next });
+		tell("silence", { step: i, seconds: step.silence, cough: !!step.cough });
+		await countdown(step.silence);
+	}
+}
+
+document.getElementById("start").addEventListener("click", async (e) => {
+	e.stopPropagation();
+	tell("start");
+	for (const [i, step] of conversation.entries())
+		await run(step, i, conversation[i + 1]);
+	show("Done", "Thanks, that's it.", "Saving the recording…", { quiet: true });
+	await tell("done");
+	document.getElementById("hint").textContent = "Saved. You can close this.";
+});
+</script>
+</body>
+</html>
