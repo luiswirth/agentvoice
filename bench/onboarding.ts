@@ -119,12 +119,13 @@ page.subscribe({
 	},
 });
 
-// The page's prompt, or PROMPT's variant of it, with {docs}, {link} and
-// {person}.
+// The page's prompt for the tier chosen on it, or PROMPT's variant of it,
+// with {docs}, {link}, {person} and {tier}.
 const prompt = (
 	process.env.PROMPT ??
-	"Read {docs}/agents.md and join the session {link} as {person}/<your name>"
+	"Read {docs}/agents.md, join the session {link} as {person}/<your name> and set up voice on the {tier} tier so we can talk."
 )
+	.replaceAll("{tier}", tier === "local" ? "local" : "ElevenLabs")
 	.replaceAll("{docs}", docs)
 	.replaceAll("{link}", link)
 	.replaceAll("{person}", PERSON);

@@ -45,6 +45,11 @@ pinned:
 gallery:
     CHROMIUM="$(command -v chromium)" pnpm exec tsx bench/gallery.ts
 
+# Screenshots of the onboarding, step by step, with a scripted agent on the
+# real relay, into bench/.cache/onboarding-pages/.
+onboarding-pages:
+    CHROMIUM="$(command -v chromium)" pnpm exec tsx bench/onboarding-pages.ts
+
 # The page's cues as one WAV to listen to, into bench/.cache/sounds.wav.
 sounds:
     CHROMIUM="$(command -v chromium)" pnpm exec tsx bench/sounds.ts
