@@ -34,6 +34,7 @@ import {
 import { holdMedia } from "./media.ts";
 import {
 	agent,
+	type Entry,
 	MODES,
 	type Modes,
 	NAMES,
@@ -110,9 +111,20 @@ export type VoiceState = Modes & {
 const TIER = "voice-tier";
 
 /** Where transcription and speech synthesis run, as last chosen in this
- * browser: local, until the person chooses otherwise. */
-export function chosenTier(): Tier {
-	return localStorage.getItem(TIER) === "elevenlabs" ? "elevenlabs" : "local";
+ * browser; else, in a browser that never chose, as a page in the session `log`
+ * last had it, so that the person's second device starts where the first is;
+ * else local. */
+export function chosenTier(log: readonly Entry[] = []): Tier {
+	const chosen = localStorage.getItem(TIER);
+	if (chosen !== null) return chosen === "elevenlabs" ? "elevenlabs" : "local";
+	for (const entry of log.toReversed()) {
+		if (!entry.type.startsWith(MODES)) continue;
+		try {
+			const { tier } = JSON.parse(entry.text ?? "") as Partial<Modes>;
+			if (tier === "elevenlabs" || tier === "local") return tier;
+		} catch {}
+	}
+	return "local";
 }
 
 export function chooseTier(tier: Tier): void {
@@ -291,6 +303,7 @@ export class Voice {
 		this.session = session;
 		this.name = name;
 		this.key = key;
+		this.set({ tier: chosenTier(session.log) });
 		const message = () =>
 			this.set({
 				message:
