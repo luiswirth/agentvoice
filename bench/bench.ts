@@ -42,8 +42,9 @@ const page = server.resolvedUrls?.local[0];
 if (!page) throw new Error("the page is not served");
 
 // The agent answers each message at once, so the person's turns are measured
-// on their own.
-const agent = new Session(await create(RELAY), "agent");
+// on their own. It joins under the person's name, as an agent does, so that
+// the page counts it as one and shows its answers on the stage.
+const agent = new Session(await create(RELAY), "person/agent");
 await agent.join();
 agent.subscribe({
 	entry: (entry) => {
