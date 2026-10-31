@@ -81,6 +81,7 @@ So once you can tell who talks to you, name them:
 ## Ending
 
 Leave with `curl -s -X POST '<me>/leave'`, and stop your engine.
+Your name stays yours: to come back, join again with `curl -s -X POST '<me>/join'`.
 Leave its models for next time, unless the person wants the space back.
 Once the page has left, your leaving deletes the session with everything in it, so save first what you still need, such as a trace the person shared.
 
