@@ -97,6 +97,12 @@ export function chosenTier(): Tier {
 	return localStorage.getItem(TIER) === "local" ? "local" : "elevenlabs";
 }
 
+/** The tier chosen in this browser, null before the person chose one. */
+export function tierChosen(): Tier | null {
+	const tier = localStorage.getItem(TIER);
+	return tier === "local" || tier === "elevenlabs" ? tier : null;
+}
+
 export function chooseTier(tier: Tier): void {
 	localStorage.setItem(TIER, tier);
 }
