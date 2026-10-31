@@ -1,7 +1,9 @@
 // Which voice said what: every stretch of speech gets the number of the voice
 // it sounds like, the closest voice heard before if close enough, a new one
 // otherwise if it is long enough, and the words of a segment are tagged by the voice of their
-// stretch, as `[voice 1] ...`. The page doesn't know who a voice is.
+// stretch, as `[voice 1] ...`. The page doesn't know who a voice is, except
+// for the voices the speaker plays, which it hears as they are played: the
+// agent's, whose echo through the microphone is thus known by its sound.
 // Embeddings are kept across reloads, so are voices' numbers, as long as the
 // fingerprint model stays the same.
 import type { Word } from "./engines.ts";
@@ -23,13 +25,17 @@ export const SHORTEST = 1;
  * over 1.3 s at 0.2, is taken as short instead. */
 const NEW = 2;
 
-/** A stretch of speech, its embedding, and its voice, null for a short one
- * until its segment ends. */
+/** A stretch of speech, its embedding, whether the speaker sounded during
+ * it, its voice, and whether it is the speaker's echo. A short one has
+ * neither until its segment ends; echo has a voice only where it is close
+ * enough to a voice the speaker played. */
 export type Stretch = {
 	from: number;
 	to: number;
 	embedding: Float32Array;
+	sounding: boolean;
 	voice: number | null;
+	played: boolean;
 };
 
 /** The voices heard so far, kept across reloads under `key`. */
@@ -40,6 +46,8 @@ export class Voices {
 	/** Each voice's number, once its words were tagged, so that the numbers
 	 * the agent sees count up from 1 without gaps. */
 	private readonly numbers: (number | null)[];
+	/** Which voices the speaker played. */
+	private readonly speakers: boolean[];
 
 	constructor(key: string) {
 		this.key = key;
@@ -47,11 +55,33 @@ export class Voices {
 			model?: string;
 			sums?: number[][];
 			numbers?: (number | null)[];
+			speakers?: boolean[];
 		};
 		// Another model's embeddings can't be compared with this one's.
 		const stored = kept.model === REDIMNET2.integrity ? kept : {};
 		this.sums = (stored.sums ?? []).map((sum) => Float32Array.from(sum));
 		this.numbers = stored.numbers ?? [];
+		this.speakers = stored.speakers ?? [];
+	}
+
+	/** Whether the speaker played a voice. */
+	played(voice: number): boolean {
+		return this.speakers[voice] ?? false;
+	}
+
+	/** Hears the embedding of speech the speaker played: as the voice the
+	 * speaker played it is close enough to, a new one otherwise. Never as a
+	 * voice the microphone heard alone, which would take the person's voice
+	 * for the speaker's if the two sound alike. */
+	play(embedding: Float32Array): void {
+		const { best, similarity } = this.best(embedding, (v) => this.played(v));
+		if (similarity >= SAME) {
+			this.add(best, embedding);
+			return;
+		}
+		this.speakers[this.sums.length] = true;
+		this.sums.push(embedding.slice());
+		this.store();
 	}
 
 	/** The number of a voice, if it was given one. */
@@ -59,7 +89,8 @@ export class Voices {
 		return this.numbers[voice] ?? null;
 	}
 
-	/** The number of a voice, given to it now if it has none. */
+	/** The number of a voice, given to it now if it has none. Never one the
+	 * speaker played, whose words are never sent. */
 	number(voice: number): number {
 		const given = this.numbers[voice];
 		if (given != null) return given;
@@ -73,31 +104,50 @@ export class Voices {
 	}
 
 	/** A stretch, with its voice if it is long enough to show, and how close
-	 * it is to that voice. */
+	 * it is to that voice. `sounding`: whether the speaker sounded during it. */
 	stretch(
 		from: number,
 		to: number,
 		embedding: Float32Array,
+		sounding: boolean,
 	): { stretch: Stretch; similarity?: number } {
+		const heard = { from, to, embedding, sounding };
 		if (to - from < SHORTEST)
-			return { stretch: { from, to, embedding, voice: null } };
-		const { voice, similarity } = this.closest(embedding);
+			return { stretch: { ...heard, voice: null, played: false } };
+		const { voice, played, similarity } = this.closest(embedding, sounding);
+		if (played) {
+			if (voice !== null && similarity >= SAME) this.add(voice, embedding);
+			return { stretch: { ...heard, voice, played }, similarity };
+		}
 		if (voice === null && to - from < NEW)
-			return { stretch: { from, to, embedding, voice: null }, similarity };
+			return { stretch: { ...heard, voice: null, played }, similarity };
 		return {
-			stretch: { from, to, embedding, voice: this.voice(embedding) },
+			stretch: { ...heard, voice: this.voice(embedding), played },
 			similarity,
 		};
 	}
 
 	/** The voice a unit-length embedding is close enough to, null for none,
-	 * and how close it is to the closest voice, without hearing it as one. */
-	closest(embedding: Float32Array): {
-		voice: number | null;
-		similarity: number;
-	} {
+	 * whether it is the speaker's echo, and how close it is to the closest
+	 * voice, without hearing it as one. Echo is heard only while the speaker
+	 * sounds, and then it is whatever is not close enough to a person's voice,
+	 * and closer to it than to the voices the speaker played: the path from
+	 * the speaker to the microphone changes how it sounds, far below `SAME` in
+	 * the short pieces echo cancellation leaves of it. */
+	closest(
+		embedding: Float32Array,
+		sounding = false,
+	): { voice: number | null; played: boolean; similarity: number } {
+		if (!sounding) {
+			const { best, similarity } = this.best(embedding, (v) => !this.played(v));
+			const voice = similarity >= SAME ? best : null;
+			return { voice, played: false, similarity };
+		}
 		const { best, similarity } = this.best(embedding);
-		return { voice: similarity >= SAME ? best : null, similarity };
+		if (similarity >= SAME && !this.played(best))
+			return { voice: best, played: false, similarity };
+		const voice = this.played(best) ? best : null;
+		return { voice, played: true, similarity };
 	}
 
 	/** The voice of a unit-length embedding: the voice it is close enough to,
@@ -109,24 +159,38 @@ export class Voices {
 			this.store();
 			return this.sums.length - 1;
 		}
+		this.add(voice, embedding);
+		return voice;
+	}
+
+	private add(voice: number, embedding: Float32Array): void {
 		const sum = this.sums[voice] as Float32Array;
 		for (let i = 0; i < sum.length; i++)
 			sum[i] = (sum[i] ?? 0) + (embedding[i] ?? 0);
 		this.store();
-		return voice;
 	}
 
-	/** The voice closest to a short stretch heard on its own: the closest
-	 * one, however far, or a new one if there is none yet. */
-	guess(embedding: Float32Array): number {
-		const { best } = this.best(embedding);
-		return best >= 0 ? best : this.voice(embedding);
+	/** The voice of a short stretch heard on its own, and whether it is the
+	 * speaker's echo: while the speaker sounds, as `closest` judges it;
+	 * otherwise the closest person's voice, however far, or a new one if
+	 * there is none yet. */
+	guess(
+		embedding: Float32Array,
+		sounding: boolean,
+	): { voice: number | null; played: boolean } {
+		if (sounding) return this.closest(embedding, true);
+		const { best } = this.best(embedding, (v) => !this.played(v));
+		return { voice: best >= 0 ? best : this.voice(embedding), played: false };
 	}
 
-	private best(embedding: Float32Array): { best: number; similarity: number } {
+	private best(
+		embedding: Float32Array,
+		among: (voice: number) => boolean = () => true,
+	): { best: number; similarity: number } {
 		let best = -1;
 		let similarity = Number.NEGATIVE_INFINITY;
 		for (const [i, sum] of this.sums.entries()) {
+			if (!among(i)) continue;
 			const s = dot(sum, embedding) / Math.sqrt(dot(sum, sum));
 			if (s > similarity) [best, similarity] = [i, s];
 		}
@@ -141,56 +205,76 @@ export class Voices {
 				model: REDIMNET2.integrity,
 				sums,
 				numbers: this.numbers,
+				speakers: this.speakers,
 			}),
 		);
 	}
 }
 
+/** Words said in one voice, null for words no stretch was heard for, and
+ * whether the speaker played it. */
+export type Run = { voice: number | null; played: boolean; text: string };
+
 /**
- * The words of a segment, each tagged by the voice of the stretch it lies
- * in, or else of the closest one, with a tag wherever the voice changes.
- * Without stretches, the words as they are.
+ * The words of a segment, split where the voice changes, each by the voice
+ * of the stretch it lies in, or else of the closest one. Without
+ * stretches, the words as they are.
  */
-export function annotate(
-	words: Word[],
-	all: Stretch[],
-	voices: Voices,
-): string {
+export function runs(words: Word[], all: Stretch[], voices: Voices): Run[] {
 	const from = (words[0]?.start ?? 0) - 1;
 	const to = (words.at(-1)?.end ?? 0) + 1;
 	const stretches = all.filter((s) => s.to > from && s.from < to);
-	const long = stretches.filter((s) => s.voice !== null);
-	for (const s of stretches)
-		if (s.voice === null)
-			s.voice =
-				long.length > 0
-					? voiceAt((s.from + s.to) / 2, long)
-					: voices.guess(s.embedding);
-	let text = "";
-	let last = -1;
+	const undecided = (s: Stretch) => s.voice === null && !s.played;
+	const decided = stretches.filter((s) => !undecided(s));
+	for (const s of stretches.filter(undecided)) {
+		const { voice, played } =
+			at((s.from + s.to) / 2, decided) ?? voices.guess(s.embedding, s.sounding);
+		[s.voice, s.played] = [voice, played];
+	}
+	const runs: Run[] = [];
+	let run: Run = { voice: null, played: false, text: "" };
 	for (const word of words) {
-		const voice = voiceAt((word.start + word.end) / 2, stretches) ?? last;
-		if (voice < 0) {
-			text += word.text;
-			continue;
+		const { voice, played } = at((word.start + word.end) / 2, stretches) ?? run;
+		if (
+			(voice !== run.voice || played !== run.played) &&
+			/\w/.test(word.text)
+		) {
+			// What has no word yet goes with the words after it.
+			const carried = /\w/.test(run.text) ? "" : run.text;
+			if (!carried) runs.push(run);
+			run = { voice, played, text: carried };
 		}
-		if (voice !== last && /\w/.test(word.text)) {
-			text = `${text.trimEnd()} [voice ${voices.number(voice)}] `;
-			last = voice;
-		}
-		text += word.text;
+		run.text += word.text;
+	}
+	runs.push(run);
+	return runs
+		.map((r) => ({ ...r, text: r.text.trim() }))
+		.filter((r) => r.text !== "");
+}
+
+/** Runs as the agent reads them: each voice's words after its tag, as
+ * `[voice 1] ...`, where the voice changes. */
+export function tag(runs: Run[], voices: Voices): string {
+	let text = "";
+	let last: number | null = null;
+	for (const { voice, text: said } of runs) {
+		if (voice !== null && voice !== last)
+			text += ` [voice ${voices.number(voice)}]`;
+		if (voice !== null) last = voice;
+		text += ` ${said}`;
 	}
 	return text.trim();
 }
 
-function voiceAt(time: number, stretches: Stretch[]): number | null {
+/** The stretch a time lies in, or else the closest one. */
+function at(time: number, stretches: Stretch[]): Stretch | undefined {
 	let closest: Stretch | undefined;
 	let distance = Number.POSITIVE_INFINITY;
 	for (const stretch of stretches) {
 		const d = Math.max(stretch.from - time, time - stretch.to, 0);
 		if (d < distance) [closest, distance] = [stretch, d];
 	}
-	return closest?.voice ?? null;
+	return closest;
 }
 
 function dot(a: Float32Array, b: Float32Array): number {

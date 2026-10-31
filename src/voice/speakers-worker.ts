@@ -1,15 +1,20 @@
 // The voice fingerprint off the page's thread: it keeps the last minute of
 // the microphone's 16-bit PCM at 16 kHz, and embeds a stretch of it on
-// request, in seconds since the first chunk. It starts once the page tells it
-// its own address, against which the model's is.
+// request, in seconds since the first chunk. It embeds the speech the speaker
+// plays too, as it is given. It starts once the page tells it its own
+// address, against which the model's is.
 
 import * as ort from "onnxruntime-web/wasm";
+import { SPEECH_RATE } from "./engines.ts";
 import { fetchModel, REDIMNET2, setUpOnnxRuntime } from "./models.ts";
+import { Resampler } from "./resampler.ts";
 
 export type ToSpeakers =
 	| { type: "open"; page: string }
 	| { type: "audio"; pcm: ArrayBuffer }
-	| { type: "embed" | "probe"; from: number; to: number };
+	| { type: "embed" | "probe"; from: number; to: number }
+	/** Speech the speaker plays, at `SPEECH_RATE`. */
+	| { type: "played"; samples: ArrayBuffer };
 
 export type FromSpeakers =
 	| { type: "ready" }
@@ -17,6 +22,8 @@ export type FromSpeakers =
 	| { type: "embedding"; embedding: Float32Array }
 	/** The same for a `probe`, in the same order. */
 	| { type: "probe"; embedding: Float32Array }
+	/** The same for speech the speaker plays, in the same order. */
+	| { type: "played"; embedding: Float32Array }
 	| { type: "failed"; error: string };
 
 setUpOnnxRuntime();
@@ -49,12 +56,23 @@ model.then(
 	(error: Error) => post({ type: "failed", error: error.message }),
 );
 
-async function embed(from: number, to: number): Promise<Float32Array> {
+/** The microphone's samples from `from` to `to`, in seconds. */
+function heardBetween(from: number, to: number): Float32Array {
 	const start = Math.max(Math.round(from * RATE), heard - KEPT, 0);
 	const end = Math.min(Math.round(to * RATE), heard);
 	const samples = new Float32Array(Math.max(0, end - start));
 	for (let i = 0; i < samples.length; i++)
 		samples[i] = kept[(start + i) % KEPT] ?? 0;
+	return samples;
+}
+
+/** Speech the speaker plays, at `RATE`. */
+function played(samples: Float32Array): Float32Array {
+	// Each on its own, since what the speaker plays comes apart.
+	return new Resampler(SPEECH_RATE, RATE).push(samples);
+}
+
+async function embed(samples: Float32Array): Promise<Float32Array> {
 	const embedding = new Float32Array(DIMENSIONS);
 	if (samples.length < SHORTEST) return embedding;
 	const session = await model;
@@ -76,9 +94,13 @@ self.onmessage = ({ data }: MessageEvent<ToSpeakers>) => {
 		for (const s of new Int16Array(data.pcm)) kept[heard++ % KEPT] = s / 32768;
 		return;
 	}
-	const type = data.type === "probe" ? "probe" : "embedding";
+	const type = data.type === "embed" ? "embedding" : data.type;
+	const samples =
+		data.type === "played"
+			? played(new Float32Array(data.samples))
+			: heardBetween(data.from, data.to);
 	queue = queue
-		.then(() => embed(data.from, data.to))
+		.then(() => embed(samples))
 		.then(
 			(embedding) => post({ type, embedding }, [embedding.buffer]),
 			(error: Error) => post({ type: "failed", error: error.message }),

@@ -1,18 +1,18 @@
-// The listener: what the person says, as text, from the microphone through
-// a transcriber, ElevenLabs' or a local one. Turn detection runs in the
-// page, on local models, and ends a
-// segment once the person sounds done; whether a segment ends the person's
-// turn is for whoever uses the listener to decide. A segment counts only
-// once it is loud enough, and only if its words are not the speaker's own,
-// so that the speaker's echo, which the browser's echo cancellation never
-// removes entirely and at times not at all, is not taken for the person.
+// The listener: what is said, as text, from the microphone through a
+// transcriber, ElevenLabs' or a local one. Turn detection runs in the page,
+// on local models, and ends a segment once the speech sounds done. The
+// listener only perceives: what is done with a segment, such as whether it
+// ends the person's turn, is for whoever uses it to decide.
 // The transcriber hears each chunk once turn detection has, so that a commit at what
 // turn detection marks lands where it marked it, and only from shortly
 // before speech starts until its turn ends, so that the silence between
 // turns is not paid for. Each stretch of speech is tagged by its voice, on a
 // local fingerprint model, and a segment's words by the voice of their stretch,
 // which it waits for if the model is not done. While speech goes on, the
-// model also tells which known voice is heard now, if any.
+// model also tells which known voice is heard now, if any. The model hears
+// what the speaker plays too, so that its voice is known, and its echo,
+// which the browser's echo cancellation never removes entirely and at times
+// not at all, is known as its own.
 import { Microphone } from "./audio.ts";
 import {
 	type Heard,
@@ -24,7 +24,18 @@ import type { FromSpeakers, ToSpeakers } from "./speakers-worker.ts";
 import SpeakersWorker from "./speakers-worker.ts?worker";
 import type { FromTurns, ToTurns } from "./turns-worker.ts";
 import TurnsWorker from "./turns-worker.ts?worker";
-import { annotate, SHORTEST, type Stretch, Voices } from "./voices.ts";
+import {
+	type Run,
+	runs,
+	SHORTEST,
+	type Stretch,
+	tag,
+	Voices,
+} from "./voices.ts";
+
+/** A segment as heard: its words by voice, and whether it got louder than
+ * the floor, before or as its words were heard. */
+export type Segment = { runs: Run[]; loud: boolean };
 
 export type Hearing = {
 	/** Turn detection hears speech start, louder than the echo, or stop: a
@@ -33,15 +44,14 @@ export type Hearing = {
 	/** The person started saying words. */
 	speaking(): void;
 	/** The voice heard now, while speech goes on: its number, null for one
-	 * close to no voice heard before or that has no number yet. */
-	voice(number: number | null): void;
-	/** What was heard so far of the segment in progress. */
+	 * close to no voice heard before or that has no number yet, and whether
+	 * the speaker played it. */
+	voice(number: number | null, played: boolean): void;
+	/** What was heard so far of the segment in progress, once it got louder
+	 * than the floor. */
 	partial(text: string): void;
-	/** A segment ended, empty if it held no words or never counted. */
-	segment(text: string): void;
-	/** A segment's words that didn't count, as the speaker's echo or too quiet
-	 * while it played, which may still be the person's. */
-	missed(text: string, echoed: boolean): void;
+	/** A segment ended, without runs if it held no words. */
+	segment(segment: Segment): void;
 	/** What the microphone hears, as the transcriber gets it, before it goes on. */
 	audio(pcm: Int16Array): void;
 	/** How loud the microphone is, from 0 to 1, every 0.1 s. */
@@ -78,6 +88,7 @@ export class Listener {
 	private readonly transcriber: Transcriber;
 	private readonly worker: Worker;
 	private readonly speakers: Worker;
+	private readonly voices: Voices;
 	private readonly finishTurn: () => boolean;
 	private closing = false;
 
@@ -86,19 +97,21 @@ export class Listener {
 		transcriber: Transcriber,
 		worker: Worker,
 		speakers: Worker,
+		voices: Voices,
 		finishTurn: () => boolean,
 	) {
 		this.microphone = microphone;
 		this.transcriber = transcriber;
 		this.worker = worker;
 		this.speakers = speakers;
+		this.voices = voices;
 		this.finishTurn = finishTurn;
 	}
 
 	/**
 	 * `floor`: how loud, in dBFS, a segment's speech must get in some 0.1 s
-	 * for it to count, asked as each 0.1 s is heard. `echo`: whether words
-	 * heard are the speaker's own, which never count. `gate`: whether what
+	 * for it to be loud, asked as each 0.1 s is heard. `sounding`: whether the
+	 * speaker sounds, asked as each 0.1 s is heard. `gate`: whether what
 	 * the microphone hears goes on, asked for each chunk: the microphone
 	 * stays open while it is shut, so that opening it again needs no
 	 * permission and takes no time, and nothing it hears goes anywhere. Call
@@ -109,11 +122,11 @@ export class Listener {
 		transcribe: (heard: Heard) => Promise<Transcriber>,
 		hearing: Hearing,
 		floor: () => number,
-		echo: (text: string) => boolean,
+		sounding: () => boolean,
 		gate: () => boolean,
 	): Promise<Listener> {
 		let listener: Listener | null = null;
-		/** Whether the segment in progress counts. */
+		/** Whether a partial of the segment in progress was loud. */
 		let speaking = false;
 		/** How loud each chunk the microphone heard is, in dBFS, against the
 		 * floor in force as it was heard, back to what speech may still claim. */
@@ -164,7 +177,12 @@ export class Listener {
 		/** The stretches of the segments in progress, with their voices. */
 		let stretches: Stretch[] = [];
 		/** The stretches the fingerprint model is still to answer, in order. */
-		const embedding: { from: number; to: number; done: () => void }[] = [];
+		const embedding: {
+			from: number;
+			to: number;
+			sounding: boolean;
+			done: () => void;
+		}[] = [];
 		/** Once the fingerprint model answered everything asked so far. */
 		let embedded: Promise<void> = Promise.resolve();
 		let voicing = false;
@@ -178,7 +196,12 @@ export class Listener {
 			// A short one is heard with the sound around it.
 			const short = Math.max(0, SHORTEST - (to - from)) / 2;
 			ask({ type: "embed", from: from - short, to: to + short });
-			embedded = new Promise((done) => embedding.push({ from, to, done }));
+			const sounded = levels.some(
+				(level) => level.sounding && level.to > from && level.from < to,
+			);
+			embedded = new Promise((done) =>
+				embedding.push({ from, to, sounding: sounded, done }),
+			);
 		};
 		speakers.onmessage = ({ data }: MessageEvent<FromSpeakers>) => {
 			if (data.type === "ready") voicing = true;
@@ -188,19 +211,25 @@ export class Listener {
 				for (const { done } of embedding.splice(0)) done();
 			} else if (data.type === "probe") {
 				if (!data.embedding.some((x) => x !== 0)) return;
-				const { voice, similarity } = voices.closest(data.embedding);
+				const { voice, played, similarity } = voices.closest(
+					data.embedding,
+					sounding(),
+				);
 				const number = voice === null ? null : voices.numbered(voice);
-				hearing.trace("voice.now", { voice: number, similarity });
-				hearing.voice(number);
+				hearing.trace("voice.now", { voice: number, played, similarity });
+				hearing.voice(number, played);
+			} else if (data.type === "played") {
+				if (data.embedding.some((x) => x !== 0)) voices.play(data.embedding);
 			} else {
 				const asked = embedding.shift();
 				if (!asked) return;
-				const { from, to, done } = asked;
+				const { from, to, sounding, done } = asked;
 				if (data.embedding.some((x) => x !== 0)) {
 					const { stretch, similarity } = voices.stretch(
 						from,
 						to,
 						data.embedding,
+						sounding,
 					);
 					stretches.push(stretch);
 					// `voice` is the number the message tags, as in `voice.now`,
@@ -211,6 +240,7 @@ export class Listener {
 						voice:
 							stretch.voice === null ? null : voices.numbered(stretch.voice),
 						index: stretch.voice,
+						played: stretch.played,
 						similarity,
 					});
 				}
@@ -260,10 +290,8 @@ export class Listener {
 		 * detection heard. */
 		const segment = (end: number) => {
 			const text = pieces.join(" ").trim();
-			const echoed = echo(text);
-			if (echoed) hearing.trace("echo", { text });
-			const counts = (speaking || loud()) && !echoed;
-			if (!counts && !echoed && /\w/.test(text)) {
+			const isLoud = speaking || loud();
+			if (!isLoud && /\w/.test(text)) {
 				const top = loudest();
 				hearing.trace("quiet", {
 					text,
@@ -271,25 +299,25 @@ export class Listener {
 					floor: top?.floor ?? null,
 				});
 			}
-			if (!counts && /\w/.test(text)) hearing.missed(text, echoed);
 			const timed = words;
 			speaking = false;
 			forget(end);
 			pieces = [];
 			words = [];
-			const tagged = () => {
-				// What doesn't count is no voice's.
-				const said =
-					counts && timed.length > 0
-						? annotate(timed, stretches, voices)
-						: text;
+			const report = () => {
+				const said: Run[] =
+					timed.length > 0
+						? runs(timed, stretches, voices)
+						: /\w/.test(text)
+							? [{ voice: null, played: false, text }]
+							: [];
 				// What is left belongs to the segments still to come.
 				const end = timed.at(-1)?.end;
 				if (end !== undefined) stretches = stretches.filter((s) => s.to > end);
-				hearing.segment(counts ? said : "");
+				hearing.segment({ runs: said, loud: isLoud });
 			};
-			if (!counts || embedding.length === 0) tagged();
-			else embedded.then(tagged);
+			if (embedding.length === 0) report();
+			else embedded.then(report);
 		};
 		/** Ends the segment in progress once the transcriber settled it; whether it is still to come. */
 		const finish = (): boolean => {
@@ -385,7 +413,7 @@ export class Listener {
 						const heard = [...pieces, text].join(" ").trim();
 						tell({ type: "text", text: heard });
 						if (!/\w/.test(text)) return;
-						if (!speaking && (!loud() || echo(heard))) return;
+						if (!speaking && !loud()) return;
 						if (!speaking) hearing.speaking();
 						speaking = true;
 						hearing.partial(heard);
@@ -462,6 +490,7 @@ export class Listener {
 						to: clock,
 						loudness: 20 * Math.log10(rms),
 						floor: floor(),
+						sounding: sounding(),
 					});
 					// What turn detection may still hear as the start of speech.
 					const claimed = Math.min(
@@ -481,26 +510,33 @@ export class Listener {
 			speakers.terminate();
 			throw error;
 		}
-		listener = new Listener(microphone, transcriber, worker, speakers, () => {
-			tell({ type: "end" });
-			if (open !== null) embed(open, clock);
-			open = null;
-			// Everything said up to the person's end belongs to the turn.
-			if (voiced)
-				for (const pcm of unheard.splice(0)) {
-					hear(pcm);
-					early++;
+		listener = new Listener(
+			microphone,
+			transcriber,
+			worker,
+			speakers,
+			voices,
+			() => {
+				tell({ type: "end" });
+				if (open !== null) embed(open, clock);
+				open = null;
+				// Everything said up to the person's end belongs to the turn.
+				if (voiced)
+					for (const pcm of unheard.splice(0)) {
+						hear(pcm);
+						early++;
+					}
+				if (early === 0) transcribing = voiced;
+				const coming = finish();
+				if (!coming) {
+					speaking = false;
+					forget(passed);
+					pieces = [];
+					words = [];
 				}
-			if (early === 0) transcribing = voiced;
-			const coming = finish();
-			if (!coming) {
-				speaking = false;
-				forget(passed);
-				pieces = [];
-				words = [];
-			}
-			return coming;
-		});
+				return coming;
+			},
+		);
 		return listener;
 	}
 
@@ -508,6 +544,19 @@ export class Listener {
 	 * done; whether its end is still to come. */
 	finish(): boolean {
 		return this.finishTurn();
+	}
+
+	/** Hears speech the speaker plays, at `SPEECH_RATE`, as its voice. */
+	played(samples: Float32Array): void {
+		const copy = samples.slice();
+		const message: ToSpeakers = { type: "played", samples: copy.buffer };
+		this.speakers.postMessage(message, [copy.buffer]);
+	}
+
+	/** Runs as the agent reads them, numbering the voices that have no
+	 * number yet. */
+	tag(runs: Run[]): string {
+		return tag(runs, this.voices);
 	}
 
 	close(): void {
@@ -520,8 +569,15 @@ export class Listener {
 }
 
 /** A chunk the microphone heard, from and to where in seconds, how loud it
- * is, and the floor in force as it was heard, both in dBFS. */
-type Level = { from: number; to: number; loudness: number; floor: number };
+ * is, and the floor in force as it was heard, both in dBFS, and whether the
+ * speaker sounded as it was heard. */
+type Level = {
+	from: number;
+	to: number;
+	loudness: number;
+	floor: number;
+	sounding: boolean;
+};
 
 /** How far a chunk is above its floor, in dB: without a floor, every chunk
  * is, a silent one too. */

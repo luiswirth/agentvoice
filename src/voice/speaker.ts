@@ -1,5 +1,6 @@
 // The speaker: reads the others' chat messages aloud as they arrive, and
-// knows how much of each was heard.
+// knows how much of each was heard. It gives away the speech it plays, for
+// its voice to be known.
 import { Player } from "./audio.ts";
 import { type Piece, SPEECH_RATE, type Synthesizer } from "./engines.ts";
 import {
@@ -20,13 +21,9 @@ type Reading = {
 	done: boolean;
 };
 
-/** How much of what the speaker played the listener's words are matched
- * against, in seconds back from where it is: what its echo may still be. */
-const ECHO = 4;
-
-/** How many of the words heard must be, in order, words the speaker just
- * played for them to be its echo: Scribe mishears some of them. */
-const ECHOED = 0.7;
+/** How much speech, in seconds, the speaker gives away at once, and the
+ * least it gives away of a message's end: enough for its voice to show. */
+const GIVEN = { most: 4, least: 2 };
 
 /** How long before the speaker started a message may have arrived and
  * still be read, in seconds: one that came during a reload. */
@@ -50,11 +47,11 @@ export class Speaker {
 	private held = false;
 	/** Paused while the person has the floor. */
 	private yielded = false;
-	/** The words the message read last ended on, until when, in the page's
-	 * clock, their echo may still be heard. */
-	private tail: { words: string[]; until: number } = { words: [], until: 0 };
 	/** Called as the message being read changes, with none once none is. */
 	changed: (n: number | null) => void = () => {};
+	/** Called with speech it is to play, at `SPEECH_RATE`, a few seconds at
+	 * a time. */
+	played: (samples: Float32Array) => void = () => {};
 	failed: (error: Error) => void = () => {};
 
 	/** Reads the messages not from `name` once it has something to speak
@@ -130,39 +127,13 @@ export class Speaker {
 		return this.player.level();
 	}
 
-	/**
-	 * Whether what the listener heard is the speaker's own voice, back through
-	 * the microphone: words it played in the last few seconds. The browser's
-	 * echo cancellation lets it through at times, as loud as the person.
-	 */
-	echoes(text: string): boolean {
-		const heard = words(text);
-		if (heard.length === 0) return false;
-		const played = [
-			...(this.tail.until > performance.now() ? this.tail.words : []),
-			...this.readings.flatMap((reading) => {
-				const at = this.player.progress(reading.line);
-				// A word's alignment can run a little ahead of its sound.
-				return at > 0 ? words(sounded(reading, at - ECHO, at + 0.5)) : [];
-			}),
-		];
-		return common(heard, played) >= ECHOED * heard.length;
-	}
-
 	/** Lets go of the messages played to their end. */
 	private settle(): void {
 		const before = this.reading;
 		const playing = this.player.head;
 		this.readings = this.readings.filter((reading) => {
 			const kept = playing === null ? !reading.done : reading.line >= playing;
-			if (!kept) {
-				this.done(reading.n);
-				const end = reading.chars.at(-1)?.at ?? 0;
-				this.tail = {
-					words: words(sounded(reading, end - ECHO, end)),
-					until: performance.now() + ECHO * 1000,
-				};
-			}
+			if (!kept) this.done(reading.n);
 			return kept;
 		});
 		if (this.reading !== before) this.changed(this.reading);
@@ -256,6 +227,21 @@ export class Speaker {
 		// `start` is where the message's audio so far ends, `from` where the
 		// paragraph's began, which its characters are timed from.
 		let start = 0;
+		/** Speech not given away yet. */
+		let unsent: Float32Array[] = [];
+		let length = 0;
+		const give = (least: number) => {
+			if (length < least * SPEECH_RATE) return;
+			const samples = new Float32Array(length);
+			let at = 0;
+			for (const piece of unsent) {
+				samples.set(piece, at);
+				at += piece.length;
+			}
+			unsent = [];
+			length = 0;
+			this.played(samples);
+		};
 		const lines = speech(entry.text).map((paragraph, i) => {
 			let from: number | undefined;
 			return synthesizer.say(paragraph, (piece: Piece) => {
@@ -270,12 +256,16 @@ export class Speaker {
 					reading.chars.push({ char, at: from + at });
 				this.player.play(line, start, piece.samples);
 				start += piece.samples.length / SPEECH_RATE;
+				unsent.push(piece.samples);
+				length += piece.samples.length;
+				give(GIVEN.most);
 				return true;
 			});
 		});
 		Promise.all(lines)
 			.catch((error: Error) => this.failed(error))
 			.finally(() => {
+				give(GIVEN.least);
 				reading.done = true;
 				this.settle();
 			});
@@ -305,31 +295,4 @@ export class Speaker {
 		this.readings = this.readings.filter((reading) => reading.n !== n);
 		this.changed(this.reading);
 	}
-}
-
-/** The text of a reading between two times into it, in seconds. */
-function sounded(reading: Reading, from: number, to: number): string {
-	return reading.chars
-		.filter(({ at }) => at >= from && at <= to)
-		.map(({ char }) => char)
-		.join("");
-}
-
-/** A text's words, in lower case, without punctuation. */
-function words(text: string): string[] {
-	return text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
-}
-
-/** How many words two texts have in common, in order. */
-function common(a: string[], b: string[]): number {
-	let row = new Array<number>(b.length + 1).fill(0);
-	for (const x of a) {
-		const next = [0];
-		for (const [j, y] of b.entries())
-			next.push(
-				x === y ? (row[j] ?? 0) + 1 : Math.max(row[j + 1] ?? 0, next[j] ?? 0),
-			);
-		row = next;
-	}
-	return row[b.length] ?? 0;
 }

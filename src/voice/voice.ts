@@ -7,10 +7,13 @@
 // transcript, sent or dropped, is kept in this browser, the last to copy.
 // Words take the floor, pausing the speaker, and a message they end in
 // drops what was not heard of the agent's: any voice's words while the agent
-// named none, only a named voice's once it named any. While the speaker
-// plays, only a few words or a word to stop take it, so that a short answer
-// or a "mhm" goes out and the speaker reads on. Words that didn't count
-// while it played, as its echo or too quiet, show for a while, to send. What happens is heard
+// named none, only a named voice's once it named any. The voice the speaker
+// plays is its own, heard back as echo, which never takes the floor and is
+// never sent. While the speaker plays, words take the floor only once their
+// voice is known, and only a few words or a word to stop, so that a short
+// answer or a "mhm" goes out and the speaker reads on. Words that didn't
+// count, as its echo or too quiet while it played, show for a while, to
+// send. The listener only perceives, and this decides. What happens is heard
 // as short cues, so that voice seems responsive while nothing is said.
 // With turns ended by hand, the person records each message deliberately,
 // and sends or deletes it. Transcription and speech synthesis run on
@@ -19,7 +22,7 @@ import { Activity, type Progress } from "./activity.ts";
 import { holdAudioSession } from "./audio.ts";
 import { KeyRefused, Scribe, Speech } from "./elevenlabs.ts";
 import type { Heard, Synthesizer, Tier, Transcriber } from "./engines.ts";
-import { Listener } from "./listener.ts";
+import { Listener, type Segment } from "./listener.ts";
 import { Engines, LocalSynthesizer, LocalTranscriber } from "./local.ts";
 import { holdMedia } from "./media.ts";
 import {
@@ -163,6 +166,12 @@ export class Voice {
 	/** Whether the segment in progress has words, and whether they took the floor. */
 	private words = false;
 	private floor = false;
+	/** What was heard so far of the segment in progress, shown as `hearing`
+	 * once it may be the person's. */
+	private heard = "";
+	/** Whether the voice heard now is known, and whether the speaker played it. */
+	private known = false;
+	private played = false;
 	/** The log's order is the order things were said, so sends go one after another. */
 	private sent: Promise<unknown> = Promise.resolve();
 	private readonly watchers = new Set<() => void>();
@@ -357,6 +366,9 @@ export class Voice {
 		this.set({ switching: "listener", error: null, refused: false });
 		this.words = false;
 		this.floor = false;
+		this.heard = "";
+		this.known = false;
+		this.played = false;
 		try {
 			this.listener = await Listener.open(
 				(heard) => this.transcribe(heard),
@@ -369,49 +381,21 @@ export class Voice {
 						this.words = true;
 						this.claim();
 					},
-					voice: (voice) => {
+					voice: (number, played) => {
+						this.known = true;
+						this.played = played;
+						// The speaker's echo is no one speaking.
+						const voice = played ? undefined : number;
 						if (voice !== this.state.voice) this.set({ voice });
+						this.show();
 						this.claim();
 					},
-					partial: (hearing) => {
-						// Scribe's partials repeat the whole segment so far, mostly
-						// revising only its end, so a partial keeps what it adds to
-						// the start it shares with the last one, `kept` characters
-						// long where that is shorter than the last one, and its
-						// whole `text` where they share nothing, as after a send.
-						const last = this.state.hearing ?? "";
-						let kept = 0;
-						while (
-							kept < last.length &&
-							kept < hearing.length &&
-							last[kept] === hearing[kept]
-						)
-							kept++;
-						this.trace.event(
-							"partial",
-							kept === 0
-								? { text: hearing }
-								: kept === last.length
-									? { added: hearing.slice(kept) }
-									: { kept, added: hearing.slice(kept) },
-						);
-						this.set({ hearing });
+					partial: (heard) => {
+						this.heard = heard;
+						this.show();
 						this.claim();
 					},
-					missed: (text, echoed) => {
-						this.trace.event("missed", { text, echoed });
-						clearTimeout(this.missedClear);
-						this.set({ missed: { text, echoed } });
-						this.missedClear = setTimeout(
-							() => this.set({ missed: null }),
-							MISSED * 1000,
-						);
-					},
-					segment: (text) => {
-						this.trace.event("segment", { text });
-						if (text) this.set({ missed: null });
-						this.segment(text);
-					},
+					segment: (segment) => this.heardSegment(segment),
 					audio: (pcm) => this.trace.hear(pcm),
 					level: (level) => this.set({ level }),
 					trace: (event, data) => this.trace.event(event, data),
@@ -429,7 +413,7 @@ export class Voice {
 					},
 				},
 				() => (this.speaker?.playing ? ECHO_FLOOR : Number.NEGATIVE_INFINITY),
-				(text) => this.speaker?.echoes(text) ?? false,
+				() => this.speaker?.playing ?? false,
 				() => this.state.autoEnd || this.state.recording,
 			);
 			this.set({ listener: true, switching: null });
@@ -438,6 +422,70 @@ export class Voice {
 		} catch (error) {
 			this.set({ switching: null, ...failure(error as Error) });
 		}
+	}
+
+	/** Whether what is heard now may be the person's: not the speaker's
+	 * echo, and while the speaker plays, of a voice known not to be its. */
+	private mayBeTheirs(): boolean {
+		if (this.played) return false;
+		return this.known || !this.speaker?.playing;
+	}
+
+	/** Shows what was heard of the segment in progress, once it may be the
+	 * person's. */
+	private show(): void {
+		const hearing = this.heard;
+		if (hearing === this.state.hearing || !this.mayBeTheirs()) return;
+		// Scribe's partials repeat the whole segment so far, mostly
+		// revising only its end, so a partial keeps what it adds to
+		// the start it shares with the last one, `kept` characters
+		// long where that is shorter than the last one, and its
+		// whole `text` where they share nothing, as after a send.
+		const last = this.state.hearing ?? "";
+		let kept = 0;
+		while (
+			kept < last.length &&
+			kept < hearing.length &&
+			last[kept] === hearing[kept]
+		)
+			kept++;
+		this.trace.event(
+			"partial",
+			kept === 0
+				? { text: hearing }
+				: kept === last.length
+					? { added: hearing.slice(kept) }
+					: { kept, added: hearing.slice(kept) },
+		);
+		this.set({ hearing });
+	}
+
+	/** A segment heard: its words go to the draft, but for the speaker's
+	 * echo, or all of them if it never got loud. Those show for a while, to
+	 * send if they were the person's. */
+	private heardSegment({ runs, loud }: Segment): void {
+		const echo = runs.filter((run) => run.played);
+		const theirs = runs.filter((run) => !run.played);
+		const words = (some: typeof runs) => some.map((r) => r.text).join(" ");
+		if (echo.length > 0) this.trace.event("echo", { text: words(echo) });
+		const missed = !loud
+			? { text: words(runs), echoed: false }
+			: theirs.length === 0
+				? { text: words(echo), echoed: true }
+				: null;
+		if (missed?.text) {
+			this.trace.event("missed", missed);
+			clearTimeout(this.missedClear);
+			this.set({ missed });
+			this.missedClear = setTimeout(
+				() => this.set({ missed: null }),
+				MISSED * 1000,
+			);
+		}
+		const text = loud ? (this.listener?.tag(theirs) ?? "") : "";
+		this.trace.event("segment", { text });
+		if (text) this.set({ missed: null });
+		this.segment(text);
 	}
 
 	/** Sets the languages the person speaks. Listening hears them from its
@@ -528,6 +576,7 @@ export class Voice {
 					this.readEnded = performance.now();
 				this.set({ reading });
 			};
+			speaker.played = (samples) => this.listener?.played(samples);
 			speaker.failed = (error) => {
 				this.trace.event("failed", { error: error.message });
 				this.set(failure(error));
@@ -592,13 +641,12 @@ export class Voice {
 
 	/** Pauses the speaker for the words in progress, once they may take the floor. */
 	private claim(): void {
-		if (!this.words || this.floor) return;
+		if (!this.words || this.floor || !this.mayBeTheirs()) return;
 		const { names, voice } = this.state;
 		if (Object.keys(names).length > 0 && !(voice != null && voice in names))
 			return;
 		if (this.speaker?.playing) {
-			const said =
-				this.state.hearing.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+			const said = this.heard.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
 			if (said.length < FLOOR_WORDS && !said.some((word) => STOP.has(word)))
 				return;
 		}
@@ -771,6 +819,9 @@ export class Voice {
 		this.ending = null;
 		this.words = false;
 		this.floor = false;
+		this.heard = "";
+		this.known = false;
+		this.played = false;
 		this.set({
 			hearing: "",
 			draft: join(this.state.draft, text),
