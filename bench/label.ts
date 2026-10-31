@@ -88,7 +88,11 @@ const script = lines.flatMap((line, i) =>
 );
 
 const all = await scribe();
-const words = all.filter((w) => w.type === "word" && norm(w.text));
+// Scribe sometimes starts a word after a silence at the silence's start, such
+// as a "Hi" of 13 s: no word lasts more than a second.
+const words = all
+	.filter((w) => w.type === "word" && norm(w.text))
+	.map((w) => ({ ...w, start: Math.max(w.start, w.end - 1) }));
 
 // The free answers, from the prompter's times; the tap comes after the last
 // word, and the recorder hears of it a little later.
@@ -178,7 +182,7 @@ const said = [
 			.map((w, i) => +(w.start - (f.words[i]?.end ?? w.start)).toFixed(2))
 			.filter((g) => g >= 1),
 	})),
-].sort((a, b) => (a.start ?? Infinity) - (b.start ?? Infinity));
+].sort((a, b) => a.step - b.step);
 
 // The turns the agent should get, each a message: the parts of a turn
 // together, a free answer, and a cut-in on its own.
