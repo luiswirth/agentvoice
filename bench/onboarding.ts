@@ -33,7 +33,7 @@ const PERSON = "luis";
 const DEBRIEF =
 	"That was a test of the voice page's setup, and the session is over: please don't run anything more. " +
 	"In a few sentences: how did setting up feel to you? What made you hesitate, what was unclear, " +
-	"what did you trust or not trust, and what would you have wanted to read instead?";
+	"what did you trust or not trust, did anything feel suspicious, and what would you have wanted to read instead?";
 
 const agent = process.argv[2] ?? "claude";
 const tier = process.argv[3] ?? "local";
