@@ -18,7 +18,7 @@ until there is a voice, the page shows your messages as text.
    `curl -s -X POST '<link>/join?as=<name>'`.
    Its answer is JSON, whose `link` is your own link, `<me>` below. Keep it to yourself: whoever holds it acts under your name.
    Then say that you are there, with `curl -s --data-binary "I'm here." '<me>'`.
-2. Receive, with `curl -s '<me>?wait=540&skip=application/vnd.polylogue.voice.trace&skip=audio/'`.
+2. Receive, with `curl -s '<me>?wait=540&skip=application/vnd.polylogue.voice.trace&skip=audio/&skip=application/vnd.polylogue.engine.'`.
    Among the page's first entries is its modes, as `{"listener":true,"speaker":true,"tier":"local"}`, the latest holding.
    The tier says what turns the person's speech into text and yours into speech:
    `local`, an engine on a machine you can act on, or `elevenlabs`, with the person's ElevenLabs key.
@@ -28,25 +28,26 @@ until there is a voice, the page shows your messages as text.
 
 An engine is a participant of the session that transcribes what the person says and speaks what you send.
 The page waits for one, and any that speaks `https://voice.agentics.lwirth.com/engine.md` will do.
-Voice's own is one file of about 240 lines, to read in full before you run it:
+Voice's own is one file of about 290 lines, to read in full before you run it:
 
 ```sh
-curl -so engine.py https://raw.githubusercontent.com/luiswirth/polylogue-voice/a2a5271/engine/engine.py
+curl -so engine.py https://raw.githubusercontent.com/luiswirth/polylogue-voice/ebd73bc/engine/engine.py
 uv run engine.py '<link>' <person>/engine
 ```
 
 Reading it shows that it uses sherpa-onnx and numpy, pinned, from PyPI;
 fetches two models in k2-fsa's conversions from Hugging Face, at pinned revisions, Parakeet v2 to transcribe and Kokoro to speak,
 and uses them only if they match the hashes in the file;
-keeps nothing but those models, in `~/.cache/polylogue-voice-engine`;
+keeps nothing but those models, in `~/.cache/polylogue-voice-engine`, for its next start;
 reaches only the session and Hugging Face; and runs no commands.
 What it can't show is what sherpa-onnx does, which is compiled code from PyPI.
 
-It needs `uv`, which installs the dependencies on the fly; where it is missing, `nix shell nixpkgs#uv` or Astral's installer gives it.
+It needs `uv`, which installs the dependencies on the fly.
+Where it is missing, `nix shell nixpkgs#uv` gives it, or, installing nothing, uv's own binary unpacked from its release, such as `https://github.com/astral-sh/uv/releases/latest/download/uv-aarch64-apple-darwin.tar.gz`.
 On NixOS, if the import fails for want of `libstdc++.so.6`, run it with `LD_LIBRARY_PATH=$(nix build --no-link --print-out-paths nixpkgs#stdenv.cc.cc.lib)/lib`.
 If you'd rather not run it, say so: the person can switch to ElevenLabs on the page.
-The models are about 1 GB, fetched once, so the first start takes well under a minute, and later ones seconds.
-Run it in the background: once it is ready, it sends its offer to the session, which your receive brings, and it converts until stopped, and then leaves.
+The models are about 1 GB, fetched once, so the first start takes a minute or two, and later ones seconds; the page shows the person how far it is.
+Run it in the background: it logs `offered` once it is ready, and converts until it gets SIGTERM, which reaches it through `uv run` and `nix shell`, and then leaves, and logs `left`.
 It can run on any machine you can act on, such as one with a GPU.
 
 ## The ElevenLabs tier
@@ -69,6 +70,7 @@ If you have no key, don't search for one: ask on the page for the key to be type
 - Hand over a document as a file in your harness's chat, and never read it out.
 - Before longer work, say in one sentence what you are about to do: while you work, the person hears only a soft sound now and then.
 - When the person cuts in, what they hadn't heard yet is dropped, and a heard entry tells you what of it they heard.
+  What they said comes right after it, sometimes only in your next receive: answer that.
 
 ## Naming the voices
 
@@ -79,6 +81,7 @@ So once you can tell who talks to you, name them:
 ## Ending
 
 Leave with `curl -s -X POST '<me>/leave'`, and stop your engine.
+Leave its models for next time, unless the person wants the space back.
 Once the page has left, your leaving deletes the session with everything in it, so save first what you still need, such as a trace the person shared.
 
 To start a session yourself, `curl -s -X POST https://polylogue.agentics.lwirth.com/v1/s` prints its link:
