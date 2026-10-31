@@ -356,16 +356,16 @@ export class Voice {
 				else clearTimeout(this.readCue);
 			},
 		});
-		// The speaker is on from the start, the listener off, unless the tab
-		// had them otherwise before a reload. Their audio starts at the first
-		// gesture on the page.
+		// Both are on from the start, unless the tab had them otherwise
+		// before a reload: listening waits for someone to talk with, and its
+		// audio, as the speaker's, starts at the first gesture on the page.
 		const kept: Partial<Modes> = JSON.parse(
 			sessionStorage.getItem(this.modesKey) ?? "{}",
 		);
 		// The modes go out once both are on, not one at a time.
 		this.restoring = true;
 		const speaker = (kept.speaker ?? true) && this.setSpeaker(true);
-		const listener = kept.listener && this.setListener(true);
+		const listener = (kept.listener ?? true) && this.setListener(true);
 		void Promise.all([speaker, listener]).then(() => {
 			this.restoring = false;
 			return this.modes();
