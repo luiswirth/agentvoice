@@ -32,7 +32,7 @@ Voice's own is one file of about 290 lines, to read in full before you run it.
 It needs Python 3.12 or newer with the dependencies its header names, as PEP 723 has it, and runs however you give it those, such as with uv, which also fetches a matching Python where the machine's is older, as macOS's is:
 
 ```sh
-curl -so engine.py https://raw.githubusercontent.com/luiswirth/polylogue-voice/4c854cc/engine/engine.py
+curl -so engine.py https://raw.githubusercontent.com/luiswirth/polylogue-voice/b91a17e/engine/engine.py
 uv run engine.py '<link>' <person>/engine
 ```
 
