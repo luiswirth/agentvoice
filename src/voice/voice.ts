@@ -21,7 +21,7 @@
 // gathers in the draft until the person sends it. Transcription and speech synthesis run on
 // ElevenLabs or on an engine in the session, the tier the person chooses.
 import { Activity, type Progress } from "./activity.ts";
-import { holdAudioSession } from "./audio.ts";
+import { audioBlocked, holdAudioSession, watchAudio } from "./audio.ts";
 import { KeyRefused, Scribe, Speech } from "./elevenlabs.ts";
 import type { Heard, Synthesizer, Tier, Transcriber } from "./engines.ts";
 import { Listener, type Segment } from "./listener.ts";
@@ -95,6 +95,10 @@ export type VoiceState = Modes & {
 	engineVoice: string | null;
 	/** Whether the tier can speak now: an engine is in, or there is a key. */
 	ready: boolean;
+	/** Whether the browser holds the page's audio until a gesture on it, as
+	 * after a reload: until then the speaker is not heard, and the
+	 * microphone hears nothing. Any tap or key on the page starts it. */
+	blocked: boolean;
 };
 
 const TIER = "voice-tier";
@@ -266,7 +270,14 @@ export class Voice {
 		engineVoices: [],
 		engineVoice: null,
 		ready: false,
+		blocked: audioBlocked(),
 	};
+	private readonly unwatchAudio = watchAudio(() => {
+		const blocked = audioBlocked();
+		if (blocked === this.state.blocked) return;
+		this.trace.event("audio", { blocked });
+		this.set({ blocked });
+	});
 
 	/** `name` is the person's in the session, `key` their ElevenLabs key,
 	 * which only what runs on ElevenLabs needs, and `setKey` gives later. */
@@ -932,6 +943,7 @@ export class Voice {
 
 	close(): void {
 		this.unsubscribe();
+		this.unwatchAudio();
 		this.engines.close();
 		this.activity.close();
 		clearTimeout(this.working);

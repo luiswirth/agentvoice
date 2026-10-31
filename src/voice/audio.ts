@@ -1,13 +1,16 @@
 // The page's audio: one context for the microphone and the speaker, at the
 // device's own rate. Browsers start audio only from a user's gesture, so the
-// context is resumed by a switch's click, and by the first gesture anywhere
-// on the page, for the speaker that is on from the start.
+// context is resumed by a switch's click, and by any gesture anywhere on the
+// page, for the speaker that is on from the start. A touch counts only as it
+// ends, so its pointerdown alone starts nothing on a phone.
 import capture from "./capture.ts?worker&url";
 import { SPEECH_RATE } from "./engines.ts";
 
 let context: { audio: AudioContext; loaded: Promise<void> } | null = null;
+/** Called as the context starts or stops running. */
+const watchers = new Set<() => void>();
 
-for (const gesture of ["pointerdown", "keydown"])
+for (const gesture of ["pointerdown", "pointerup", "touchend", "keydown"])
 	window.addEventListener(gesture, () => void context?.audio.resume(), {
 		capture: true,
 	});
@@ -17,9 +20,26 @@ export function audioContext(): { audio: AudioContext; loaded: Promise<void> } {
 	if (context === null) {
 		const audio = new AudioContext();
 		context = { audio, loaded: audio.audioWorklet.addModule(capture) };
+		audio.addEventListener("statechange", () => {
+			for (const watcher of watchers) watcher();
+		});
+		for (const watcher of watchers) watcher();
 	}
 	void context.audio.resume();
 	return context;
+}
+
+/** Whether the browser holds the page's audio, which a gesture on the page
+ * starts: nothing it plays is heard, and the microphone hears nothing. */
+export function audioBlocked(): boolean {
+	return context !== null && context.audio.state !== "running";
+}
+
+/** Calls `watcher` as `audioBlocked` may have changed, until the returned
+ * function is called. */
+export function watchAudio(watcher: () => void): () => void {
+	watchers.add(watcher);
+	return () => watchers.delete(watcher);
 }
 
 /** The page's audio context if it runs, else null: for what may sound only

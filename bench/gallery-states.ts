@@ -27,6 +27,7 @@ export const base: VoiceState = {
 	engineVoices: [],
 	engineVoice: null,
 	ready: true,
+	blocked: false,
 };
 
 export const states: Record<string, Partial<VoiceState>> = {
