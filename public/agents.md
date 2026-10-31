@@ -31,7 +31,7 @@ The page waits for one, and any that speaks `https://voice.agentics.lwirth.com/e
 Voice's own is one file of about 290 lines, to read in full before you run it:
 
 ```sh
-curl -so engine.py https://raw.githubusercontent.com/luiswirth/polylogue-voice/ebd73bc/engine/engine.py
+curl -so engine.py https://raw.githubusercontent.com/luiswirth/polylogue-voice/4c854cc/engine/engine.py
 uv run engine.py '<link>' <person>/engine
 ```
 
@@ -42,12 +42,12 @@ keeps nothing but those models, in `~/.cache/polylogue-voice-engine`, for its ne
 reaches only the session and Hugging Face; and runs no commands.
 What it can't show is what sherpa-onnx does, which is compiled code from PyPI.
 
-It needs `uv`, which installs the dependencies on the fly.
-Where it is missing, `nix shell nixpkgs#uv` gives it, or, installing nothing, uv's own binary unpacked from its release, such as `https://github.com/astral-sh/uv/releases/latest/download/uv-aarch64-apple-darwin.tar.gz`.
+It needs Python 3.12 or newer with the dependencies its header names, as PEP 723 has it, and you may run it any way that gives it those.
+`uv run` does, and also fetches a matching Python where the machine's is older, as macOS's is.
 On NixOS, if the import fails for want of `libstdc++.so.6`, run it with `LD_LIBRARY_PATH=$(nix build --no-link --print-out-paths nixpkgs#stdenv.cc.cc.lib)/lib`.
 If you'd rather not run it, say so: the person can switch to ElevenLabs on the page.
 The models are about 1 GB, fetched once, so the first start takes a minute or two, and later ones seconds; the page shows the person how far it is.
-Run it in the background: it logs `offered` once it is ready, and converts until it gets SIGTERM, which reaches it through `uv run` and `nix shell`, and then leaves, and logs `left`.
+Run it in the background: it logs `offered` once it is ready, and converts until it gets SIGTERM, which reaches it through `uv run`, and then leaves, and logs `left`.
 It can run on any machine you can act on, such as one with a GPU.
 
 ## The ElevenLabs tier
