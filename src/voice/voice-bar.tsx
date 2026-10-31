@@ -1034,7 +1034,10 @@ function Settings(props: {
 					/>
 				</Row>
 				{local && state.engineVoices.length > 1 && (
-					<Row title="Voice" detail="The voice your agent speaks with.">
+					<Row
+						title="Voice"
+						detail="The voice of the first agent to speak. Each other agent gets a different one."
+					>
 						<EngineVoice voice={voice} state={state} />
 					</Row>
 				)}

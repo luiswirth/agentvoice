@@ -55,7 +55,14 @@ try {
 			});
 			const tab = await context.newPage();
 			await tab.goto(url);
-			if (tier === "local") await shot(tab, screen, "1-name");
+			if (tier === "local") {
+				// A name takes its form as it is typed: lower case, hyphens
+				// for spaces, no slash.
+				const input = tab.getByPlaceholder("Your name");
+				await input.pressSequentially("Luis Wirth/X");
+				console.log("name as typed:", await input.inputValue());
+				await shot(tab, screen, "1-name");
+			}
 			await tab.evaluate(() => localStorage.setItem("polylogue-name", "luis"));
 			await tab.reload();
 			await tab.waitForFunction(() => location.hash.includes("session="));
