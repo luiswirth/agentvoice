@@ -213,9 +213,24 @@ export class LocalTranscriber implements Transcriber {
 	}
 }
 
-/** Speaks through the engine, a line as a whole. */
+const sentences = new Intl.Segmenter("en", { granularity: "sentence" });
+
+/** The silence before a sentence that follows another, in seconds: the
+ * engine's speech has hardly any at its ends, and without it a sentence's
+ * end isn't heard. */
+const PAUSE = 0.4;
+
+/** Speaks through the engine a sentence at a time, so that the first plays
+ * while the rest is made. The engine gets one sentence at a time, the next as
+ * soon as the last is back: so it never idles while there is more to say, and
+ * nothing waits at it behind a line no longer wanted. */
 export class LocalSynthesizer implements Synthesizer {
+	/** The audio of lines, handed over in order. */
 	private queue: Promise<void> = Promise.resolve();
+	/** The requests to the engine, one after the other. */
+	private asking: Promise<unknown> = Promise.resolve();
+	/** Lines not yet handed over in full. */
+	private pending = 0;
 	private closed = false;
 	private readonly engines: Engines;
 
@@ -224,21 +239,50 @@ export class LocalSynthesizer implements Synthesizer {
 	}
 
 	say(line: string, piece: (piece: Piece) => boolean): Promise<void> {
-		// Asked at once, so that the engine works on it while the lines before play.
-		const asked = this.engines
-			.ask(JSON.stringify({ text: line }), SYNTHESIZE)
-			.then((entry) => this.engines.payload(entry));
-		const said = this.queue.then(async () => {
-			const audio = samples(await asked, SPEECH_RATE);
-			if (this.closed) return;
-			// The engine times no characters, so they are spread evenly over the line.
-			const seconds = audio.length / SPEECH_RATE;
-			const chars = [...line].map((char, i) => ({
-				char,
-				at: (i / line.length) * seconds,
-			}));
-			piece({ samples: audio, chars });
+		const texts = [...sentences.segment(line)]
+			.map(({ segment }) => segment.trim())
+			.filter((text) => /[\p{L}\p{N}]/u.test(text));
+		// A line said while another is still being made follows it.
+		const follows = this.pending > 0;
+		this.pending++;
+		let wanted = true;
+		const asked = texts.map((text) => {
+			const audio = this.asking.then(() =>
+				wanted && !this.closed
+					? this.engines
+							.ask(JSON.stringify({ text }), SYNTHESIZE)
+							.then((entry) => this.engines.payload(entry))
+					: null,
+			);
+			this.asking = audio.catch(() => {});
+			return audio;
 		});
+		const said = this.queue
+			.then(async () => {
+				for (const [i, audio] of asked.entries()) {
+					const data = await audio;
+					if (data === null || this.closed) return;
+					const speech = samples(data, SPEECH_RATE);
+					const pause = i > 0 || follows ? PAUSE : 0;
+					const all = new Float32Array(
+						Math.round(pause * SPEECH_RATE) + speech.length,
+					);
+					all.set(speech, all.length - speech.length);
+					// The engine times no characters, so they are spread evenly
+					// over the sentence, which joins the one before with a space.
+					const text = (i > 0 ? " " : "") + (texts[i] ?? "");
+					const seconds = speech.length / SPEECH_RATE;
+					const chars = [...text].map((char, j) => ({
+						char,
+						at: pause + (j / text.length) * seconds,
+					}));
+					if (!piece({ samples: all, chars })) {
+						wanted = false;
+						return;
+					}
+				}
+			})
+			.finally(() => this.pending--);
 		this.queue = said.catch(() => {});
 		return said;
 	}
