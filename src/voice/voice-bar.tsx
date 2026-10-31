@@ -52,6 +52,7 @@ import {
 } from "react";
 import type { Progress } from "./activity.ts";
 import { showMedia } from "./media.ts";
+import { agent } from "./protocol.ts";
 import type { Voice, VoiceState } from "./voice.ts";
 
 /** Someone else in the session, as its presence has them. */
@@ -81,6 +82,9 @@ export type Room = {
 	people: Present[];
 	/** What was said in it, oldest first: the stage shows the last few. */
 	turns: Turn[];
+	/** The agents in the order they first spoke, which picks each one's
+	 * shade. */
+	speakers: string[];
 	link: string;
 	leave: () => void;
 };
@@ -114,7 +118,12 @@ export function VoiceBar({
 				agent={state.speaker}
 				working={state.progress === "working" && state.reading === null}
 			/>
-			<Stage voice={voice} state={state} turns={room?.turns ?? []} />
+			<Stage
+				voice={voice}
+				state={state}
+				turns={room?.turns ?? []}
+				speakers={room?.speakers ?? []}
+			/>
 			<section
 				aria-label="Player"
 				className="flex w-full max-w-[30rem] shrink-0 flex-col rounded-[2rem] border border-white/10 bg-neutral-950/55 p-2 shadow-2xl shadow-black/60 backdrop-blur-xl"
@@ -122,6 +131,7 @@ export function VoiceBar({
 				<header className="flex h-10 items-center gap-1 pl-3">
 					<People
 						people={room?.people ?? []}
+						speakers={room?.speakers ?? []}
 						progress={state.progress}
 						elevenlabs={state.tier === "elevenlabs" ? state.ready : null}
 					/>
@@ -143,7 +153,11 @@ export function VoiceBar({
 						{state.error}
 					</p>
 				)}
-				<Line voice={voice} state={state} />
+				<Line
+					voice={voice}
+					state={state}
+					reader={readerOf(room, state.reading)}
+				/>
 				<Bar voice={voice} state={state} />
 			</section>
 			<Settings
@@ -308,10 +322,12 @@ function Stage({
 	voice,
 	state,
 	turns,
+	speakers,
 }: {
 	voice: Voice;
 	state: VoiceState;
 	turns: Turn[];
+	speakers: string[];
 }) {
 	const mine = turns.filter((turn) => turn.mine).slice(-SHOWN);
 	const theirs = turns.filter((turn) => !turn.mine).slice(-SHOWN);
@@ -326,8 +342,11 @@ function Stage({
 				{mine.map((turn, i) => (
 					<p
 						key={turn.n}
-						className="text-pretty text-foreground/40"
-						style={{ opacity: fade(i, mine.length + (live ? 1 : 0)) }}
+						className="text-pretty"
+						style={{
+							color: YOURS,
+							opacity: 0.45 * fade(i, mine.length + (live ? 1 : 0)),
+						}}
 					>
 						{unvoiced(turn.text)}
 					</p>
@@ -341,7 +360,10 @@ function Stage({
 						<div
 							key={turn.n}
 							className="flex flex-col gap-1.5"
-							style={{ opacity: reading ? 1 : fade(i, theirs.length) }}
+							style={{
+								...shade(speakers, turn.from),
+								opacity: reading ? 1 : fade(i, theirs.length),
+							}}
 						>
 							{named && (
 								<span className="text-xs tracking-widest text-agent/80 uppercase">
@@ -349,14 +371,8 @@ function Stage({
 								</span>
 							)}
 							<p
-								className={`text-pretty whitespace-pre-line transition-colors duration-500 ${reading ? "text-foreground" : "text-foreground/60"}`}
-								style={
-									reading
-										? {
-												color: "color-mix(in oklch, var(--agent) 25%, white)",
-											}
-										: undefined
-								}
+								className="text-pretty whitespace-pre-line transition-[color,opacity] duration-500"
+								style={{ color: THEIRS, opacity: reading ? 1 : 0.6 }}
 							>
 								{turn.text}
 							</p>
@@ -377,6 +393,29 @@ function Column({ children }: { children: ReactNode }) {
 			{children}
 		</div>
 	);
+}
+
+/** The colour of the person's words on the stage, and of an agent's, in
+ * the agent's own shade where an ancestor sets it. */
+const YOURS = "color-mix(in oklch, var(--you) 45%, white)";
+const THEIRS = "color-mix(in oklch, var(--agent) 60%, white)";
+
+/** The style that shows the agent `from` in its own shade of the agent
+ * colour, by its place among the `speakers`, as its voice is picked: one not
+ * heard yet takes the next. */
+function shade(speakers: string[], from: string): CSSProperties {
+	const n = speakers.indexOf(from);
+	const place = (n < 0 ? speakers.length : n) % 4;
+	return { "--agent": `var(--agent-${place})` } as CSSProperties;
+}
+
+/** The shade of the agent whose message `reading` is, if one is read. */
+function readerOf(
+	room: Room | undefined,
+	reading: number | null | undefined,
+): CSSProperties | undefined {
+	const from = room?.turns.find((turn) => turn.n === reading)?.from;
+	return room && from ? shade(room.speakers, from) : undefined;
 }
 
 /** How visible the `i`th of `count` turns is: the newest fully, each older
@@ -448,9 +487,9 @@ function Floor({ state }: { state: VoiceState }) {
 function Words({ voice, state }: { voice: Voice; state: VoiceState }) {
 	if (state.hearing)
 		return (
-			<p className="text-pretty">
+			<p className="text-pretty" style={{ color: YOURS }}>
 				{state.draft && <>{state.draft} </>}
-				<span className="text-foreground/55">{state.hearing}</span>
+				<span className="opacity-55">{state.hearing}</span>
 			</p>
 		);
 	return (
@@ -462,6 +501,7 @@ function Words({ voice, state }: { voice: Voice; state: VoiceState }) {
 				aria-label="What you said, to edit before sending"
 				rows={1}
 				className="resize-none overflow-hidden bg-transparent text-pretty outline-none [grid-area:1/1]"
+				style={{ color: YOURS }}
 				value={state.draft}
 				onChange={(event) => voice.setDraft(event.target.value)}
 			/>
@@ -473,17 +513,28 @@ function Words({ voice, state }: { voice: Voice; state: VoiceState }) {
  * the left what happens to the person's words, on the right what acts on them.
  * With words, where they go, with Delete and Send; else the words just not
  * sent, or just deleted, with the way back; else only where words would go. */
-function Line({ voice, state }: { voice: Voice; state: VoiceState }) {
+function Line({
+	voice,
+	state,
+	reader,
+}: {
+	voice: Voice;
+	state: VoiceState;
+	/** The shade of the agent read now, which the voice's wave takes. */
+	reader: CSSProperties | undefined;
+}) {
 	const words = Boolean(state.draft || state.hearing);
 	let text: ReactNode = <Heard voice={voice} state={state} />;
 	let wave = true;
 	let actions: ReactNode = (
-		<Wave
-			level={() => voice.speakerLevel()}
-			on={state.speaker}
-			color="--agent"
-			label="Your agent's voice"
-		/>
+		<span className="contents" style={reader}>
+			<Wave
+				level={() => voice.speakerLevel()}
+				on={state.speaker}
+				color="--agent"
+				label="Your agent's voice"
+			/>
+		</span>
 	);
 	if (words || state.missed || state.dropped) wave = false;
 	if (words)
@@ -700,17 +751,19 @@ function label(name: string): string {
  * where the person's last message is: not read yet, or worked on. */
 function People({
 	people,
+	speakers,
 	progress,
 	elevenlabs,
 }: {
 	people: Present[];
+	speakers: string[];
 	progress: Progress;
 	/** On the ElevenLabs tier, whether it is ready, which shows it as the
 	 * local tier's engine shows: null on the local tier. */
 	elevenlabs: boolean | null;
 }) {
 	return (
-		<ul className="flex min-w-0 flex-1 items-center gap-4 overflow-hidden">
+		<ul className="flex min-w-0 flex-1 items-center gap-4 overflow-x-auto [scrollbar-width:none]">
 			{people.length === 0 && (
 				<li className="text-sm text-muted-foreground">Only you</li>
 			)}
@@ -722,7 +775,12 @@ function People({
 							? "here, listening"
 							: `busy${person.since ? ` since ${new Date(person.since).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}`
 					}`}
-					className="flex min-w-0 animate-[arrive_0.4s_ease-out] items-center gap-2 text-sm text-foreground/85"
+					className="flex shrink-0 animate-[arrive_0.4s_ease-out] items-center gap-2 text-sm whitespace-nowrap text-foreground/85"
+					style={
+						agent(person.name) && !person.engine
+							? shade(speakers, person.name)
+							: undefined
+					}
 				>
 					{person.engine ? (
 						<Cpu
@@ -731,12 +789,14 @@ function People({
 					) : (
 						<span
 							aria-hidden
-							className={`size-2 shrink-0 rounded-full transition ${person.receiving ? "bg-agent shadow-[0_0_8px_var(--agent)]" : "border border-agent/70"}`}
+							className={`size-2 shrink-0 rounded-full transition ${!agent(person.name) ? "bg-you/45" : person.receiving ? "bg-agent shadow-[0_0_8px_var(--agent)]" : "border border-agent/70"}`}
 						/>
 					)}
-					<span className="truncate">
+					<span>
 						{person.engine ? (
-							<span className="text-muted-foreground">local</span>
+							<span className="hidden text-muted-foreground sm:inline">
+								local
+							</span>
 						) : (
 							label(person.name)
 						)}
@@ -758,7 +818,7 @@ function People({
 					<Cpu
 						className={`size-3.5 shrink-0 ${elevenlabs ? "text-agent" : "text-muted-foreground"}`}
 					/>
-					ElevenLabs
+					<span className="hidden sm:inline">ElevenLabs</span>
 				</li>
 			)}
 		</ul>
@@ -778,11 +838,16 @@ function Leave({ leave }: { leave: () => void }) {
 		<button
 			type="button"
 			title="Leave the session: once everyone has left, it is deleted"
+			aria-label={sure ? "Leave for good?" : "Leave"}
 			className={`flex h-10 shrink-0 items-center gap-1.5 rounded-full px-3 text-sm transition [&_svg]:size-4 ${sure ? "bg-destructive/15 text-destructive" : "text-muted-foreground hover:bg-white/10 hover:text-foreground"}`}
 			onClick={() => (sure ? leave() : setSure(true))}
 		>
 			<LogOut />
-			{sure ? "Leave for good?" : "Leave"}
+			{sure ? (
+				"Leave for good?"
+			) : (
+				<span className="hidden sm:inline">Leave</span>
+			)}
 		</button>
 	);
 }

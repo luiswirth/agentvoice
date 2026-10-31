@@ -77,9 +77,14 @@
 	--chart-4: oklch(0.371 0 0);
 	--chart-5: oklch(0.269 0 0);
 	--radius: 0.625rem;
-	/* The two voices: the person's warm, the agent's cool. */
+	/* The two sides: the person's warm, the agents' cool, each agent in a
+	 * shade of its own, by its place among them, as its voice is. */
 	--you: oklch(0.84 0.14 68);
-	--agent: oklch(0.72 0.15 268);
+	--agent-0: oklch(0.72 0.15 268);
+	--agent-1: oklch(0.76 0.12 225);
+	--agent-2: oklch(0.7 0.16 300);
+	--agent-3: oklch(0.82 0.08 250);
+	--agent: var(--agent-0);
 	--sidebar: oklch(0.985 0 0);
 	--sidebar-foreground: oklch(0.145 0 0);
 	--sidebar-primary: oklch(0.205 0 0);

@@ -42,6 +42,8 @@ export const states: Record<string, Partial<VoiceState>> = {
 	blocked: { speaker: true, reading: 4, blocked: true },
 	languages: { listener: true, languages: ["en", "de"] },
 	"agent-speaking": { listener: true, speaker: true, reading: 4 },
+	// The second agent read, in its own shade, its wave too.
+	"second-agent-speaking": { listener: true, speaker: true, reading: 5 },
 	missed: {
 		listener: true,
 		speaker: true,

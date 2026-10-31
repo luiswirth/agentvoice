@@ -15,7 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { checkKey, KeyRefused } from "./voice/elevenlabs.ts";
 import type { Tier } from "./voice/engines.ts";
-import { agent as isAgent, spoken } from "./voice/protocol.ts";
+import { agent as isAgent, speakers, spoken } from "./voice/protocol.ts";
 import {
 	chooseTier,
 	chosenTier,
@@ -271,6 +271,7 @@ function Page({ name, rename }: { name: string; rename: () => void }) {
 											mine: entry.from === name,
 											text: entry.text,
 										})),
+									speakers: speakers(entries),
 									link: session.link,
 									leave: () => void leave(),
 								}

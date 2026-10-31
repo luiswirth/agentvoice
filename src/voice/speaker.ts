@@ -8,6 +8,7 @@ import {
 	type Entry,
 	type Heard,
 	type Session,
+	speakers,
 	speech,
 	spoken,
 } from "./protocol.ts";
@@ -76,14 +77,12 @@ export class Speaker {
 		return entry.from !== this.name && agent(entry.from) && spoken(entry);
 	}
 
-	/** Which of the tier's voices reads the agent `from`: each its own, in
-	 * the order the agents first spoke in the session, which a reload keeps,
-	 * since the log holds the session from its start. */
+	/** Which of the tier's voices reads the agent `from`: each its own, by
+	 * its place among the `speakers`. */
 	private voiceOf(from: string): number {
-		const agents: string[] = [];
-		for (const entry of this.session.log)
-			if (this.wanted(entry) && !agents.includes(entry.from))
-				agents.push(entry.from);
+		const agents = speakers(this.session.log).filter(
+			(other) => other !== this.name,
+		);
 		const n = agents.indexOf(from);
 		return n < 0 ? agents.length : n;
 	}

@@ -54,6 +54,9 @@ const room: Room = {
 			receiving: state.progress !== "working",
 			engine: false,
 		},
+		// A second agent, in a shade of its own, and another person.
+		{ name: "ben/codex", receiving: true, engine: false },
+		{ name: "tristan", receiving: true, engine: false },
 		...(state.engine
 			? [{ name: "luis/claude/engine", receiving: true, engine: true }]
 			: []),
@@ -87,7 +90,14 @@ const room: Room = {
 						mine: false,
 						text: "I'd wait longer after an unfinished sentence, and keep the rest as it is. Should I measure it first?",
 					},
+					{
+						n: 5,
+						from: "ben/codex",
+						mine: false,
+						text: "I have the numbers from yesterday, if that helps.",
+					},
 				],
+	speakers: name === "off" ? [] : ["luis/claude", "ben/codex"],
 	link: "https://polylogue.agentics.lwirth.com/s/abc123",
 	leave: () => {},
 };

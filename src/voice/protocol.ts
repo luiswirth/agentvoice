@@ -54,6 +54,17 @@ export function agent(name: string): boolean {
 	return name.includes("/");
 }
 
+/** The agents in the order they first spoke in `log`: an agent's place
+ * picks the voice it is read with and the shade of the agent colour it shows
+ * in. A reload keeps it, since the log holds the session from its start. */
+export function speakers(log: Entry[]): string[] {
+	const order: string[] = [];
+	for (const entry of log)
+		if (agent(entry.from) && spoken(entry) && !order.includes(entry.from))
+			order.push(entry.from);
+	return order;
+}
+
 /** Whether an entry is a chat message the speaker reads: never a file, which
  * speech makes of any entry with a filename. */
 export function spoken(entry: Entry): entry is Entry & { text: string } {
