@@ -57,6 +57,7 @@ Each page posts its own, so where the person joined on several, send the key to 
 To send it, fetch the public key, encrypt and send, as the transport's spec shows under Secrets.
 A key said in your chat stays in your harness's transcript and goes to your model's provider;
 the person can also type it into the page.
+If you have no key, don't search for one: ask on the page for the key to be typed in there, and keep receiving, since the person talks to you once the page has it.
 
 ## Talking
 
