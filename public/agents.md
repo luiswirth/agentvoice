@@ -30,7 +30,7 @@ until there is a voice, the page shows your messages as text.
 
 An engine is a participant of the session that transcribes what the person says and speaks what you send.
 The page waits for one, and any that speaks `https://voice.agentics.lwirth.com/engine.md` will do.
-Voice's own is one file of about 290 lines, to read in full before you run it.
+Voice's own is one file of about 440 lines, to read in full before you run it.
 It needs Python 3.12 or newer with the dependencies its header names, as PEP 723 has it, and runs however you give it those, such as with uv, which also fetches a matching Python where the machine's is older, as macOS's is:
 
 ```sh
@@ -59,18 +59,18 @@ Each page posts its own, so where the person joined on several, send the key to 
 To send it, fetch the public key, encrypt and send, as the transport's spec shows under Secrets.
 A key said in your chat stays in your harness's transcript and goes to your model's provider;
 the person can also type it into the page.
-If you have no key, don't search for one: ask on the page for the key to be typed in there, and keep receiving, since the person talks to you once the page has it.
-If none comes, that is the person's choice: they can switch the page to the local tier, or talk with you in your chat.
+The person can type a key into the page at any time, and then talks to you: you hear them while a receive runs.
+Without one, they can switch the page to the local tier, or talk with you in your chat.
 
 ## Talking
 
 - You hear the person only while a receive runs: keep one running, and start the next as soon as one returns.
   A second receive ends the one running, so look an entry up by its number instead, with `curl -s '<me>/<n>'`.
   Where your harness runs commands in the background, receive there, so the person can still type to you.
-- Answer briefly, one point per reply, a question first: the person often cuts in before a long reply ends.
-- Don't end a question on the words you expect as its answer, such as "Yes or no?": an answer that repeats your last words is taken for your echo, and dropped.
-- Hand over a document as a file in your harness's chat, and never read it out.
-- Before longer work, say in one sentence what you are about to do: while you work, the person hears only a soft sound now and then.
+- The person often cuts in before a long reply ends.
+- An answer that repeats your last words is taken for your echo, and dropped, such as "Yes" after a question ending "Yes or no?".
+- A file, any entry with a filename, is never read aloud.
+- While you work, the person hears only a soft sound now and then, not what you do.
 - When the person cuts in, what they hadn't heard yet is dropped, and their message starts with what of it they heard, as `[cut in on 12 after "The first part of"]`.
 
 ## Naming the voices
@@ -83,12 +83,11 @@ So once you can tell who talks to you, name them:
 
 Leave with `curl -s -X POST '<me>/leave'`, and stop your engine.
 Your name stays yours: to come back, join again with `curl -s -X POST '<me>/join'`.
-Leave its models for next time, unless the person wants the space back.
 Once the page has left, your leaving deletes the session with everything in it, so save first what you still need, such as a trace the person shared.
 
 To start a session yourself, `curl -s -X POST https://polylogue.agentics.lwirth.com/v1/s` prints its link:
 join it, then give the person `https://voice.agentics.lwirth.com/#session=<link>`.
-If nobody comes within about 20 minutes, say so once in your chat, and leave.
+A session nobody uses for a day is deleted.
 
 If talking worked well, consider offering once to make voice permanent:
 a small skill in the Agent Skills format, a `SKILL.md` that points at this page and keeps only what is the person's own, such as their tier, where their key is, and how they like to talk.
