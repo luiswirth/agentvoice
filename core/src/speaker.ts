@@ -1,23 +1,23 @@
-// The speaker: reads the others' chat messages aloud as they arrive, and
+// The speaker: reads the agents' messages aloud as the host gives them, and
 // knows how much of each was heard. It gives away the speech it plays, for
 // its voice to be known.
-import { Player } from "./audio.ts";
-import { type Piece, SPEECH_RATE, type Synthesizer } from "./engines.ts";
-import {
-	agent,
-	type Entry,
-	type Heard,
-	type Session,
-	speakers,
-	speech,
-	spoken,
-} from "./protocol.ts";
+import { Player } from "./player.ts";
+import { speech } from "./speech.ts";
+import { type Piece, SPEECH_RATE, type Synthesizer } from "./tier.ts";
+
+/** A message to read: `id` is the host's, `voice` which of the tier's
+ * voices reads it, 0 the one the person chose, each further one apart from
+ * those before. */
+export type Message = { id: string; text: string; voice?: number };
+
+/** What was heard of message `id`, to within a word, and whether all of it was. */
+export type Heard = { id: string; text: string; whole: boolean };
 
 /** A message being read: its characters with when each starts, in seconds
  * into it. `line` is the player's, new for every reading, so that a message
  * read again starts from nothing. */
 type Reading = {
-	n: number;
+	id: string;
 	line: number;
 	chars: { char: string; at: number }[];
 	/** How many characters the whole message is read as. */
@@ -29,19 +29,10 @@ type Reading = {
  * least it gives away of a message's end: enough for its voice to show. */
 const GIVEN = { most: 4, least: 2 };
 
-/** How long before the speaker started a message may have arrived and
- * still be read, in seconds: one that came during a reload. */
-const RECENT = 10;
-
 export class Speaker {
 	/** What speaks, while the tier can. */
 	private speech: Synthesizer | null = null;
-	/** The last entry before the speaker started. */
-	private readonly started: number;
-	private readonly player = new Player();
-	private readonly session: Session;
-	private readonly name: string;
-	private readonly unsubscribe: () => void;
+	readonly player = new Player();
 	/** The messages queued or playing, oldest first. */
 	private readings: Reading[] = [];
 	private lines = 0;
@@ -52,39 +43,16 @@ export class Speaker {
 	/** Paused while the person has the floor. */
 	private yielded = false;
 	/** Called as the message being read changes, with none once none is. */
-	changed: (n: number | null) => void = () => {};
+	changed: (id: string | null) => void = () => {};
 	/** Called with speech it is to play, at `SPEECH_RATE`, a few seconds at
 	 * a time. */
 	played: (samples: Float32Array) => void = () => {};
+	/** Called once it is done with a message: read to its end, or dropped. */
+	done: (heard: Heard) => void = () => {};
 	failed: (error: Error) => void = () => {};
 
-	/** Reads the messages not from `name` once it has something to speak
-	 * with, as `use` gives it. */
-	constructor(session: Session, name: string) {
-		this.session = session;
-		this.name = name;
+	constructor() {
 		this.player.changed = () => this.settle();
-		this.started = session.log.at(-1)?.n ?? 0;
-		this.unsubscribe = session.subscribe({
-			entry: (entry) => {
-				if (entry.n > this.started && this.speech && this.wanted(entry))
-					this.read(entry);
-			},
-		});
-	}
-
-	private wanted(entry: Entry): entry is Entry & { text: string } {
-		return entry.from !== this.name && agent(entry.from) && spoken(entry);
-	}
-
-	/** Which of the tier's voices reads the agent `from`: each its own, by
-	 * its place among the `speakers`. */
-	private voiceOf(from: string): number {
-		const agents = speakers(this.session.log).filter(
-			(other) => other !== this.name,
-		);
-		const n = agents.indexOf(from);
-		return n < 0 ? agents.length : n;
 	}
 
 	/** Whether it has something to speak with. */
@@ -92,43 +60,22 @@ export class Speaker {
 		return this.speech !== null;
 	}
 
-	/**
-	 * Speaks with `speech` from now on, or with nothing while the tier can't
-	 * speak, when the messages that arrive go unread. Given something, it
-	 * reads at once the messages after entry `after`, from which on the tier
-	 * could speak, except those this tab already read, heard or dropped; of
-	 * those from before it started, only the ones that arrived just before,
-	 * as during a reload. None from further back: the person may have heard
-	 * or read them, and can have the last read again.
-	 */
-	use(speech: Synthesizer | null, after = 0): void {
+	/** Speaks with `speech` from now on, or with nothing while the tier can't
+	 * speak, when the messages given go unread. */
+	use(speech: Synthesizer | null): void {
+		if (speech === this.speech) return;
 		this.speech?.close();
 		this.speech = speech;
-		if (!speech) return;
-		const since = Number(sessionStorage.getItem(this.key) ?? 0);
-		const recent = Date.now() - RECENT * 1000;
-		for (const entry of this.session.log)
-			if (
-				entry.n > Math.max(after, since) &&
-				(entry.n > this.started || Date.parse(entry.time) > recent) &&
-				this.wanted(entry)
-			)
-				this.read(entry);
 	}
 
-	/** Where the tab keeps the last message it is done with, so that a reload
-	 * reads none of them again. */
-	private readonly key = `voice-read ${location.href}`;
-
-	/** Done with every message up to `n`: read to its end, or dropped. */
-	private done(n: number): void {
-		if (n > Number(sessionStorage.getItem(this.key) ?? 0))
-			sessionStorage.setItem(this.key, String(n));
+	/** Reads a message, after those queued. */
+	speak(message: Message): void {
+		this.read(message);
 	}
 
 	/** The message being read, if one is: the one playing, or else the next to. */
-	get reading(): number | null {
-		return this.readings[0]?.n ?? null;
+	get reading(): string | null {
+		return this.readings[0]?.id ?? null;
 	}
 
 	/** Whether the speaker is sounding now. */
@@ -158,7 +105,8 @@ export class Speaker {
 		const playing = this.player.head;
 		this.readings = this.readings.filter((reading) => {
 			const kept = playing === null ? !reading.done : reading.line >= playing;
-			if (!kept) this.done(reading.n);
+			if (!kept)
+				this.done({ id: reading.id, text: this.heard(reading), whole: true });
 			return kept;
 		});
 		if (this.reading !== before) this.changed(this.reading);
@@ -190,71 +138,62 @@ export class Speaker {
 		else if (!this.yielded) this.player.resume();
 	}
 
-	/** The last message the others sent, to read again. */
-	get last(): (Entry & { text: string }) | undefined {
-		return this.session.log.findLast(
-			(entry): entry is Entry & { text: string } =>
-				entry.from !== this.name && spoken(entry),
-		);
-	}
-
-	/** Reads the last message again from its start, before anything queued. */
-	replay(): void {
-		const last = this.last;
-		if (last === undefined || !this.speech) return;
-		for (const { n } of this.readings) this.drop(n);
-		this.read(last);
+	/** Reads a message again from its start, before anything queued. */
+	replay(message: Message): void {
+		if (!this.speech) return;
+		for (const { id } of this.readings) this.drop(id);
+		this.read(message);
 	}
 
 	/** Drops the message being read, and plays on with the next. */
 	skip(): void {
 		const first = this.readings[0];
-		if (first !== undefined) this.drop(first.n);
+		if (first !== undefined) this.drop(first.id);
 	}
 
 	/**
 	 * Drops every message not yet heard to its end, as the person cuts in,
 	 * since each was written before what cut it off: what was heard of each,
-	 * empty for one still queued, which goes to the log before what cut it off.
+	 * empty for one still queued.
 	 */
 	interrupt(): Heard[] {
 		const heard = this.readings.map((reading) => ({
-			n: reading.n,
+			id: reading.id,
 			text: this.heard(reading),
+			whole: false,
 		}));
-		for (const { n, line } of this.readings) {
+		for (const { line } of this.readings) {
 			this.dropped.add(line);
 			this.player.stop(line);
-			this.done(n);
 		}
 		this.readings = [];
+		for (const each of heard) this.done(each);
 		this.resume();
 		this.changed(this.reading);
 		return heard;
 	}
 
 	close(): void {
-		this.unsubscribe();
 		for (const { line } of this.readings) this.dropped.add(line);
 		this.readings = [];
 		this.player.stop();
 		this.speech?.close();
 	}
 
-	private read(entry: Entry & { text: string }): void {
+	private read(message: Message): void {
 		const synthesizer = this.speech;
 		if (!synthesizer) return;
 		const line = ++this.lines;
-		const paragraphs = speech(entry.text);
+		const paragraphs = speech(message.text);
 		const reading: Reading = {
-			n: entry.n,
+			id: message.id,
 			line,
 			chars: [],
 			length: paragraphs.join(" ").length,
 			done: false,
 		};
 		this.readings.push(reading);
-		if (this.readings.length === 1) this.changed(entry.n);
+		if (this.readings.length === 1) this.changed(message.id);
 		// Each paragraph is a line of its own, timed on from the one before:
 		// `start` is where the message's audio so far ends, `from` where the
 		// paragraph's began, which its characters are timed from.
@@ -274,7 +213,6 @@ export class Speaker {
 			length = 0;
 			this.played(samples);
 		};
-		const voice = this.voiceOf(entry.from);
 		const lines = paragraphs.map((paragraph, i) => {
 			let from: number | undefined;
 			return synthesizer.say(
@@ -296,7 +234,7 @@ export class Speaker {
 					give(GIVEN.most);
 					return true;
 				},
-				voice,
+				message.voice ?? 0,
 			);
 		});
 		Promise.all(lines)
@@ -323,13 +261,13 @@ export class Speaker {
 			.trim();
 	}
 
-	private drop(n: number): void {
-		this.done(n);
-		for (const reading of this.readings.filter((r) => r.n === n)) {
+	private drop(id: string): void {
+		for (const reading of this.readings.filter((r) => r.id === id)) {
 			this.dropped.add(reading.line);
 			this.player.stop(reading.line);
+			this.done({ id, text: this.heard(reading), whole: false });
 		}
-		this.readings = this.readings.filter((reading) => reading.n !== n);
+		this.readings = this.readings.filter((reading) => reading.id !== id);
 		this.changed(this.reading);
 	}
 }

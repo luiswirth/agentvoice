@@ -1,28 +1,11 @@
 // The reflexes' models, on ONNX Runtime Web: Silero VAD hears whether the
 // person speaks, Smart Turn whether they sound finished, and ReDimNet2 gives
-// each stretch its voice fingerprint. Each is fetched once, at a pinned
-// revision, checked against its hash.
-import mjs from "onnxruntime-web/ort-wasm-simd-threaded.mjs?url";
-import wasm from "onnxruntime-web/ort-wasm-simd-threaded.wasm?url";
+// each stretch its voice fingerprint. Each is at a pinned revision, with its
+// hash, for the host to fetch and check; where ONNX Runtime finds its own
+// files is the host's to set up too.
 import * as ort from "onnxruntime-web/wasm";
 import { logMel, MEL_BINS } from "./mel.ts";
 import { CONTEXT, type Models, WINDOW } from "./turns.ts";
-
-/**
- * Sets up ONNX Runtime in a worker, before its first session. ONNX Runtime
- * builds only with threads, so its memory is shared, and Safari reserves a
- * shared memory's whole maximum up front: the iPhone runs out after a few.
- * ONNX Runtime's maximum of 4 GiB is fixed in its build, so voice carries a
- * patch of its glue (`patches/`) that lowers it to 256 MiB, which it loads
- * rather than the glue in its bundle. Turn detection needs 49 MiB; in it, the
- * fingerprint model embeds up to 15 s at once, as measured in Chromium, and
- * the listener gives it at most 10.
- */
-export function setUpOnnxRuntime(): void {
-	ort.env.wasm.wasmPaths = { mjs, wasm };
-	// Threads need a cross-origin isolated page.
-	ort.env.wasm.numThreads = 1;
-}
 
 export type Model = { url: string; integrity: string };
 
@@ -41,29 +24,12 @@ export const SMART_TURN: Model = {
 /** The voice fingerprint: ReDimNet2 b3, trained on VoxBlink2, VoxCeleb2 and
  * CN-Celeb, in voice's own export (`models/export-redimnet2.py`), 19 MB, which
  * the page serves itself. It takes raw 16 kHz audio of any length and gives a
- * 192-dimensional embedding, compared by cosine. `url` is relative to the
- * page, which a worker doesn't know on its own. */
+ * 192-dimensional embedding, compared by cosine. `url` is relative to
+ * where the host serves voice's files: in this repository, `public/`. */
 export const REDIMNET2: Model = {
 	url: "models/redimnet2-b3-vb2-vox2-cnc2-lm.onnx",
 	integrity: "sha256-moKKovf+N6NMQ8i2uGjyyNqXAwybYvwVLvKXYvFF+ac=",
 };
-
-const CACHE = "voice-models";
-
-/** A model's bytes, from the browser's cache once fetched. */
-export async function fetchModel({
-	url,
-	integrity,
-}: Model): Promise<Uint8Array> {
-	const cache = await caches.open(CACHE);
-	const cached = await cache.match(url);
-	if (cached !== undefined) return new Uint8Array(await cached.arrayBuffer());
-	const response = await fetch(url, { integrity });
-	if (!response.ok)
-		throw new Error(`Fetching ${url} failed: ${response.status}`);
-	await cache.put(url, response.clone());
-	return new Uint8Array(await response.arrayBuffer());
-}
 
 /** The audio Smart Turn hears: the last 8 s. */
 const HEARD = 8 * 16_000;

@@ -8,6 +8,9 @@
 // public relay. `TIER=local` has the page hear and speak through voice's engine,
 // which the bench starts in the session. `SHOTS=<seconds>` takes a screenshot of
 // the page that often, into bench/.cache/shots, at `VIEWPORT=<width>x<height>`.
+// `THROTTLE=<rate>` slows the page's CPU down that many times, as a phone's.
+// `ANSWER=<text>` has the agent answer with it rather than "Okay.", so that a
+// long one is read while the person speaks on.
 // A run fails where nothing reached the agent, or none of its answers was read.
 import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -51,7 +54,7 @@ await agent.join();
 agent.subscribe({
 	entry: (entry) => {
 		if (entry.from === "person" && entry.type.startsWith("text/plain"))
-			void agent.send("Okay.", { type: "text/plain" });
+			void agent.send(process.env.ANSWER ?? "Okay.", { type: "text/plain" });
 	},
 });
 
@@ -119,6 +122,12 @@ try {
 		[key, process.env.TIER ?? "elevenlabs", scenario === null] as const,
 	);
 	const tab = await context.newPage();
+	const throttle = Number(process.env.THROTTLE ?? 1);
+	if (throttle > 1)
+		await (await context.newCDPSession(tab)).send(
+			"Emulation.setCPUThrottlingRate",
+			{ rate: throttle },
+		);
 	tab.on("pageerror", (error) =>
 		console.error("page:", error.stack ?? error.message),
 	);
@@ -282,9 +291,11 @@ function report(
 		`cut off: ${cut}, merged: ${merged}, of no turn: ${stray.length}`,
 	);
 	const read = events.filter(
-		(e) => e.event === "reading" && typeof e.n === "number",
+		(e) => e.event === "reading" && typeof e.id === "string",
 	).length;
 	console.log(`answers read: ${read}`);
+	const short = events.findLast((e) => e.event === "short")?.samples ?? 0;
+	console.log(`playback short of samples: ${short}`);
 	return { sends: sends.length, read };
 }
 

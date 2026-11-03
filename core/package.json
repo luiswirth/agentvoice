@@ -1,0 +1,11 @@
+{
+	"name": "voice-core",
+	"private": true,
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"dependencies": {
+		"onnxruntime-web": "^1.30.0"
+	}
+}

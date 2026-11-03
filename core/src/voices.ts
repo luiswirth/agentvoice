@@ -1,13 +1,14 @@
 // Which voice said what: every stretch of speech gets the number of the voice
 // it sounds like, the closest voice heard before if close enough, a new one
 // otherwise if it is long enough, and the words of a segment are tagged by the voice of their
-// stretch, as `[voice 1] ...`. The page doesn't know who a voice is, except
+// stretch, as `[voice 1] ...`. The core doesn't know who a voice is, except
 // for the voices the speaker plays, which it hears as they are played: the
 // agent's, whose echo through the microphone is thus known by its sound.
-// Embeddings are kept across reloads, so are voices' numbers, as long as the
+// Embeddings are kept in the store, so are voices' numbers, as long as the
 // fingerprint model stays the same.
-import type { Word } from "./engines.ts";
 import { REDIMNET2 } from "./models.ts";
+import type { Store } from "./store.ts";
+import type { Word } from "./tier.ts";
 
 /** How close an embedding must be to a voice's mean to be that voice, as
  * the cosine: on LibriSpeech, 1% of other voices' stretches of a second come
@@ -38,9 +39,12 @@ export type Stretch = {
 	played: boolean;
 };
 
-/** The voices heard so far, kept across reloads under `key`. */
+/** Where the store keeps the voices. */
+const KEY = "voices";
+
+/** The voices heard so far, kept in a store. */
 export class Voices {
-	private readonly key: string;
+	private readonly store: Store;
 	/** Each voice's sum of embeddings. */
 	private readonly sums: Float32Array[];
 	/** Each voice's number, once its words were tagged, so that the numbers
@@ -49,9 +53,9 @@ export class Voices {
 	/** Which voices the speaker played. */
 	private readonly speakers: boolean[];
 
-	constructor(key: string) {
-		this.key = key;
-		const kept = JSON.parse(localStorage.getItem(key) ?? "{}") as {
+	constructor(store: Store) {
+		this.store = store;
+		const kept = JSON.parse(store.get(KEY) ?? "{}") as {
 			model?: string;
 			sums?: number[][];
 			numbers?: (number | null)[];
@@ -81,7 +85,7 @@ export class Voices {
 		}
 		this.speakers[this.sums.length] = true;
 		this.sums.push(embedding.slice());
-		this.store();
+		this.keep();
 	}
 
 	/** The number of a voice, if it was given one. */
@@ -99,7 +103,7 @@ export class Voices {
 		const number =
 			this.numbers.reduce<number>((m, n) => Math.max(m, n ?? 0), 0) + 1;
 		this.numbers[voice] = number;
-		this.store();
+		this.keep();
 		return number;
 	}
 
@@ -156,7 +160,7 @@ export class Voices {
 		const { voice } = this.closest(embedding);
 		if (voice === null) {
 			this.sums.push(embedding.slice());
-			this.store();
+			this.keep();
 			return this.sums.length - 1;
 		}
 		this.add(voice, embedding);
@@ -167,7 +171,7 @@ export class Voices {
 		const sum = this.sums[voice] as Float32Array;
 		for (let i = 0; i < sum.length; i++)
 			sum[i] = (sum[i] ?? 0) + (embedding[i] ?? 0);
-		this.store();
+		this.keep();
 	}
 
 	/** The voice of a short stretch heard on its own, and whether it is the
@@ -197,10 +201,10 @@ export class Voices {
 		return { best, similarity };
 	}
 
-	private store(): void {
+	private keep(): void {
 		const sums = this.sums.map((sum) => Array.from(sum));
-		localStorage.setItem(
-			this.key,
+		this.store.set(
+			KEY,
 			JSON.stringify({
 				model: REDIMNET2.integrity,
 				sums,

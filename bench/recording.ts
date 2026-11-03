@@ -5,7 +5,7 @@
 import { writeFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { type Entry, Session } from "polylogue/participant";
-import { LISTEN_RATE as RATE } from "../src/voice/engines.ts";
+import { LISTEN_RATE as RATE } from "voice-core";
 import { type Piece, recording } from "../src/voice/trace.ts";
 
 /** The stretches the page shared into `session` as one WAV, and when its

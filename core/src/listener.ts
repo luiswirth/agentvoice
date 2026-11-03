@@ -1,6 +1,6 @@
-// The listener: what is said, as text, from the microphone through a
-// transcriber, ElevenLabs' or a local one. Turn detection runs in the page,
-// on local models, and ends a segment once the speech sounds done. The
+// The listener: what is said, as text, from the person's audio through the
+// tier's transcriber. Turn detection runs in the core, on local models, and
+// ends a segment once the speech sounds done. The
 // listener only perceives: what is done with a segment, such as whether it
 // ends the person's turn, is for whoever uses it to decide.
 // The transcriber hears each chunk once turn detection has, so that a commit at what
@@ -13,17 +13,21 @@
 // what the speaker plays too, so that its voice is known, and its echo,
 // which the browser's echo cancellation never removes entirely and at times
 // not at all, is known as its own.
-import { Microphone } from "./audio.ts";
+import type {
+	FromFingerprints,
+	FromTurns,
+	Port,
+	Reflexes,
+	ToFingerprints,
+	ToTurns,
+} from "./reflexes.ts";
+import type { Store } from "./store.ts";
 import {
-	type Heard,
 	LISTEN_RATE,
 	type Transcriber,
+	type Transcript,
 	type Word,
-} from "./engines.ts";
-import type { FromSpeakers, ToSpeakers } from "./speakers-worker.ts";
-import SpeakersWorker from "./speakers-worker.ts?worker";
-import type { FromTurns, ToTurns } from "./turns-worker.ts";
-import TurnsWorker from "./turns-worker.ts?worker";
+} from "./tier.ts";
 import {
 	type Run,
 	runs,
@@ -83,47 +87,63 @@ const PROBE = { first: 0.75, every: 0.5, longest: 1.5 };
  * words are settled by then. */
 type Commit = "piece" | "end";
 
+/** The person's audio, which the host opens as listening opens, and closes
+ * as it closes. */
+export type Input = {
+	/** `cut`: the audio stopped on its own, as when the system takes the
+	 * microphone. */
+	open(cut: (error: Error) => void): Promise<void>;
+	close(): void;
+};
+
+/** What the listener needs of where it runs. */
+export type Surroundings = {
+	reflexes: Reflexes;
+	/** Where the voices are kept. */
+	store: Store;
+	input?: Input | undefined;
+	/** How loud, in dBFS, a segment's speech must get in some 0.1 s for it to
+	 * be loud, asked as each 0.1 s is heard. */
+	floor: () => number;
+	/** Whether the speaker sounds, asked as each 0.1 s is heard. */
+	sounding: () => boolean;
+};
+
 export class Listener {
-	private readonly microphone: Microphone;
+	private readonly input: Input | undefined;
 	private readonly transcriber: Transcriber;
-	private readonly worker: Worker;
-	private readonly speakers: Worker;
+	private readonly worker: Port<ToTurns, FromTurns>;
+	private readonly speakers: Port<ToFingerprints, FromFingerprints>;
 	private readonly voices: Voices;
 	private readonly finishTurn: () => boolean;
+	/** Hears the next 0.1 s of the person's audio. */
+	readonly hear: (pcm: Int16Array) => void;
 	private closing = false;
 
 	private constructor(
-		microphone: Microphone,
+		input: Input | undefined,
 		transcriber: Transcriber,
-		worker: Worker,
-		speakers: Worker,
+		worker: Port<ToTurns, FromTurns>,
+		speakers: Port<ToFingerprints, FromFingerprints>,
 		voices: Voices,
 		finishTurn: () => boolean,
+		hear: (pcm: Int16Array) => void,
 	) {
-		this.microphone = microphone;
+		this.input = input;
 		this.transcriber = transcriber;
 		this.worker = worker;
 		this.speakers = speakers;
 		this.voices = voices;
 		this.finishTurn = finishTurn;
+		this.hear = hear;
 	}
 
-	/**
-	 * `floor`: how loud, in dBFS, a segment's speech must get in some 0.1 s
-	 * for it to be loud, asked as each 0.1 s is heard. `sounding`: whether the
-	 * speaker sounds, asked as each 0.1 s is heard. `gate`: whether what
-	 * the microphone hears goes on, asked for each chunk: the microphone
-	 * stays open while it is shut, so that opening it again needs no
-	 * permission and takes no time, and nothing it hears goes anywhere. Call
-	 * it from a click, since it starts the page's audio.
-	 */
+	/** Opens the transcriber, the reflexes, and then the person's audio. */
 	static async open(
 		/** Opens the transcriber, which tells `heard` what it hears. */
-		transcribe: (heard: Heard) => Promise<Transcriber>,
+		transcribe: (heard: Transcript) => Promise<Transcriber>,
 		hearing: Hearing,
-		floor: () => number,
-		sounding: () => boolean,
-		gate: () => boolean,
+		{ reflexes, store, input, floor, sounding }: Surroundings,
 	): Promise<Listener> {
 		let listener: Listener | null = null;
 		/** Whether a partial of the segment in progress was loud. */
@@ -186,11 +206,10 @@ export class Listener {
 		/** Once the fingerprint model answered everything asked so far. */
 		let embedded: Promise<void> = Promise.resolve();
 		let voicing = false;
-		const voices = new Voices(`voice-voices ${location.href}`);
-		const speakers = new SpeakersWorker();
-		const ask = (message: ToSpeakers, transfer: Transferable[] = []) =>
-			speakers.postMessage(message, transfer);
-		ask({ type: "open", page: document.baseURI });
+		const voices = new Voices(store);
+		const speakers = reflexes.fingerprints();
+		const ask = (message: ToFingerprints, transfer: ArrayBuffer[] = []) =>
+			speakers.post(message, transfer);
 		const embed = (from: number, to: number) => {
 			if (!voicing) return;
 			// A short one is heard with the sound around it.
@@ -203,7 +222,7 @@ export class Listener {
 				embedding.push({ from, to, sounding: sounded, done }),
 			);
 		};
-		speakers.onmessage = ({ data }: MessageEvent<FromSpeakers>) => {
+		speakers.receive((data) => {
 			if (data.type === "ready") voicing = true;
 			else if (data.type === "failed") {
 				voicing = false;
@@ -246,7 +265,7 @@ export class Listener {
 				}
 				done();
 			}
-		};
+		});
 		/** The commits not yet answered, in order. */
 		const commits: Commit[] = [];
 		/** Whether turn detection hears a turn in progress. */
@@ -283,9 +302,9 @@ export class Listener {
 			listener.close();
 			hearing.failed(error);
 		};
-		const worker = new TurnsWorker();
-		const tell = (message: ToTurns, transfer: Transferable[] = []) =>
-			worker.postMessage(message, transfer);
+		const worker = reflexes.turns();
+		const tell = (message: ToTurns, transfer: ArrayBuffer[] = []) =>
+			worker.post(message, transfer);
 		/** Ends the segment that ended at `end`, in seconds of what turn
 		 * detection heard. */
 		const segment = (end: number) => {
@@ -334,7 +353,11 @@ export class Listener {
 			return true;
 		};
 		const ready = new Promise<void>((resolve, reject) => {
-			worker.onmessage = ({ data }: MessageEvent<FromTurns>) => {
+			const failed = (error: Error) => {
+				reject(new Error(`Turn detection failed: ${error.message}`));
+				fail(new Error(`Turn detection failed: ${error.message}`));
+			};
+			worker.receive((data) => {
 				switch (data.type) {
 					case "ready":
 						return resolve();
@@ -397,11 +420,7 @@ export class Listener {
 						if (!finish()) segment(passed);
 						return;
 				}
-			};
-			worker.onerror = (event) => {
-				reject(new Error(`Turn detection failed: ${event.message}`));
-				fail(new Error(`Turn detection failed: ${event.message}`));
-			};
+			}, failed);
 		});
 		let transcriber: Transcriber;
 		try {
@@ -457,61 +476,57 @@ export class Listener {
 				ready,
 			]);
 		} catch (error) {
-			worker.terminate();
-			speakers.terminate();
+			worker.close();
+			speakers.close();
 			throw error;
 		}
-		let microphone: Microphone;
-		try {
-			microphone = await Microphone.open(
-				(pcm) => {
-					if (!gate()) return;
-					hearing.audio(pcm);
-					unheard.push(pcm);
-					const heard = pcm.slice();
-					ask({ type: "audio", pcm: heard.buffer }, [heard.buffer]);
-					clock += pcm.length / LISTEN_RATE;
-					if (
-						voicing &&
-						since !== null &&
-						clock >= (probed ?? since + PROBE.first - PROBE.every) + PROBE.every
-					) {
-						const from = Math.max(since, clock - PROBE.longest);
-						ask({ type: "probe", from, to: clock });
-						probed = clock;
-					}
-					if (open !== null && clock - open >= STRETCH) {
-						embed(open, open + STRETCH);
-						open += STRETCH;
-					}
-					const rms = root(pcm);
-					levels.push({
-						from: clock - pcm.length / LISTEN_RATE,
-						to: clock,
-						loudness: 20 * Math.log10(rms),
-						floor: floor(),
-						sounding: sounding(),
-					});
-					// What turn detection may still hear as the start of speech.
-					const claimed = Math.min(
-						passed - KEPT,
-						...spoken.map(({ from }) => from),
-					);
-					while ((levels[0]?.to ?? claimed) < claimed) levels.shift();
-					hearing.level(Math.min(1, rms * 8));
-					const copy = pcm.slice();
-					tell({ type: "audio", pcm: copy.buffer }, [copy.buffer]);
-				},
-				() => fail(new Error("The microphone was cut off.")),
+		const take = (pcm: Int16Array) => {
+			hearing.audio(pcm);
+			unheard.push(pcm);
+			const heard = pcm.slice();
+			ask({ type: "audio", pcm: heard.buffer }, [heard.buffer]);
+			clock += pcm.length / LISTEN_RATE;
+			if (
+				voicing &&
+				since !== null &&
+				clock >= (probed ?? since + PROBE.first - PROBE.every) + PROBE.every
+			) {
+				const from = Math.max(since, clock - PROBE.longest);
+				ask({ type: "probe", from, to: clock });
+				probed = clock;
+			}
+			if (open !== null && clock - open >= STRETCH) {
+				embed(open, open + STRETCH);
+				open += STRETCH;
+			}
+			const rms = root(pcm);
+			levels.push({
+				from: clock - pcm.length / LISTEN_RATE,
+				to: clock,
+				loudness: 20 * Math.log10(rms),
+				floor: floor(),
+				sounding: sounding(),
+			});
+			// What turn detection may still hear as the start of speech.
+			const claimed = Math.min(
+				passed - KEPT,
+				...spoken.map(({ from }) => from),
 			);
+			while ((levels[0]?.to ?? claimed) < claimed) levels.shift();
+			hearing.level(Math.min(1, rms * 8));
+			const copy = pcm.slice();
+			tell({ type: "audio", pcm: copy.buffer }, [copy.buffer]);
+		};
+		try {
+			await input?.open((error) => fail(error));
 		} catch (error) {
 			transcriber.close();
-			worker.terminate();
-			speakers.terminate();
+			worker.close();
+			speakers.close();
 			throw error;
 		}
 		listener = new Listener(
-			microphone,
+			input,
 			transcriber,
 			worker,
 			speakers,
@@ -536,6 +551,7 @@ export class Listener {
 				}
 				return coming;
 			},
+			take,
 		);
 		return listener;
 	}
@@ -549,8 +565,7 @@ export class Listener {
 	/** Hears speech the speaker plays, at `SPEECH_RATE`, as its voice. */
 	played(samples: Float32Array): void {
 		const copy = samples.slice();
-		const message: ToSpeakers = { type: "played", samples: copy.buffer };
-		this.speakers.postMessage(message, [copy.buffer]);
+		this.speakers.post({ type: "played", samples: copy.buffer }, [copy.buffer]);
 	}
 
 	/** Runs as the agent reads them, numbering the voices that have no
@@ -561,10 +576,10 @@ export class Listener {
 
 	close(): void {
 		this.closing = true;
-		this.microphone.close();
+		this.input?.close();
 		this.transcriber.close();
-		this.worker.terminate();
-		this.speakers.terminate();
+		this.worker.close();
+		this.speakers.close();
 	}
 }
 

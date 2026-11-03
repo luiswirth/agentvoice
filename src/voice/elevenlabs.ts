@@ -3,15 +3,15 @@
 // audio device, so it runs in Node as well.
 
 import {
-	type Heard,
 	LISTEN_RATE,
 	Offsets,
 	type Piece,
 	SPEECH_RATE,
 	type Synthesizer,
 	type Transcriber,
+	type Transcript,
 	type Word,
-} from "./engines.ts";
+} from "voice-core";
 
 const API = "https://api.elevenlabs.io/v1";
 const SOCKETS = "wss://api.elevenlabs.io/v1";
@@ -133,7 +133,7 @@ export class Scribe implements Transcriber {
 	 * where there are none. */
 	static async open(
 		key: string,
-		heard: Heard,
+		heard: Transcript,
 		languages: readonly string[],
 	): Promise<Scribe> {
 		const query = new URLSearchParams({

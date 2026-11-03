@@ -4,6 +4,7 @@ ci:
     pnpm install --frozen-lockfile
     biome check
     pnpm exec tsc -p .
+    pnpm exec tsc -p core
     pnpm build
 
 # The page to try voice on, at localhost:5173.
@@ -63,7 +64,7 @@ onboarding-pages:
 
 # The page's cues as one WAV to listen to, into bench/.cache/sounds.wav.
 sounds:
-    CHROMIUM="$(command -v chromium)" pnpm exec tsx bench/sounds.ts
+    pnpm exec tsx bench/sounds.ts
 
 # What the page tells of an agent, as agents.md has it take part, against the
 # real relay.
@@ -73,3 +74,8 @@ activity:
 # How smoothly the page runs in a gallery state, on a slowed-down phone.
 frames state="agent-speaking":
     CHROMIUM="$(command -v chromium)" pnpm exec tsx bench/frames.ts {{ state }}
+
+# The core alone in Node, as a host other than the page has it: hears a
+# scenario of bench/scenarios.ts in real time and prints the turns it ends.
+core scenario="turns":
+    pnpm exec tsx bench/core.ts {{ scenario }}

@@ -14,7 +14,7 @@ import {
 } from "react";
 import { Button } from "@/components/ui/button";
 import { checkKey, KeyRefused } from "./voice/elevenlabs.ts";
-import type { Tier } from "./voice/engines.ts";
+import type { Tier } from "./voice/protocol.ts";
 import { agent as isAgent, speakers, spoken } from "./voice/protocol.ts";
 import {
 	chooseTier,

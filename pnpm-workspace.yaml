@@ -1,3 +1,5 @@
+packages:
+  - core
 allowBuilds:
   esbuild: true
   protobufjs: false

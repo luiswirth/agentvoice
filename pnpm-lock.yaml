@@ -47,6 +47,9 @@ importers:
       tw-animate-css:
         specifier: ^1.4.0
         version: 1.4.0
+      voice-core:
+        specifier: workspace:*
+        version: link:core
     devDependencies:
       '@tailwindcss/vite':
         specifier: ^4.3.3
@@ -81,6 +84,12 @@ importers:
       wrangler:
         specifier: ^4.151.3
         version: 4.151.3(@types/node@26.6.5)
+
+  core:
+    dependencies:
+      onnxruntime-web:
+        specifier: ^1.30.0
+        version: 1.30.0(patch_hash=486aaa1ab01a7e27ce6ec974d994976a8f8f5884306fe71c43be574a33919053)
 
 packages:
 

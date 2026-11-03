@@ -9,7 +9,7 @@
  * opened. */
 export const TRACE = "application/vnd.polylogue.voice.trace+json";
 
-import { LISTEN_RATE } from "./engines.ts";
+import { LISTEN_RATE } from "voice-core";
 
 export type TraceEvent = { time: string; event: string } & Record<
 	string,

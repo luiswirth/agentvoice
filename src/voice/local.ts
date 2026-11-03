@@ -4,14 +4,14 @@
 // as an entry of its own.
 
 import {
-	type Heard,
 	LISTEN_RATE,
 	type Piece,
 	SPEECH_RATE,
 	type Synthesizer,
 	type Transcriber,
+	type Transcript,
 	type Word,
-} from "./engines.ts";
+} from "voice-core";
 import type { Entry, Session } from "./protocol.ts";
 
 /** What every type of the engine extension starts with. */
@@ -252,9 +252,9 @@ export class LocalTranscriber implements Transcriber {
 	/** Commits still to answer, in order. */
 	private queue: Promise<void> = Promise.resolve();
 	private readonly engines: Engines;
-	private readonly heardBy: Heard;
+	private readonly heardBy: Transcript;
 
-	constructor(engines: Engines, heard: Heard) {
+	constructor(engines: Engines, heard: Transcript) {
 		this.engines = engines;
 		this.heardBy = heard;
 	}

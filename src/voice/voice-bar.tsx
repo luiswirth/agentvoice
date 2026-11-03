@@ -915,7 +915,7 @@ function Bar({ voice, state }: { voice: Voice; state: VoiceState }) {
 				<Switch
 					label={state.speaker ? "Stop reading aloud" : "Read aloud"}
 					on={state.speaker}
-					busy={state.switching === "speaker"}
+					busy={false}
 					color="--agent"
 					level="--agent-level"
 					onClick={() => void voice.setSpeaker(!state.speaker)}

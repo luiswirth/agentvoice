@@ -3,10 +3,11 @@
 // order of `alone` below.
 //
 //   just sounds
+//
+// It renders them with the core, as any host plays them.
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { chromium } from "playwright-core";
-import { createServer } from "vite";
+import { type Cue, Cues } from "voice-core";
 
 /** A conversation: the person turns listening on, speaks, sends; the agent
  * reads it, works, sends a file, works on, and answers in two messages,
@@ -41,42 +42,27 @@ const length = 16 + alone.length + 1;
 
 const out = join(import.meta.dirname, ".cache");
 await mkdir(out, { recursive: true });
-const server = await createServer({ server: { port: 0 }, logLevel: "silent" });
-await server.listen();
-const url = server.resolvedUrls?.local[0];
-const browser = await chromium.launch({
-	executablePath: process.env.CHROMIUM ?? "",
-});
-try {
-	const tab = await browser.newPage();
-	await tab.goto(`${url}index.html`);
-	const samples: number[] = await tab.evaluate(
-		async ({ course, alone, length }) => {
-			// The page's own module, as the dev server serves it.
-			const path: string = "/src/voice/sounds.ts";
-			const { schedule } = (await import(
-				/* @vite-ignore */ path
-			)) as typeof import("../src/voice/sounds.ts");
-			const rate = 48000;
-			const audio = new OfflineAudioContext(1, rate * length, rate);
-			for (const [at, cue] of course) schedule(audio, cue as never, at);
-			alone.forEach((cue, i) => {
-				schedule(audio, cue as never, 16 + i);
-			});
-			return Array.from((await audio.startRendering()).getChannelData(0));
-		},
-		{ course, alone, length },
-	);
-	const peak = samples.reduce((max, s) => Math.max(max, Math.abs(s)), 0);
-	console.log(`peak ${(20 * Math.log10(peak)).toFixed(1)} dBFS`);
-	await writeFile(join(out, "sounds.wav"), wav(samples, 48000));
-	console.log(join(out, "sounds.wav"));
-} finally {
-	await browser.close();
-	await server.close();
+// The core's cues, rendered as a host plays them, a block at a time, each
+// cue asked for as its block starts.
+const rate = 48000;
+const block = rate / 100;
+const cues = new Cues();
+const asked = [
+	...course,
+	...alone.map((cue, i): [number, string] => [16 + i, cue]),
+].sort(([a], [b]) => a - b);
+const samples = new Float32Array(rate * length);
+for (let at = 0; at < samples.length; at += block) {
+	while (asked[0] !== undefined && asked[0][0] * rate < at + block)
+		cues.ask(asked.shift()?.[1] as Cue);
+	cues.render(samples.subarray(at, at + block), rate);
 }
+const peak = samples.reduce((max, s) => Math.max(max, Math.abs(s)), 0);
+console.log(`peak ${(20 * Math.log10(peak)).toFixed(1)} dBFS`);
+await writeFile(join(out, "sounds.wav"), wav(samples, rate));
+console.log(join(out, "sounds.wav"));
 
-function wav(samples: number[], rate: number): Buffer {
+function wav(samples: Float32Array, rate: number): Buffer {
 	const data = Buffer.alloc(samples.length * 2);
 	samples.forEach((s, i) => {
 		data.writeInt16LE(Math.round(Math.max(-1, Math.min(1, s)) * 32767), i * 2);

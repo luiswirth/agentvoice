@@ -1,8 +1,5 @@
-// What hears and what speaks, whichever tier runs it: ElevenLabs, or an
-// engine in the session. The person chooses one on the page.
-
-/** Where transcription and speech synthesis run. */
-export type Tier = "elevenlabs" | "local";
+// What hears and what speaks: the tier, which the host plugs in, such as
+// ElevenLabs or an engine on the agent's machine.
 
 /** The rate of the audio hearing gets, and of the speech that comes back. */
 export const LISTEN_RATE = 16_000;
@@ -12,7 +9,8 @@ export const SPEECH_RATE = 24_000;
  * or skipped, or the spacing between words. */
 export type Word = { text: string; start: number; end: number };
 
-export type Heard = {
+/** What a transcriber tells as it hears. */
+export type Transcript = {
 	/** What is heard so far of the segment in progress, each replacing the last. */
 	partial(text: string): void;
 	/** A segment settled: one committed, or one hearing committed on its own,
@@ -105,3 +103,9 @@ export interface Synthesizer {
 	): Promise<void>;
 	close(): void;
 }
+
+/** Opens a session of hearing, which tells `heard` what it hears. */
+export type Transcribe = (heard: Transcript) => Promise<Transcriber>;
+
+/** Makes what speaks, for one speaker, which closes it once done. */
+export type Synthesize = () => Synthesizer;
