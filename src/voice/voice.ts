@@ -341,7 +341,8 @@ export class Voice {
 			},
 		});
 		onPlay((cue) => this.trace.event("cue", { cue }));
-		this.activity = new Activity(session, name, {
+		const engines = this.engines;
+		this.activity = new Activity(session, name, (other) => engines.has(other), {
 			// An agent often reads the person's message only right before it
 			// answers, so the cue waits a second, and plays only if the agent
 			// is still working by then.

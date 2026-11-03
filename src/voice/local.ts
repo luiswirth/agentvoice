@@ -14,7 +14,8 @@ import {
 } from "./engines.ts";
 import type { Entry, Session } from "./protocol.ts";
 
-const PREFIX = "application/vnd.polylogue.engine.";
+/** What every type of the engine extension starts with. */
+export const PREFIX = "application/vnd.polylogue.engine.";
 export const TRANSCRIBE = `${PREFIX}transcribe`;
 export const SYNTHESIZE = `${PREFIX}synthesize+json`;
 
@@ -98,6 +99,11 @@ export class Engines {
 		this.waiting.delete(n);
 		if (resolve) resolve(answer);
 		else this.early.set(n, answer);
+	}
+
+	/** Whether `name` is an engine in the session. */
+	has(name: string): boolean {
+		return this.offered.has(name);
 	}
 
 	/** Whether an engine is in the session. */
