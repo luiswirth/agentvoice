@@ -732,6 +732,8 @@ export class LocalSynthesizer implements Synthesizer {
 		});
 		const said = this.queue
 			.then(async () => {
+				/** Where this sentence starts in the line, in seconds. */
+				let start = 0;
 				for (const [i, audio] of asked.entries()) {
 					const data = await audio;
 					if (data === null || this.closed) return;
@@ -744,12 +746,14 @@ export class LocalSynthesizer implements Synthesizer {
 					all.set(speech, all.length - speech.length);
 					// The engine times no characters, so they are spread evenly
 					// over the sentence, which joins the one before with a space.
+					// A piece's characters are timed from the line's start.
 					const text = (i > 0 ? " " : "") + (parts[i]?.text ?? "");
 					const seconds = speech.length / SPEECH_RATE;
 					const chars = [...text].map((char, j) => ({
 						char,
-						at: pause + (j / text.length) * seconds,
+						at: start + pause + (j / text.length) * seconds,
 					}));
+					start += all.length / SPEECH_RATE;
 					const now = performance.now();
 					this.played =
 						Math.max(now, this.played) + (all.length / SPEECH_RATE) * 1000;
