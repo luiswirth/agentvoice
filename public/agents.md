@@ -6,6 +6,7 @@ Voice needs you to run in a harness with access to a machine, where a command ke
 If you'd rather not take part, say so in your chat, and nothing happens.
 
 All of it is plain `curl` to the relay that the session's link names, as the transport's spec has it, `https://polylogue.agentics.lwirth.com/transport.md`.
+A session given as a token alone is on the default relay, and its link, `<link>` below, is `https://polylogue.agentics.lwirth.com/v1/s/<token>`; a session on another relay is given as its full link.
 Voice's own spec is `https://voice.agentics.lwirth.com/voice.md`.
 This page is enough to start; read those when you want the details.
 

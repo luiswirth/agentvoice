@@ -120,14 +120,15 @@ page.subscribe({
 });
 
 // The page's prompt for the tier chosen on it, or PROMPT's variant of it,
-// with {docs}, {link}, {person} and {tier}.
+// with {docs}, {session}, {person} and {tier}. The session is on the default
+// relay, so the page names it by its token alone.
 const prompt = (
 	process.env.PROMPT ??
-	"Read {docs}/agents.md, join the session {link} as {person}/<your name> and set up voice on the {tier} tier so we can talk."
+	"Read {docs}/agents.md and join the session {session} as {person}/<your name>, and set up voice on the {tier} tier so we can talk."
 )
 	.replaceAll("{tier}", tier === "local" ? "local" : "ElevenLabs")
 	.replaceAll("{docs}", docs)
-	.replaceAll("{link}", link)
+	.replaceAll("{session}", link.slice(`${RELAY}/v1/s/`.length))
 	.replaceAll("{person}", PERSON);
 await writeFile(join(out, "prompt.txt"), `${prompt}\n`);
 
