@@ -32,7 +32,7 @@ until there is a voice, the page shows your messages as text.
 An engine is a participant of the session that transcribes what the person says and speaks what you send.
 The page waits for one, and any that speaks `https://voice.agentics.lwirth.com/engine.md` will do.
 Voice's own is one file of about 440 lines, to read in full before you run it.
-It needs Python 3.12 or newer with the dependencies its header names, as PEP 723 has it, and runs however you give it those, such as with uv, which also fetches a matching Python where the machine's is older, as macOS's is:
+It needs Python 3.12 or newer with the dependencies its header names, as PEP 723 has it, and runs however you give it those, such as in a venv with them installed, or with uv, which also fetches a matching Python where the machine's is older, as macOS's is:
 
 ```sh
 curl -so engine.py https://raw.githubusercontent.com/luiswirth/polylogue-voice/c116a89/engine/engine.py
