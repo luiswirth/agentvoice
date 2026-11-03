@@ -9,9 +9,10 @@
 // which the bench starts in the session. `SHOTS=<seconds>` takes a screenshot of
 // the page that often, into bench/.cache/shots, at `VIEWPORT=<width>x<height>`.
 // `THROTTLE=<rate>` slows the page's CPU down that many times, as a phone's.
-// `ANSWER=<text>` has the agent answer with it rather than "Okay.", so that a
-// long one is read while the person speaks on.
-// A run fails where nothing reached the agent, or none of its answers was read.
+// `ANSWER=<text>` has the agent answer with it rather than "Okay." or the
+// scenario's answer, so that a long one is read while the person speaks on.
+// A run fails where nothing reached the agent, or none of its answers was read,
+// or a turn said over an answer doesn't start with what of it was heard.
 import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -49,12 +50,13 @@ if (!page) throw new Error("the page is not served");
 // The agent answers each message at once, so the person's turns are measured
 // on their own. It joins under the person's name, as an agent does, so that
 // the page counts it as one and shows its answers on the stage.
+const answer = process.env.ANSWER ?? scenario?.answer ?? "Okay.";
 const agent = new Session(await create(RELAY), "person/agent");
 await agent.join();
 agent.subscribe({
 	entry: (entry) => {
 		if (entry.from === "person" && entry.type.startsWith("text/plain"))
-			void agent.send(process.env.ANSWER ?? "Okay.", { type: "text/plain" });
+			void agent.send(answer, { type: "text/plain" });
 	},
 });
 
@@ -178,6 +180,7 @@ try {
 	const { sends, read } = report(agent.log, opened, timeline, said);
 	if (sends === 0) throw new Error("nothing the person said reached the agent");
 	if (read === 0) throw new Error("none of the agent's answers was read");
+	cutIns(agent.log);
 } finally {
 	await browser.close();
 	engine?.kill();
@@ -186,6 +189,64 @@ try {
 }
 
 type Event = { time: string; event: string } & Record<string, unknown>;
+
+/** Checks that the message of each turn said over an answer starts with what
+ * of the answer was heard: a start of it, cut before its end, and no more than
+ * could be read from when its reading began to when the person took the
+ * floor. */
+function cutIns(log: Entry[]): void {
+	/** A fast speaker's rate, in characters a second: more of an answer
+	 * can't have been heard in the time it was read. */
+	const FAST = 20;
+	const events: Event[] = log
+		.filter((entry) => entry.from === "person" && entry.type === TRACE)
+		.flatMap((entry) => JSON.parse(entry.text ?? "[]"));
+	const at = (event: string, id: string) =>
+		Date.parse(
+			events.find((e) => e.event === event && String(e.id ?? e.reading) === id)
+				?.time ?? "",
+		) / 1000;
+	const answers = new Set(
+		log.filter((e) => e.from === "person/agent").map((e) => e.n),
+	);
+	const letters = (s: string) =>
+		s
+			.toLowerCase()
+			.replace(/[^a-z ]/g, "")
+			.replace(/\s+/g, " ")
+			.trim();
+	const flat = (s: string) => s.replace(/\s+/g, " ").trim();
+	const messages = log
+		.filter((e) => e.from === "person" && e.type.startsWith("text/plain"))
+		.map((e) => e.text ?? "");
+	for (const [i, turn] of (scenario?.turns ?? []).entries()) {
+		if (!turn.cutIn) continue;
+		// Its message is the one with the turn's last words.
+		const tail = letters(turn.parts.join(" ")).split(" ").slice(-2).join(" ");
+		const message = messages.find((m) => letters(m).includes(tail));
+		console.log(
+			`turn ${i + 1}, said over an answer: "${message ?? "never sent"}"`,
+		);
+		const mark = message?.match(/^\[cut in on (\d+) after "([^"]*)"\]/);
+		const heard = flat(mark?.[2] ?? "");
+		if (
+			!mark ||
+			!answers.has(Number(mark[1])) ||
+			heard === "" ||
+			!flat(answer).startsWith(heard) ||
+			heard.length >= flat(answer).length
+		)
+			throw new Error(
+				`turn ${i + 1} doesn't start with what of an answer was heard`,
+			);
+		const read = at("floor", mark[1] ?? "") - at("reading", mark[1] ?? "");
+		console.log(
+			`    heard ${heard.split(" ").length} of ${flat(answer).split(" ").length} words, ${heard.length} characters in ${read.toFixed(2)} s read`,
+		);
+		if (!(heard.length <= FAST * read))
+			throw new Error(`turn ${i + 1} heard more of the answer than was read`);
+	}
+}
 
 function report(
 	log: Entry[],

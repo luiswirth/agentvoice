@@ -8,12 +8,17 @@ export type Turn = {
 	pause?: number;
 	/** Silence after the turn, in seconds. */
 	after?: number;
+	/** Said while an answer is read, so its message must start with what of
+	 * that answer was heard. */
+	cutIn?: boolean;
 };
 
 export type Scenario = {
 	name: string;
 	/** Silence before the first turn, in seconds. */
 	lead?: number;
+	/** What the agent answers each message with, rather than "Okay.". */
+	answer?: string;
 	turns: Turn[];
 };
 
@@ -71,6 +76,17 @@ export const scenarios: Scenario[] = [
 				],
 				pause: 4.5,
 			},
+		],
+	},
+	{
+		// The person cuts in on a long answer, which stops, and their message
+		// says how far they heard it.
+		name: "cut-in",
+		answer:
+			"First we measure how long each turn takes to end. Then we look at the pauses that cut a turn in two. After that we try a longer wait on the phone, and compare the traces. Finally we write down what changed, and deploy it tonight.",
+		turns: [
+			{ parts: ["Can you walk me through the plan for today?"], after: 7 },
+			{ parts: ["Wait, go back to the pauses."], cutIn: true, after: 4 },
 		],
 	},
 	{
