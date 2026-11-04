@@ -9,6 +9,7 @@
 // which the bench starts in the session. `SHOTS=<seconds>` takes a screenshot of
 // the page that often, into bench/.cache/shots, at `VIEWPORT=<width>x<height>`.
 // `THROTTLE=<rate>` slows the page's CPU down that many times, as a phone's.
+// `PAGE=<url>` plays into the page served there instead, such as the deployed one.
 // `ANSWER=<text>` has the agent answer with it rather than "Okay." or the
 // scenario's answer, so that a long one is read while the person speaks on.
 // A run fails where nothing reached the agent, or none of its answers was read,
@@ -43,8 +44,10 @@ const { wav, timeline, duration, said } = scenario
 		}
 	: await recording(name);
 
-const server = await preview({ preview: { port: 0 }, logLevel: "silent" });
-const page = server.resolvedUrls?.local[0];
+const server = process.env.PAGE
+	? null
+	: await preview({ preview: { port: 0 }, logLevel: "silent" });
+const page = process.env.PAGE ?? server?.resolvedUrls?.local[0];
 if (!page) throw new Error("the page is not served");
 
 // The agent answers each message at once, so the person's turns are measured
@@ -185,7 +188,7 @@ try {
 	await browser.close();
 	engine?.kill();
 	await agent.leave().catch(() => {});
-	await server.close();
+	await server?.close();
 }
 
 type Event = { time: string; event: string } & Record<string, unknown>;
