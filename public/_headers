@@ -1,6 +1,0 @@
-# Cross-origin isolation, which ONNX Runtime's shared memory needs.
-# Everything the page loads from another origin is fetched with CORS:
-# ElevenLabs, the relay, and the models.
-/*
-  Cross-Origin-Opener-Policy: same-origin
-  Cross-Origin-Embedder-Policy: require-corp

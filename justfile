@@ -33,9 +33,10 @@ record out script="conversation" port="8794":
 label dir:
     pnpm exec tsx bench/label.ts {{ dir }}
 
-# Builds the page and serves it at voice.agentics.lwirth.com.
+# Builds the page and serves it at voice.agentics.lwirth.com, from lwirth-cloud,
+# whose serve.nix in dotcloud says how.
 deploy: pinned ci
-    pnpm exec wrangler deploy --domain voice.agentics.lwirth.com
+    rsync -rlpt --delete --delay-updates --chmod=D755,F644 dist/ root@lwirth-cloud:/srv/voice/
 
 # Moves the lock to the newest commits of polylogue and polylogue-web.
 bump:

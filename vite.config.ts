@@ -3,7 +3,7 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
-/** As `public/_headers` serves the page. */
+/** As lwirth-cloud serves the page, in dotcloud's serve.nix. */
 const headers = {
 	"Cross-Origin-Opener-Policy": "same-origin",
 	"Cross-Origin-Embedder-Policy": "require-corp",
