@@ -1,12 +1,12 @@
-// The call in one state, named by `?state=`, with a fake voice whose
-// levels move as speech would, and whose buttons work, the agent answering a
-// message sent as a real one would: for looking at the UI without a session.
-// Without a state, a list of them all.
+// The call without a session, at /demo: a fake voice whose levels move as
+// speech would, and whose buttons work, the agent answering a message sent as
+// a real one would. `?state=` starts it in a state of states.ts, as the
+// bench's gallery does.
 import { createRoot } from "react-dom/client";
-import "../src/index.css";
-import { Call, type Room } from "../src/voice/call.tsx";
-import type { Voice, VoiceState } from "../src/voice/voice.ts";
-import { base, states } from "./gallery-states.ts";
+import "../index.css";
+import { Call, type Room } from "../voice/call.tsx";
+import type { Voice, VoiceState } from "../voice/voice.ts";
+import { base, states } from "./states.ts";
 
 const name = new URLSearchParams(location.search).get("state");
 let state: VoiceState = { ...base, ...states[name ?? "conversation"] };
@@ -131,22 +131,7 @@ if (name?.startsWith("settings"))
 				?.click(),
 		100,
 	);
-if (root && name === null)
-	createRoot(root).render(
-		<main className="mx-auto flex max-w-md flex-col gap-1 p-6">
-			<h1 className="mb-4 text-xl">voice, without a session</h1>
-			{Object.keys(states).map((state) => (
-				<a
-					key={state}
-					href={`?state=${state}`}
-					className="rounded-xl px-3 py-2 text-muted-foreground hover:bg-white/10 hover:text-foreground"
-				>
-					{state}
-				</a>
-			))}
-		</main>,
-	);
-else if (root)
+if (root)
 	createRoot(root).render(
 		<main className="mx-auto flex h-dvh max-w-2xl flex-col gap-4 px-3 pt-3 pb-6 sm:px-4 sm:pb-8">
 			<Call voice={voice} room={room} changeKey={() => {}} />

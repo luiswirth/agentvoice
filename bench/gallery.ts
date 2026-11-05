@@ -1,4 +1,4 @@
-// Screenshots of the call in each state of bench/gallery-page.tsx, on a
+// Screenshots of the call in each state of src/demo/page.tsx, on a
 // Mac's window and an iPhone's, into bench/.cache/gallery/.
 //
 //   just gallery
@@ -6,7 +6,7 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
-import { states } from "./gallery-states.ts";
+import { states } from "../src/demo/states.ts";
 
 const out = join(import.meta.dirname, ".cache", "gallery");
 await mkdir(out, { recursive: true });

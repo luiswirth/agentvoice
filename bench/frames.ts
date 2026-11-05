@@ -1,4 +1,4 @@
-// How smoothly the page runs in a state of bench/gallery-page.tsx, on an
+// How smoothly the page runs in a state of src/demo/page.tsx, on an
 // iPhone-sized page with the CPU slowed 6x, as a phone's is: frames in 4 s,
 // and where the time went.
 //

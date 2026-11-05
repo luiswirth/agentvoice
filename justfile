@@ -53,7 +53,7 @@ pinned:
             || { echo "$repo is pinned behind $head: run just bump" >&2; exit 1; }
     done
 
-# Screenshots of the voice bar in each state of bench/gallery-states.ts, on a
+# Screenshots of the call in each state of src/demo/states.ts, on a
 # Mac's window and an iPhone's, into bench/.cache/gallery/.
 gallery:
     CHROMIUM="$(command -v chromium)" pnpm exec tsx bench/gallery.ts

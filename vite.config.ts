@@ -13,6 +13,15 @@ export default defineConfig({
 	base: "./",
 	// The workers import modules.
 	worker: { format: "es" },
+	// The page, and the call without a session at /demo.
+	build: {
+		rollupOptions: {
+			input: {
+				main: fileURLToPath(new URL("./index.html", import.meta.url)),
+				demo: fileURLToPath(new URL("./demo/index.html", import.meta.url)),
+			},
+		},
+	},
 	server: { headers },
 	preview: { headers },
 	plugins: [react(), tailwindcss()],

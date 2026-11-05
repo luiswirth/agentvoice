@@ -1,5 +1,5 @@
-// The states bench/gallery-page.tsx shows the call in, by name.
-import type { VoiceState } from "../src/voice/voice.ts";
+// The states the demo can start in, by name, which the bench's gallery shows.
+import type { VoiceState } from "../voice/voice.ts";
 
 export const base: VoiceState = {
 	listener: false,
