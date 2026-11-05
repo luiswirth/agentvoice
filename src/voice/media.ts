@@ -6,8 +6,6 @@
 export type MediaActions = {
 	/** Play and pause, as on headphones: one toggle. */
 	toggle(): void;
-	next(): void;
-	previous(): void;
 };
 
 let silence: HTMLAudioElement | null = null;
@@ -31,8 +29,6 @@ export function holdMedia(held: boolean, actions: MediaActions): void {
 	session.playbackState = "playing";
 	session.setActionHandler("play", actions.toggle);
 	session.setActionHandler("pause", actions.toggle);
-	session.setActionHandler("nexttrack", actions.next);
-	session.setActionHandler("previoustrack", actions.previous);
 }
 
 /** What the system shows as playing. */

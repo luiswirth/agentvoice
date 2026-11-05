@@ -51,8 +51,6 @@ import { zip } from "./zip.ts";
 export type VoiceState = Omit<State, "reading"> & {
 	/** The message being read aloud, by its entry. */
 	reading: number | null;
-	/** The agents' last message, which the speaker reads or can read again. */
-	message: string | null;
 	/** The person's last transcript, sent or dropped. */
 	last: string | null;
 	/** The languages the person speaks, most likely first, as ISO 639-1
@@ -189,7 +187,6 @@ export class Voice {
 		this.name = name;
 		this.key = key;
 		this.own = {
-			message: null,
 			last: transcripts()[0] ?? null,
 			languages: JSON.parse(
 				localStorage.getItem(LANGUAGES) ?? "[]",
@@ -205,15 +202,6 @@ export class Voice {
 			ready: false,
 			blocked: audioBlocked(),
 		};
-		const message = () =>
-			this.set({
-				message:
-					session.log.findLast(
-						(entry) =>
-							entry.from !== name && agent(entry.from) && spoken(entry),
-					)?.text ?? null,
-			});
-		message();
 		// Both are on from the start, unless the tab had them otherwise
 		// before a reload: listening waits for someone to talk with, and its
 		// audio, as the speaker's, starts at the first gesture on the page.
@@ -276,7 +264,6 @@ export class Voice {
 		this.arm();
 		this.unsubscribe = session.subscribe({
 			entry: (entry) => {
-				message();
 				if (entry.type.startsWith(NAMES))
 					void this.core.set({ names: this.names() });
 				if (entry.n > this.started && this.armed && this.wantedEntry(entry))
@@ -368,12 +355,6 @@ export class Voice {
 	 * needed, since it changes too fast for `state`. */
 	speakerLevel(): number {
 		return this.core.speakerLevel();
-	}
-
-	/** How much of the message being read was heard, from 0 to 1: read it as
-	 * often as needed, since it changes too fast for `state`. */
-	speakerProgress(): number {
-		return this.core.speakerProgress();
 	}
 
 	/** Call it from a click, since it starts the page's audio. While
@@ -577,32 +558,6 @@ export class Voice {
 		this.core.notice("press");
 	}
 
-	/** Pauses or resumes reading aloud. */
-	hold(held: boolean): void {
-		this.core.hold(held);
-	}
-
-	/** Reads the others' last message again, turning the speaker on if it is off.
-	 * Call it from a click, since it may start the page's audio. */
-	async replay(): Promise<void> {
-		if (!this.state.speaker) await this.setSpeaker(true);
-		const last = this.session.log.findLast(
-			(entry): entry is Entry & { text: string } =>
-				entry.from !== this.name && spoken(entry),
-		);
-		if (last === undefined) {
-			this.core.hold(false);
-			return;
-		}
-		const agents = speakers(this.session.log).filter((a) => a !== this.name);
-		const n = agents.indexOf(last.from);
-		this.core.replay({
-			id: String(last.n),
-			text: last.text,
-			voice: n < 0 ? agents.length : n,
-		});
-	}
-
 	/** What the page kept of its trace and of the audio it heard, as a
 	 * recording such as `just record` keeps, for the person to download and
 	 * hand on themselves: `audio.wav` and `session.json` in a folder, zipped.
@@ -657,11 +612,6 @@ export class Voice {
 		this.set({ last: text });
 	}
 
-	/** Skips the message being read. */
-	skip(): void {
-		this.core.skip();
-	}
-
 	/** The ElevenLabs key, which a missing one refuses. */
 	private elevenlabs(): string {
 		if (this.key === null) throw new KeyRefused("ElevenLabs needs your key.");
@@ -692,12 +642,11 @@ export class Voice {
 		holdAudioSession(false);
 	}
 
-	/** Play and pause from the system's media controls: sends a draft, else
-	 * pauses or resumes reading, else turns listening on or off. */
+	/** Play and pause from the system's media controls, as a headphone tap
+	 * on a call: sends a draft, else mutes or unmutes. */
 	mediaToggle = (): void => {
 		const { draft, hearing } = this.state;
 		if (draft || hearing) this.send();
-		else if (this.state.reading !== null) this.hold(!this.state.held);
 		else void this.setListener(!(this.state.listener || this.wanted));
 	};
 
@@ -706,11 +655,7 @@ export class Voice {
 	private modes(): Promise<void> {
 		const { listener, speaker } = this.core.state;
 		holdAudioSession(listener || speaker);
-		holdMedia(listener || speaker, {
-			toggle: this.mediaToggle,
-			next: () => this.skip(),
-			previous: () => void this.replay(),
-		});
+		holdMedia(listener || speaker, { toggle: this.mediaToggle });
 		this.keepModes();
 		const modes: Modes = { listener, speaker, tier: this.own.tier };
 		const told = JSON.stringify(modes);

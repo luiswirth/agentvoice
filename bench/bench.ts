@@ -142,9 +142,8 @@ try {
 	// The speaker is on from the start, and reads the agent's answers.
 	const speak = tab.getByRole("button", { name: "Speak", exact: true });
 	if (await speak.isVisible()) await speak.click();
-	// The listener starts on by itself; a name of "Listen" alone would also
-	// match "Stop listening", and turn it off.
-	const listen = tab.getByRole("button", { name: /^Listen\b/ });
+	// The listener starts on by itself; muted, it is unmuted.
+	const listen = tab.getByRole("button", { name: /^Unmute\b/ });
 	if (await listen.isVisible()) await listen.click();
 	// The microphone opens once the models are loaded, local ones taking a while.
 	await tab

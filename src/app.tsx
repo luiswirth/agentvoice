@@ -13,6 +13,7 @@ import {
 	useSyncExternalStore,
 } from "react";
 import { Button } from "@/components/ui/button";
+import { Call, type Present, type Room } from "./voice/call.tsx";
 import { checkKey, KeyRefused } from "./voice/elevenlabs.ts";
 import type { Tier } from "./voice/protocol.ts";
 import { agent as isAgent, speakers, spoken } from "./voice/protocol.ts";
@@ -22,7 +23,6 @@ import {
 	Voice,
 	type VoiceState,
 } from "./voice/voice.ts";
-import { type Present, type Room, VoiceBar } from "./voice/voice-bar.tsx";
 
 const KEY = "elevenlabs-key";
 const SERVICE = "voice.agentics.lwirth.com";
@@ -332,7 +332,7 @@ function Actions({ children }: { children: ReactNode }) {
 	return <div className="flex flex-wrap gap-2">{children}</div>;
 }
 
-/** The voice bar, and a way to another key once ElevenLabs refuses this
+/** The call, and a way to another key once ElevenLabs refuses this
  * one, or to a key where there is none. */
 function Refusable({
 	voice,
@@ -348,7 +348,7 @@ function Refusable({
 	const state = useSyncExternalStore(voice.watch, () => voice.state);
 	return (
 		<>
-			<VoiceBar
+			<Call
 				voice={voice}
 				room={room}
 				changeKey={keyed ? () => forget("") : undefined}

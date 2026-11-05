@@ -1,9 +1,9 @@
-// The voice bar in one state, named by `?state=`, with a fake voice whose
+// The call in one state, named by `?state=`, with a fake voice whose
 // levels move as speech would: for looking at the UI without a session.
 import { createRoot } from "react-dom/client";
 import "../src/index.css";
+import { Call, type Room } from "../src/voice/call.tsx";
 import type { Voice, VoiceState } from "../src/voice/voice.ts";
-import { type Room, VoiceBar } from "../src/voice/voice-bar.tsx";
 import { base, states } from "./gallery-states.ts";
 
 const name = new URLSearchParams(location.search).get("state") ?? "off";
@@ -22,7 +22,6 @@ const voice = {
 	watch: () => () => {},
 	speakerLevel: () =>
 		state.reading !== null && !state.hearing ? speech(3) : 0,
-	speakerProgress: () => 0.38,
 	setListener: async () => {},
 	setSpeaker: async () => {},
 	setAutoEnd: () => {},
@@ -32,11 +31,8 @@ const voice = {
 	undo: () => {},
 	setDraft: () => {},
 	copyLast: async () => {},
-	hold: () => {},
-	replay: async () => {},
 	share: () => {},
 	setLanguages: async () => {},
-	skip: () => {},
 	setSounds: () => {},
 	setTier: async () => {},
 	setEngineVoice: () => {},
@@ -54,9 +50,14 @@ const room: Room = {
 			receiving: state.progress !== "working",
 			engine: false,
 		},
-		// A second agent, in a shade of its own, and another person.
-		{ name: "ben/codex", receiving: true, engine: false },
-		{ name: "tristan", receiving: true, engine: false },
+		// In the group states, a second agent, in a shade of its own, and
+		// another person.
+		...(name.startsWith("group")
+			? [
+					{ name: "ben/codex", receiving: true, engine: false },
+					{ name: "tristan", receiving: true, engine: false },
+				]
+			: []),
 		...(state.engine
 			? [{ name: "luis/claude/engine", receiving: true, engine: true }]
 			: []),
@@ -115,6 +116,6 @@ if (name.startsWith("settings"))
 if (root)
 	createRoot(root).render(
 		<main className="mx-auto flex h-dvh max-w-2xl flex-col gap-4 px-3 pt-3 pb-6 sm:px-4 sm:pb-8">
-			<VoiceBar voice={voice} room={room} changeKey={() => {}} />
+			<Call voice={voice} room={room} changeKey={() => {}} />
 		</main>,
 	);

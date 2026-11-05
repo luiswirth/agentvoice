@@ -1,4 +1,4 @@
-// The states bench/gallery-page.tsx shows the voice bar in, by name.
+// The states bench/gallery-page.tsx shows the call in, by name.
 import type { VoiceState } from "../src/voice/voice.ts";
 
 export const base: VoiceState = {
@@ -12,7 +12,6 @@ export const base: VoiceState = {
 	level: 0,
 	reading: null,
 	held: false,
-	message: null,
 	last: "Earlier words.",
 	languages: [],
 	sharing: false,
@@ -42,8 +41,9 @@ export const states: Record<string, Partial<VoiceState>> = {
 	blocked: { speaker: true, reading: 4, blocked: true },
 	languages: { listener: true, languages: ["en", "de"] },
 	"agent-speaking": { listener: true, speaker: true, reading: 4 },
+	"group-agent-speaking": { listener: true, speaker: true, reading: 4 },
 	// The second agent read, in its own shade, its wave too.
-	"second-agent-speaking": { listener: true, speaker: true, reading: 5 },
+	"group-second-agent-speaking": { listener: true, speaker: true, reading: 5 },
 	missed: {
 		listener: true,
 		speaker: true,
@@ -96,12 +96,6 @@ export const states: Record<string, Partial<VoiceState>> = {
 		speaker: true,
 		dropped:
 			"I think we should look at the turn detection first, and then deploy it tonight.",
-	},
-	"read-aloud-paused": {
-		speaker: true,
-		reading: 4,
-		held: true,
-		message: "Hi.",
 	},
 	"agent-sent": { listener: true, speaker: true, progress: "sent" },
 	settings: {

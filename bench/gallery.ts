@@ -1,4 +1,4 @@
-// Screenshots of the voice bar in each state of bench/gallery-page.tsx, on a
+// Screenshots of the call in each state of bench/gallery-page.tsx, on a
 // Mac's window and an iPhone's, into bench/.cache/gallery/.
 //
 //   just gallery

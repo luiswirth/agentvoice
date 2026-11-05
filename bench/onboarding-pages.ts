@@ -107,7 +107,7 @@ try {
 				// engine still in the session, and its coming back to talking,
 				// listening again if it was.
 				// A tab starts listening once there is someone to talk with.
-				const listen = tab.getByRole("button", { name: /^Listen \(/ });
+				const listen = tab.getByRole("button", { name: /^Unmute \(/ });
 				if (await listen.count()) await listen.click();
 				await tab.waitForTimeout(500);
 				await session.leave();
@@ -126,8 +126,12 @@ try {
 					await tab.getByText("Typed by tristan.").count(),
 				);
 				await tristan.leave();
-				const mic = tab.getByRole("button", { name: /listen/i });
-				console.log("listening again:", await mic.getAttribute("aria-pressed"));
+				const mic = tab.getByRole("button", { name: /^(Mute|Unmute) \(/ });
+				// Mute is pressed while muted.
+				console.log(
+					"listening again:",
+					(await mic.getAttribute("aria-pressed")) === "false",
+				);
 				await back.leave();
 				await engine.leave();
 				await context.close();
