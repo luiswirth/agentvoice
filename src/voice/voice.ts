@@ -153,6 +153,8 @@ export class Voice {
 	private standing = true;
 	/** Whether the person wants to listen, while listening waits. */
 	private wanted = false;
+	/** Whether the person holds push to talk. */
+	private pushed = false;
 	/** Whether the core has the tier to speak with, for the speaker on now. */
 	private armed = false;
 	/** The last entry before the speaker came on. */
@@ -209,7 +211,7 @@ export class Voice {
 			sessionStorage.getItem(this.modesKey) ?? "{}",
 		);
 		const autoEnd = localStorage.getItem(AUTO_END) !== "false";
-		// Hands-free listens from the start; tap to talk only once tapped.
+		// Hands-free listens from the start; push to talk only while held.
 		this.wanted = modes.listener ?? autoEnd;
 		const speaker = modes.speaker ?? true;
 		this.core = new Conversation({
@@ -498,9 +500,8 @@ export class Voice {
 	}
 
 	/** Hands-free, where turns end by themselves as the person pauses and
-	 * listening stays on, or tap to talk, where listening runs only from the
-	 * person's tap until they send or discard. A draft already there waits to
-	 * be sent. */
+	 * listening stays on, or push to talk, where listening runs only while the
+	 * person holds the button. A draft already there waits to be sent. */
 	async setAutoEnd(autoEnd: boolean): Promise<void> {
 		localStorage.setItem(AUTO_END, String(autoEnd));
 		await this.core.set({ autoEnd });
@@ -509,23 +510,19 @@ export class Voice {
 		else if (!draft && !hearing) await this.setListener(false);
 	}
 
-	/** Tap to talk's end: sends the words, with what is still being heard,
-	 * and stops listening. */
-	finish(): void {
+	/** Push to talk: listens while the person holds the button, and sends
+	 * once they let go, with what is still being heard. A release while the
+	 * microphone still opens closes it once it is open. */
+	async press(): Promise<void> {
+		this.pushed = true;
+		await this.setListener(true);
+		if (!this.pushed) this.release();
+	}
+
+	release(): void {
+		this.pushed = false;
 		this.send();
-		if (!this.state.autoEnd) void this.setListener(false);
-	}
-
-	/** Tap to talk's other end: drops the words, which `undo` brings back,
-	 * and stops listening. */
-	discard(): void {
-		this.clear();
-		if (!this.state.autoEnd) void this.setListener(false);
-	}
-
-	/** Brings back the draft last deleted, ahead of what was said since. */
-	undo(): void {
-		this.core.undo();
+		void this.setListener(false);
 	}
 
 	/** Sends the draft, with what is still being heard once it is, dropping
@@ -553,18 +550,6 @@ export class Voice {
 			});
 			await this.shareTrace(trace);
 		});
-	}
-
-	/** Sends the words that didn't count, as the person's: with the draft
-	 * when turns end by hand, else at once, and the speaker reads on. */
-	sendMissed(): void {
-		this.core.sendMissed();
-	}
-
-	/** Drops the draft, with what is still being heard once it is, and the
-	 * speaker reads on. */
-	clear(): void {
-		this.core.clear();
 	}
 
 	/** Copies the last transcript, sent or dropped. */
@@ -659,11 +644,14 @@ export class Voice {
 	}
 
 	/** Play and pause from the system's media controls, as a headphone tap
-	 * on a call: sends the words waiting, else mutes or unmutes, or with tap
-	 * to talk, starts listening. */
+	 * on a call: sends the words waiting, else mutes or unmutes; with push to
+	 * talk, which a tap can't hold, one tap starts and the next sends. */
 	mediaToggle = (): void => {
 		const { draft, hearing, listener, autoEnd } = this.state;
-		if (draft || hearing || (listener && !autoEnd)) this.finish();
+		if (!autoEnd) {
+			if (listener || this.pushed) this.release();
+			else void this.press();
+		} else if (draft || hearing) this.send();
 		else void this.setListener(!(listener || this.wanted));
 	};
 

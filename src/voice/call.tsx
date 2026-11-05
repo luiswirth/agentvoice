@@ -1,13 +1,11 @@
 // Voice as a phone call, since everyone knows how one works: who you talk
-// with at the top, large, with what is happening under it; your own words in
-// the middle, as a live caption, so you can check what was understood; and the
-// buttons of a call at the bottom: mute, speaker, more, and the red one that
-// hangs up, which leaves. The agent's words stay in its harness, as a call
-// shows none. What is set once, such as the tier or auto-send, waits behind
-// more. The system's media controls work it too, as headphones do on a call:
-// a tap mutes, or sends the words waiting.
+// with at the top, large, with what is happening under it, and the buttons of
+// a call at the bottom: mute or push to talk, speaker, hands-free, more, and
+// the red one that hangs up, which leaves. No text shows: the conversation
+// belongs to the agent's harness, as a call shows none. What is set once, such
+// as the tier, waits behind more. The system's media controls work it too, as
+// headphones do on a call: a tap mutes, or sends.
 import {
-	ArrowUp,
 	AudioLines,
 	Check,
 	Copy,
@@ -16,8 +14,6 @@ import {
 	Mic,
 	MicOff,
 	PhoneOff,
-	Trash2,
-	Undo2,
 	Volume2,
 	VolumeX,
 	X,
@@ -94,7 +90,6 @@ export function Call({
 	useEffect(() => {
 		showMedia(said(state) || now, title || "voice");
 	}, [state, now, title]);
-	const mine = room?.turns.filter((turn) => turn.mine).at(-1);
 	return (
 		<div
 			ref={root}
@@ -136,12 +131,7 @@ export function Call({
 					)}
 				</div>
 			</header>
-			<Caption
-				voice={voice}
-				state={state}
-				last={mine ? unvoiced(mine.text) : null}
-				hearer={agents[0] ? label(agents[0].name) : "your agent"}
-			/>
+			<div className="min-h-0 flex-1" />
 			<Buttons
 				voice={voice}
 				state={state}
@@ -187,7 +177,7 @@ function status(
 	if (state.progress === "sent")
 		return agents.length > 1 ? "Sent" : "Sent, not heard yet";
 	if (state.listener) return "Listening";
-	if (!state.autoEnd) return state.speaker ? "Tap to talk" : "Speaker off";
+	if (!state.autoEnd) return state.speaker ? "Hold to talk" : "Speaker off";
 	return state.speaker ? "Muted" : "Muted, speaker off";
 }
 
@@ -366,9 +356,6 @@ function Faces({
 	);
 }
 
-/** The colour of the person's words. */
-const YOURS = "color-mix(in oklch, var(--you) 40%, white)";
-
 /** The style that shows the agent `from` in its own shade of the agent
  * colour, by its place among the `speakers`, as its voice is picked: one not
  * heard yet takes the next. */
@@ -376,141 +363,6 @@ function shade(speakers: string[], from: string): CSSProperties {
 	const n = speakers.indexOf(from);
 	const place = (n < 0 ? speakers.length : n) % 4;
 	return { "--agent": `var(--agent-${place})` } as CSSProperties;
-}
-
-/** A message of the person's without its voice tags, which are for the
- * agent. */
-function unvoiced(text: string): string {
-	return text.replace(/\[voice \d+\]\s*/g, "").trim();
-}
-
-/** The person's words, as a live caption: what they say as they say it, and
- * the words waiting to be sent; else what happened to their last words, with
- * the way back; else their last message, faded once sent; else what to do. */
-function Caption({
-	voice,
-	state,
-	last,
-	hearer,
-}: {
-	voice: Voice;
-	state: VoiceState;
-	/** The person's last message sent. */
-	last: string | null;
-	/** Who hears the person, by name. */
-	hearer: string;
-}) {
-	const words = Boolean(state.draft || state.hearing);
-	let body: ReactNode;
-	let actions: ReactNode = null;
-	if (words) {
-		body = (
-			<p className="text-pretty" style={{ color: YOURS }}>
-				{state.draft && <>{unvoiced(state.draft)} </>}
-				<span className="opacity-55">{unvoiced(state.hearing)}</span>
-			</p>
-		);
-	} else if (state.missed) {
-		const why = {
-			echo: "it sounded like your agent",
-			quiet: "it was too quiet",
-			backchannel: "you said it while your agent spoke",
-		}[state.missed.why];
-		body = (
-			<Faded>
-				“{unvoiced(state.missed.text)}”<Note>Not sent, since {why}.</Note>
-			</Faded>
-		);
-		actions = (
-			<Action label="Send it, as yours" onClick={() => voice.sendMissed()}>
-				Send it anyway
-			</Action>
-		);
-	} else if (state.dropped) {
-		body = (
-			<Faded>
-				<span className="line-through decoration-white/30">
-					{unvoiced(state.dropped)}
-				</span>
-				<Note>Deleted.</Note>
-			</Faded>
-		);
-		actions = (
-			<Action label="Bring your words back" onClick={() => voice.undo()}>
-				<Undo2 />
-				Undo
-			</Action>
-		);
-	} else if (last && state.listener === state.autoEnd) {
-		// Hands-free and listening, or tap to talk and not yet: nothing to
-		// say about what to do next.
-		body = <Faded>{last}</Faded>;
-	} else {
-		body = (
-			<p className="text-center text-lg text-muted-foreground/80 text-balance">
-				{state.blocked
-					? "Your browser keeps this page quiet until you tap it."
-					: !state.autoEnd
-						? state.listener
-							? "Listening. Tap send when you're done."
-							: "Tap talk, speak, then tap send."
-						: !state.listener
-							? "You're muted. Tap mute again to talk."
-							: `Just talk. ${hearer} hears you once you pause.`}
-			</p>
-		);
-	}
-	return (
-		<section
-			aria-label="Your words"
-			className="flex min-h-0 w-full flex-1 flex-col items-center justify-center gap-5 overflow-hidden px-2 py-6"
-		>
-			<div className="max-h-full min-h-0 w-full overflow-y-auto text-center text-xl leading-snug font-light sm:text-2xl">
-				{body}
-			</div>
-			{actions && (
-				<div className="flex shrink-0 animate-[arrive_0.3s_ease-out] items-center gap-2">
-					{actions}
-				</div>
-			)}
-		</section>
-	);
-}
-
-/** Words that are no longer live, quieter. */
-function Faded({ children }: { children: ReactNode }) {
-	return (
-		<p className="text-pretty" style={{ color: YOURS, opacity: 0.45 }}>
-			{children}
-		</p>
-	);
-}
-
-function Note({ children }: { children: ReactNode }) {
-	return (
-		<span className="mt-2 block text-sm text-muted-foreground">{children}</span>
-	);
-}
-
-function Action({
-	label,
-	onClick,
-	children,
-}: {
-	label: string;
-	onClick: () => void;
-	children: ReactNode;
-}) {
-	return (
-		<button
-			type="button"
-			title={label}
-			className="flex h-11 shrink-0 items-center gap-2 rounded-full bg-white/[0.08] px-5 text-foreground/85 transition hover:bg-white/15 hover:text-foreground [&_svg]:size-4"
-			onClick={onClick}
-		>
-			{children}
-		</button>
-	);
 }
 
 /** A name in the session as the person reads it: without the person's own
@@ -521,10 +373,10 @@ function label(name: string): string {
 }
 
 /** The buttons of a call: on top mute, speaker and hands-free; under them
- * more, the red one that hangs up, and, while words wait with tap to talk,
- * discard. Hands-free listens all along and sends as the person pauses; tap to
- * talk listens from a tap on talk until a tap on send. A button is lit white
- * while it does what its name says, as on a phone. */
+ * more and the red one that hangs up. Hands-free listens all along and sends
+ * as the person pauses; without it, the first button is push to talk, which
+ * listens while held and sends once let go. A button is lit white while it
+ * does what its name says, as on a phone. */
 function Buttons({
 	voice,
 	state,
@@ -537,11 +389,6 @@ function Buttons({
 	leave: (() => void) | undefined;
 }) {
 	const handsFree = state.autoEnd;
-	const talking =
-		!handsFree &&
-		(state.listener ||
-			state.switching === "listener" ||
-			Boolean(state.draft || state.hearing));
 	return (
 		<nav
 			aria-label="Call"
@@ -557,24 +404,8 @@ function Buttons({
 				>
 					{state.listener ? <Mic /> : <MicOff />}
 				</Round>
-			) : talking ? (
-				<Round
-					label="send"
-					title="Send what you said (Space)"
-					lit="you"
-					onClick={() => voice.finish()}
-				>
-					<ArrowUp />
-				</Round>
 			) : (
-				<Round
-					label="talk"
-					title="Talk: tap, speak, then tap send (Space)"
-					lit={false}
-					onClick={() => void voice.setListener(true)}
-				>
-					<Mic />
-				</Round>
+				<PushToTalk voice={voice} state={state} />
 			)}
 			<Round
 				label="speaker"
@@ -592,8 +423,8 @@ function Buttons({
 				label="hands-free"
 				title={
 					handsFree
-						? "Hands-free: your words go out as you pause. Tap to talk by tapping instead."
-						: "Tap to talk: tap talk, speak, tap send. Tap for hands-free instead."
+						? "Hands-free: your words go out as you pause. Tap for push to talk."
+						: "Push to talk: hold to talk, let go to send. Tap for hands-free."
 				}
 				lit={handsFree}
 				onClick={() => void voice.setAutoEnd(!handsFree)}
@@ -603,58 +434,70 @@ function Buttons({
 			<Round label="more" title="Settings" lit={false} onClick={more}>
 				<Ellipsis />
 			</Round>
-			{leave ? <HangUp leave={leave} /> : <span />}
-			{talking && (
-				<Round
-					label="discard"
-					title="Throw it away (Escape)"
-					lit={false}
-					onClick={() => voice.discard()}
-				>
-					<Trash2 />
-				</Round>
-			)}
+			{leave && <HangUp leave={leave} />}
 		</nav>
 	);
 }
 
-/** A round button of a call, with its name under it: lit white while on, or
- * in the person's colour while it holds their words, glowing as they speak. */
-function Round(props: {
-	label: string;
-	title: string;
-	lit: boolean | "you";
-	busy?: boolean;
-	onClick: () => void;
-	children: ReactNode;
-}) {
-	const face =
-		props.lit === "you"
-			? "bg-you text-black"
-			: props.lit
-				? "bg-white text-black"
-				: "bg-white/[0.12] text-white backdrop-blur-xl group-hover:bg-white/20";
+/** Push to talk: listening while held, by touch, mouse or Space, and sent
+ * once let go. */
+function PushToTalk({ voice, state }: { voice: Voice; state: VoiceState }) {
+	const held = state.listener || state.switching === "listener";
 	return (
 		<button
 			type="button"
-			title={props.title}
-			aria-label={props.title}
-			aria-pressed={props.lit !== false}
-			disabled={props.busy}
-			onClick={props.onClick}
-			className="group flex animate-[arrive_0.25s_ease-out] flex-col items-center gap-2 text-xs text-foreground/80"
+			title="Hold to talk, let go to send (hold Space)"
+			aria-label="Hold to talk"
+			aria-pressed={held}
+			className="group flex touch-none flex-col items-center gap-2 text-xs text-foreground/80 select-none [-webkit-touch-callout:none]"
+			onPointerDown={(event) => {
+				event.currentTarget.setPointerCapture(event.pointerId);
+				void voice.press();
+			}}
+			onPointerUp={() => voice.release()}
+			onPointerCancel={() => voice.release()}
+			onContextMenu={(event) => event.preventDefault()}
 		>
 			<span
-				data-meter={props.lit === "you" ? "" : undefined}
-				className={`grid size-[4.5rem] place-items-center rounded-full transition-colors duration-150 [&_svg]:size-7 ${face} ${props.busy ? "animate-pulse" : ""}`}
+				data-meter={held ? "" : undefined}
+				className={`grid size-[4.5rem] place-items-center rounded-full transition-[background-color,transform] duration-150 [&_svg]:size-7 ${held ? "scale-110 bg-you text-black" : "bg-white/[0.12] text-white backdrop-blur-xl group-hover:bg-white/20"}`}
 				style={
-					props.lit === "you"
+					held
 						? {
 								boxShadow:
 									"0 0 0 calc(var(--you-level, 0) * 12px) color-mix(in oklch, var(--you) 30%, transparent), 0 0 calc(10px + var(--you-level, 0) * 40px) color-mix(in oklch, var(--you) 60%, transparent)",
 							}
 						: undefined
 				}
+			>
+				<Mic />
+			</span>
+			hold to talk
+		</button>
+	);
+}
+
+/** A round button of a call, with its name under it. */
+function Round(props: {
+	label: string;
+	title: string;
+	lit: boolean;
+	busy?: boolean;
+	onClick: () => void;
+	children: ReactNode;
+}) {
+	return (
+		<button
+			type="button"
+			title={props.title}
+			aria-label={props.title}
+			aria-pressed={props.lit}
+			disabled={props.busy}
+			onClick={props.onClick}
+			className="group flex flex-col items-center gap-2 text-xs text-foreground/80"
+		>
+			<span
+				className={`grid size-[4.5rem] place-items-center rounded-full transition-colors duration-150 [&_svg]:size-7 ${props.lit ? "bg-white text-black" : "bg-white/[0.12] text-white backdrop-blur-xl group-hover:bg-white/20"} ${props.busy ? "animate-pulse" : ""}`}
 			>
 				{props.children}
 			</span>
@@ -1053,26 +896,28 @@ function Languages({ voice, state }: { voice: Voice; state: VoiceState }) {
 	);
 }
 
-/** Space mutes and unmutes, or with tap to talk, talks and sends; Enter
- * sends the words, Escape drops them. Not in a field, nor while the settings
- * are open. */
+/** Space mutes and unmutes, or with push to talk, talks while held. Not in a
+ * field, nor while the settings are open. */
 function useShortcuts(voice: Voice, state: VoiceState, settings: boolean) {
-	const words = Boolean(state.draft || state.hearing);
-	const talking = !state.autoEnd && (state.listener || words);
+	const handsFree = state.autoEnd;
 	useEffect(() => {
 		if (settings) return;
-		const key = (event: KeyboardEvent) => {
-			if (event.target instanceof HTMLInputElement) return;
-			if (event.key === "Escape") voice.discard();
-			else if (event.repeat) return;
-			else if (event.key === " ")
-				if (talking) voice.finish();
-				else void voice.setListener(!state.listener);
-			else if (event.key === "Enter" && words) voice.finish();
-			else return;
+		const down = (event: KeyboardEvent) => {
+			if (event.target instanceof HTMLInputElement || event.key !== " ") return;
 			event.preventDefault();
+			if (event.repeat) return;
+			if (handsFree) void voice.setListener(!state.listener);
+			else void voice.press();
 		};
-		window.addEventListener("keydown", key);
-		return () => window.removeEventListener("keydown", key);
-	}, [voice, state.listener, words, talking, settings]);
+		const up = (event: KeyboardEvent) => {
+			if (event.target instanceof HTMLInputElement || event.key !== " ") return;
+			if (!handsFree) voice.release();
+		};
+		window.addEventListener("keydown", down);
+		window.addEventListener("keyup", up);
+		return () => {
+			window.removeEventListener("keydown", down);
+			window.removeEventListener("keyup", up);
+		};
+	}, [voice, state.listener, handsFree, settings]);
 }

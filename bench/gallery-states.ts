@@ -44,12 +44,7 @@ export const states: Record<string, Partial<VoiceState>> = {
 	"group-agent-speaking": { listener: true, speaker: true, reading: 4 },
 	// The second agent read, in its own shade, its wave too.
 	"group-second-agent-speaking": { listener: true, speaker: true, reading: 5 },
-	missed: {
-		listener: true,
-		speaker: true,
-		reading: 4,
-		missed: { text: "Yes.", why: "echo" },
-	},
+
 	named: {
 		listener: true,
 		speaker: true,
@@ -71,33 +66,9 @@ export const states: Record<string, Partial<VoiceState>> = {
 		draft: "I think we should look at the turn detection first.",
 		hearing: "And then deploy it",
 	},
-	"tap-to-talk": { speaker: true, autoEnd: false },
-	"manual-idle": { listener: true, speaker: true, autoEnd: false },
-	"manual-speaking": {
-		listener: true,
-		speaker: true,
-		autoEnd: false,
-		draft: "I think we should look at the turn detection first,",
-		hearing: "and then deploy it tonight.",
-	},
-	manual: {
-		listener: true,
-		speaker: true,
-		autoEnd: false,
-		draft:
-			"I think we should look at the turn detection first, and then deploy it tonight.",
-	},
-	"mic-off-draft": {
-		speaker: true,
-		draft:
-			"I think we should look at the turn detection first, and then deploy it tonight.",
-	},
-	deleted: {
-		listener: true,
-		speaker: true,
-		dropped:
-			"I think we should look at the turn detection first, and then deploy it tonight.",
-	},
+	"push-to-talk": { speaker: true, autoEnd: false },
+	"push-to-talk-held": { listener: true, speaker: true, autoEnd: false },
+
 	"agent-sent": { listener: true, speaker: true, progress: "sent" },
 	settings: {
 		listener: true,
