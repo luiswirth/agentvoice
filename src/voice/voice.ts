@@ -1,10 +1,9 @@
 // Voice in the page: the core's conversation, carried over a polylogue
 // session, with the browser's microphone and speaker. The page reads the
 // agents' messages from the log into it, and sends the person's turns and
-// modes into the log, as voice's protocol has them. Nothing the person says
-// is lost: every transcript, sent or dropped, is kept in this browser, the
-// last to copy. Transcription and speech synthesis run on ElevenLabs or on
-// an engine in the session, the tier the person chooses.
+// modes into the log, as voice's protocol has them. Transcription and speech
+// synthesis run on ElevenLabs or on an engine in the session, the tier the
+// person chooses.
 import {
 	Conversation,
 	type Fact,
@@ -51,8 +50,6 @@ import { zip } from "./zip.ts";
 export type VoiceState = Omit<State, "reading"> & {
 	/** The message being read aloud, by its entry. */
 	reading: number | null;
-	/** The person's last transcript, sent or dropped. */
-	last: string | null;
 	/** The languages the person speaks, most likely first, as ISO 639-1
 	 * codes: none to have Scribe detect it. Kept in this browser. */
 	languages: string[];
@@ -106,7 +103,6 @@ export function chooseTier(tier: Tier): void {
 }
 
 const ENGINE_VOICE = "voice-engine-voice";
-const TRANSCRIPTS = "voice-transcripts";
 const LANGUAGES = "voice-languages";
 const AUTO_END = "voice-auto-end";
 const SOUNDS = "voice-sounds";
@@ -114,14 +110,6 @@ const SOUNDS = "voice-sounds";
 /** How long before the speaker started a message may have arrived and
  * still be read, in seconds: one that came during a reload. */
 const RECENT = 10;
-
-function transcripts(): string[] {
-	try {
-		return JSON.parse(localStorage.getItem(TRANSCRIPTS) ?? "[]") as string[];
-	} catch {
-		return [];
-	}
-}
 
 /** What the core keeps, in this browser, for the page's link, so that a
  * reload keeps it and another session never gets it. */
@@ -189,7 +177,6 @@ export class Voice {
 		this.name = name;
 		this.key = key;
 		this.own = {
-			last: transcripts()[0] ?? null,
 			languages: JSON.parse(
 				localStorage.getItem(LANGUAGES) ?? "[]",
 			) as string[],
@@ -250,7 +237,6 @@ export class Voice {
 		);
 		this.core.on("modes", () => void this.modes());
 		this.core.on("heard", ({ id }) => this.done(Number(id)));
-		this.core.on("dropped", (text) => this.keep(text));
 		this.core.on("turn", ({ text, cut }) => this.turn(text, cut));
 		this.engines = new Engines(session, (engine, engineVoices) => {
 			const chosen = localStorage.getItem(ENGINE_VOICE);
@@ -468,7 +454,7 @@ export class Voice {
 	 * could speak, except those this tab already read, heard or dropped; of
 	 * those from before the speaker came on, only the ones that arrived just
 	 * before, as during a reload. None from further back: the person may have
-	 * heard or read them, and can have the last read again.
+	 * heard or read them.
 	 */
 	private backlog(after: number): void {
 		const since = Number(sessionStorage.getItem(this.readKey) ?? 0);
@@ -535,7 +521,6 @@ export class Voice {
 	 * on goes ahead of what they said, so that the agent has the turn as one
 	 * entry. */
 	private turn(text: string, cut: Heard[]): void {
-		this.keep(text);
 		const trace = this.trace.take();
 		const marks = cut.map(({ id, text }) =>
 			text
@@ -550,13 +535,6 @@ export class Voice {
 			});
 			await this.shareTrace(trace);
 		});
-	}
-
-	/** Copies the last transcript, sent or dropped. */
-	async copyLast(): Promise<void> {
-		if (!this.own.last) return;
-		await navigator.clipboard.writeText(this.own.last);
-		this.core.notice("press");
 	}
 
 	/** What the page kept of its trace and of the audio it heard, as a
@@ -605,12 +583,6 @@ export class Voice {
 			await this.session.send(JSON.stringify(events), { type: TRACE });
 		for (const { start, wav } of audio)
 			await this.session.send(wav, { filename: `heard ${start}.wav` });
-	}
-
-	private keep(text: string): void {
-		const kept = [text, ...transcripts()].slice(0, 20);
-		localStorage.setItem(TRANSCRIPTS, JSON.stringify(kept));
-		this.set({ last: text });
 	}
 
 	/** The ElevenLabs key, which a missing one refuses. */

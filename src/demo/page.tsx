@@ -47,7 +47,6 @@ const voice = {
 		set({ listener: false });
 		answer();
 	},
-	copyLast: async () => {},
 	download: async () => ({ name: "trace.zip", blob: new Blob() }),
 	share: (sharing: boolean) => set({ sharing }),
 	setLanguages: async (languages: string[]) => set({ languages }),

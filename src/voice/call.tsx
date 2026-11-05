@@ -533,9 +533,8 @@ function HangUp({ leave }: { leave: () => void }) {
 	);
 }
 
-/** What is set once and then left: the last transcript, where
- * speech runs, its voice and languages, the sounds, the session's link, and
- * debugging. */
+/** What is set once and then left: where speech runs, its voice and
+ * languages, the sounds, the session's link, and debugging. */
 function Settings(props: {
 	open: boolean;
 	close: () => void;
@@ -575,16 +574,6 @@ function Settings(props: {
 						<X />
 					</button>
 				</div>
-				<Row
-					title="Last transcript"
-					detail={
-						state.last
-							? `“${state.last.length > 60 ? `${state.last.slice(0, 60)}…` : state.last}”`
-							: "Nothing said yet."
-					}
-				>
-					<CopyLast voice={voice} disabled={!state.last} />
-				</Row>
 				<Row
 					title="Speech models"
 					detail={
@@ -674,27 +663,6 @@ function Settings(props: {
 				</Row>
 			</div>
 		</dialog>
-	);
-}
-
-/** Copies the person's last transcript, sent or not, which is never lost. */
-function CopyLast({ voice, disabled }: { voice: Voice; disabled: boolean }) {
-	const [copied, setCopied] = useState(false);
-	useEffect(() => {
-		if (!copied) return;
-		const timer = setTimeout(() => setCopied(false), 1500);
-		return () => clearTimeout(timer);
-	}, [copied]);
-	return (
-		<button
-			type="button"
-			disabled={disabled}
-			className="flex h-8 items-center gap-1.5 rounded-full bg-white/10 px-3 text-sm transition hover:bg-white/15 disabled:opacity-40"
-			onClick={() => void voice.copyLast().then(() => setCopied(true))}
-		>
-			{copied ? <Check className="size-4" /> : <Copy className="size-4" />}
-			{copied ? "Copied" : "Copy"}
-		</button>
 	);
 }
 

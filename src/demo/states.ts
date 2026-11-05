@@ -12,7 +12,6 @@ export const base: VoiceState = {
 	level: 0,
 	reading: null,
 	held: false,
-	last: "Earlier words.",
 	languages: [],
 	sharing: false,
 	names: {},
