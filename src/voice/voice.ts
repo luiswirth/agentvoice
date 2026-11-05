@@ -208,7 +208,9 @@ export class Voice {
 		const modes: Partial<Modes> = JSON.parse(
 			sessionStorage.getItem(this.modesKey) ?? "{}",
 		);
-		this.wanted = modes.listener ?? true;
+		const autoEnd = localStorage.getItem(AUTO_END) !== "false";
+		// Hands-free listens from the start; tap to talk only once tapped.
+		this.wanted = modes.listener ?? autoEnd;
 		const speaker = modes.speaker ?? true;
 		this.core = new Conversation({
 			transcribe: (heard) => this.transcribe(heard),
@@ -228,7 +230,7 @@ export class Voice {
 				},
 			},
 			speaker,
-			autoEnd: localStorage.getItem(AUTO_END) !== "false",
+			autoEnd,
 			sounds: localStorage.getItem(SOUNDS) !== "off",
 			names: this.names(),
 		});
@@ -495,11 +497,30 @@ export class Voice {
 			this.backlog(this.own.tier === "local" ? this.engines.offer : 0);
 	}
 
-	/** Whether turns end by themselves: only what happens at the end of the
-	 * next one changes, so a draft already there waits to be sent. */
-	setAutoEnd(autoEnd: boolean): void {
+	/** Hands-free, where turns end by themselves as the person pauses and
+	 * listening stays on, or tap to talk, where listening runs only from the
+	 * person's tap until they send or discard. A draft already there waits to
+	 * be sent. */
+	async setAutoEnd(autoEnd: boolean): Promise<void> {
 		localStorage.setItem(AUTO_END, String(autoEnd));
-		void this.core.set({ autoEnd });
+		await this.core.set({ autoEnd });
+		const { draft, hearing } = this.state;
+		if (autoEnd) await this.setListener(true);
+		else if (!draft && !hearing) await this.setListener(false);
+	}
+
+	/** Tap to talk's end: sends the words, with what is still being heard,
+	 * and stops listening. */
+	finish(): void {
+		this.send();
+		if (!this.state.autoEnd) void this.setListener(false);
+	}
+
+	/** Tap to talk's other end: drops the words, which `undo` brings back,
+	 * and stops listening. */
+	discard(): void {
+		this.clear();
+		if (!this.state.autoEnd) void this.setListener(false);
 	}
 
 	/** Brings back the draft last deleted, ahead of what was said since. */
@@ -544,11 +565,6 @@ export class Voice {
 	 * speaker reads on. */
 	clear(): void {
 		this.core.clear();
-	}
-
-	/** The person's edit of the draft. */
-	setDraft(draft: string): void {
-		this.core.edit(draft);
 	}
 
 	/** Copies the last transcript, sent or dropped. */
@@ -643,11 +659,12 @@ export class Voice {
 	}
 
 	/** Play and pause from the system's media controls, as a headphone tap
-	 * on a call: sends a draft, else mutes or unmutes. */
+	 * on a call: sends the words waiting, else mutes or unmutes, or with tap
+	 * to talk, starts listening. */
 	mediaToggle = (): void => {
-		const { draft, hearing } = this.state;
-		if (draft || hearing) this.send();
-		else void this.setListener(!(this.state.listener || this.wanted));
+		const { draft, hearing, listener, autoEnd } = this.state;
+		if (draft || hearing || (listener && !autoEnd)) this.finish();
+		else void this.setListener(!(listener || this.wanted));
 	};
 
 	/** Holds the system's audio and media controls while voice is in use,

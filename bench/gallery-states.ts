@@ -71,6 +71,7 @@ export const states: Record<string, Partial<VoiceState>> = {
 		draft: "I think we should look at the turn detection first.",
 		hearing: "And then deploy it",
 	},
+	"tap-to-talk": { speaker: true, autoEnd: false },
 	"manual-idle": { listener: true, speaker: true, autoEnd: false },
 	"manual-speaking": {
 		listener: true,

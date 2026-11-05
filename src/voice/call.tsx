@@ -7,6 +7,8 @@
 // more. The system's media controls work it too, as headphones do on a call:
 // a tap mutes, or sends the words waiting.
 import {
+	ArrowUp,
+	AudioLines,
 	Check,
 	Copy,
 	Download,
@@ -14,6 +16,7 @@ import {
 	Mic,
 	MicOff,
 	PhoneOff,
+	Trash2,
 	Undo2,
 	Volume2,
 	VolumeX,
@@ -183,9 +186,9 @@ function status(
 	if (state.progress === "working") return "Thinking…";
 	if (state.progress === "sent")
 		return agents.length > 1 ? "Sent" : "Sent, not heard yet";
-	if (!state.listener && !state.speaker) return "Muted, speaker off";
-	if (!state.listener) return "Muted";
-	return "Listening";
+	if (state.listener) return "Listening";
+	if (!state.autoEnd) return state.speaker ? "Tap to talk" : "Speaker off";
+	return state.speaker ? "Muted" : "Muted, speaker off";
 }
 
 /** Who is heard now, once the agent named any voice: by name, or by number
@@ -382,9 +385,8 @@ function unvoiced(text: string): string {
 }
 
 /** The person's words, as a live caption: what they say as they say it, and
- * the words waiting to be sent, which they can edit, with Delete and Send
- * where auto-send is off; else what happened to their last words, with the
- * way back; else their last message, faded once sent; else how to start. */
+ * the words waiting to be sent; else what happened to their last words, with
+ * the way back; else their last message, faded once sent; else what to do. */
 function Caption({
 	voice,
 	state,
@@ -402,24 +404,12 @@ function Caption({
 	let body: ReactNode;
 	let actions: ReactNode = null;
 	if (words) {
-		body = <Words voice={voice} state={state} />;
-		if (!state.autoEnd)
-			actions = (
-				<>
-					<Action label="Delete (Escape)" onClick={() => voice.clear()}>
-						<X />
-						Delete
-					</Action>
-					<button
-						type="button"
-						title="Send it (Enter)"
-						className="flex h-11 items-center gap-2 rounded-full bg-you px-6 font-medium text-black shadow-[0_0_24px_-4px_var(--you)] transition hover:brightness-110"
-						onClick={() => voice.send()}
-					>
-						Send
-					</button>
-				</>
-			);
+		body = (
+			<p className="text-pretty" style={{ color: YOURS }}>
+				{state.draft && <>{unvoiced(state.draft)} </>}
+				<span className="opacity-55">{unvoiced(state.hearing)}</span>
+			</p>
+		);
 	} else if (state.missed) {
 		const why = {
 			echo: "it sounded like your agent",
@@ -428,7 +418,7 @@ function Caption({
 		}[state.missed.why];
 		body = (
 			<Faded>
-				“{state.missed.text}”<Note>Not sent, since {why}.</Note>
+				“{unvoiced(state.missed.text)}”<Note>Not sent, since {why}.</Note>
 			</Faded>
 		);
 		actions = (
@@ -440,7 +430,7 @@ function Caption({
 		body = (
 			<Faded>
 				<span className="line-through decoration-white/30">
-					{state.dropped}
+					{unvoiced(state.dropped)}
 				</span>
 				<Note>Deleted.</Note>
 			</Faded>
@@ -451,18 +441,22 @@ function Caption({
 				Undo
 			</Action>
 		);
-	} else if (state.listener && last) {
+	} else if (last && state.listener === state.autoEnd) {
+		// Hands-free and listening, or tap to talk and not yet: nothing to
+		// say about what to do next.
 		body = <Faded>{last}</Faded>;
 	} else {
 		body = (
 			<p className="text-center text-lg text-muted-foreground/80 text-balance">
 				{state.blocked
 					? "Your browser keeps this page quiet until you tap it."
-					: !state.listener
-						? "You're muted. Tap mute again to talk."
-						: state.autoEnd
-							? `Just talk. ${hearer} hears you once you pause.`
-							: "Talk, then press Send."}
+					: !state.autoEnd
+						? state.listener
+							? "Listening. Tap send when you're done."
+							: "Tap talk, speak, then tap send."
+						: !state.listener
+							? "You're muted. Tap mute again to talk."
+							: `Just talk. ${hearer} hears you once you pause.`}
 			</p>
 		);
 	}
@@ -498,34 +492,6 @@ function Note({ children }: { children: ReactNode }) {
 	);
 }
 
-/** The person's words not sent yet: what is still being heard follows the
- * draft, quieter, and the draft can be edited once nothing more is being
- * heard into it, in a field as tall as its text. */
-function Words({ voice, state }: { voice: Voice; state: VoiceState }) {
-	if (state.hearing)
-		return (
-			<p className="text-pretty" style={{ color: YOURS }}>
-				{state.draft && <>{state.draft} </>}
-				<span className="opacity-55">{state.hearing}</span>
-			</p>
-		);
-	return (
-		<div
-			className="grid after:invisible after:whitespace-pre-wrap after:content-[attr(data-text)_\'_\'] after:[grid-area:1/1]"
-			data-text={state.draft}
-		>
-			<textarea
-				aria-label="What you said, to edit before sending"
-				rows={1}
-				className="resize-none overflow-hidden bg-transparent text-center text-pretty outline-none [grid-area:1/1]"
-				style={{ color: YOURS }}
-				value={state.draft}
-				onChange={(event) => voice.setDraft(event.target.value)}
-			/>
-		</div>
-	);
-}
-
 function Action({
 	label,
 	onClick,
@@ -554,9 +520,11 @@ function label(name: string): string {
 	return slash < 0 ? name : name.slice(slash + 1);
 }
 
-/** The buttons of a call: mute, speaker and more in a row, with the red one
- * that hangs up under them. Mute and speaker are lit white while they do what
- * their name says, as on a phone. */
+/** The buttons of a call: on top mute, speaker and hands-free; under them
+ * more, the red one that hangs up, and, while words wait with tap to talk,
+ * discard. Hands-free listens all along and sends as the person pauses; tap to
+ * talk listens from a tap on talk until a tap on send. A button is lit white
+ * while it does what its name says, as on a phone. */
 function Buttons({
 	voice,
 	state,
@@ -568,20 +536,46 @@ function Buttons({
 	more: () => void;
 	leave: (() => void) | undefined;
 }) {
+	const handsFree = state.autoEnd;
+	const talking =
+		!handsFree &&
+		(state.listener ||
+			state.switching === "listener" ||
+			Boolean(state.draft || state.hearing));
 	return (
 		<nav
 			aria-label="Call"
 			className="grid shrink-0 grid-cols-3 justify-items-center gap-x-8 gap-y-6 pb-2"
 		>
-			<Round
-				label="mute"
-				title={state.listener ? "Mute (Space)" : "Unmute (Space)"}
-				lit={!state.listener}
-				busy={state.switching === "listener"}
-				onClick={() => void voice.setListener(!state.listener)}
-			>
-				{state.listener ? <Mic /> : <MicOff />}
-			</Round>
+			{handsFree ? (
+				<Round
+					label="mute"
+					title={state.listener ? "Mute (Space)" : "Unmute (Space)"}
+					lit={!state.listener}
+					busy={state.switching === "listener"}
+					onClick={() => void voice.setListener(!state.listener)}
+				>
+					{state.listener ? <Mic /> : <MicOff />}
+				</Round>
+			) : talking ? (
+				<Round
+					label="send"
+					title="Send what you said (Space)"
+					lit="you"
+					onClick={() => voice.finish()}
+				>
+					<ArrowUp />
+				</Round>
+			) : (
+				<Round
+					label="talk"
+					title="Talk: tap, speak, then tap send (Space)"
+					lit={false}
+					onClick={() => void voice.setListener(true)}
+				>
+					<Mic />
+				</Round>
+			)}
 			<Round
 				label="speaker"
 				title={
@@ -594,39 +588,73 @@ function Buttons({
 			>
 				{state.speaker ? <Volume2 /> : <VolumeX />}
 			</Round>
+			<Round
+				label="hands-free"
+				title={
+					handsFree
+						? "Hands-free: your words go out as you pause. Tap to talk by tapping instead."
+						: "Tap to talk: tap talk, speak, tap send. Tap for hands-free instead."
+				}
+				lit={handsFree}
+				onClick={() => void voice.setAutoEnd(!handsFree)}
+			>
+				<AudioLines />
+			</Round>
 			<Round label="more" title="Settings" lit={false} onClick={more}>
 				<Ellipsis />
 			</Round>
-			{leave && (
-				<div className="col-start-2">
-					<HangUp leave={leave} />
-				</div>
+			{leave ? <HangUp leave={leave} /> : <span />}
+			{talking && (
+				<Round
+					label="discard"
+					title="Throw it away (Escape)"
+					lit={false}
+					onClick={() => voice.discard()}
+				>
+					<Trash2 />
+				</Round>
 			)}
 		</nav>
 	);
 }
 
-/** A round button of a call, with its name under it. */
+/** A round button of a call, with its name under it: lit white while on, or
+ * in the person's colour while it holds their words, glowing as they speak. */
 function Round(props: {
 	label: string;
 	title: string;
-	lit: boolean;
+	lit: boolean | "you";
 	busy?: boolean;
 	onClick: () => void;
 	children: ReactNode;
 }) {
+	const face =
+		props.lit === "you"
+			? "bg-you text-black"
+			: props.lit
+				? "bg-white text-black"
+				: "bg-white/[0.12] text-white backdrop-blur-xl group-hover:bg-white/20";
 	return (
 		<button
 			type="button"
 			title={props.title}
 			aria-label={props.title}
-			aria-pressed={props.lit}
+			aria-pressed={props.lit !== false}
 			disabled={props.busy}
 			onClick={props.onClick}
-			className="group flex flex-col items-center gap-2 text-xs text-foreground/80"
+			className="group flex animate-[arrive_0.25s_ease-out] flex-col items-center gap-2 text-xs text-foreground/80"
 		>
 			<span
-				className={`grid size-[4.5rem] place-items-center rounded-full transition-colors duration-150 [&_svg]:size-7 ${props.lit ? "bg-white text-black" : "bg-white/[0.12] text-white backdrop-blur-xl group-hover:bg-white/20"} ${props.busy ? "animate-pulse" : ""}`}
+				data-meter={props.lit === "you" ? "" : undefined}
+				className={`grid size-[4.5rem] place-items-center rounded-full transition-colors duration-150 [&_svg]:size-7 ${face} ${props.busy ? "animate-pulse" : ""}`}
+				style={
+					props.lit === "you"
+						? {
+								boxShadow:
+									"0 0 0 calc(var(--you-level, 0) * 12px) color-mix(in oklch, var(--you) 30%, transparent), 0 0 calc(10px + var(--you-level, 0) * 40px) color-mix(in oklch, var(--you) 60%, transparent)",
+							}
+						: undefined
+				}
 			>
 				{props.children}
 			</span>
@@ -662,7 +690,7 @@ function HangUp({ leave }: { leave: () => void }) {
 	);
 }
 
-/** What is set once and then left: auto-send, the last transcript, where
+/** What is set once and then left: the last transcript, where
  * speech runs, its voice and languages, the sounds, the session's link, and
  * debugging. */
 function Settings(props: {
@@ -704,20 +732,6 @@ function Settings(props: {
 						<X />
 					</button>
 				</div>
-				<Row
-					title="Auto-send"
-					detail={
-						state.autoEnd
-							? "Your words go to your agent as you pause."
-							: "Your words wait until you press Send."
-					}
-				>
-					<Toggle
-						label="Auto-send"
-						on={state.autoEnd}
-						flip={() => voice.setAutoEnd(!state.autoEnd)}
-					/>
-				</Row>
 				<Row
 					title="Last transcript"
 					detail={
@@ -1039,24 +1053,26 @@ function Languages({ voice, state }: { voice: Voice; state: VoiceState }) {
 	);
 }
 
-/** Space mutes and unmutes, Enter sends the words, Escape drops them. Not
- * while typing in the draft, except Escape, nor in a field, nor while the
- * settings are open. */
+/** Space mutes and unmutes, or with tap to talk, talks and sends; Enter
+ * sends the words, Escape drops them. Not in a field, nor while the settings
+ * are open. */
 function useShortcuts(voice: Voice, state: VoiceState, settings: boolean) {
 	const words = Boolean(state.draft || state.hearing);
+	const talking = !state.autoEnd && (state.listener || words);
 	useEffect(() => {
 		if (settings) return;
 		const key = (event: KeyboardEvent) => {
 			if (event.target instanceof HTMLInputElement) return;
-			const typing = event.target instanceof HTMLTextAreaElement;
-			if (event.key === "Escape") voice.clear();
-			else if (typing || event.repeat) return;
-			else if (event.key === " ") void voice.setListener(!state.listener);
-			else if (event.key === "Enter" && words) voice.send();
+			if (event.key === "Escape") voice.discard();
+			else if (event.repeat) return;
+			else if (event.key === " ")
+				if (talking) voice.finish();
+				else void voice.setListener(!state.listener);
+			else if (event.key === "Enter" && words) voice.finish();
 			else return;
 			event.preventDefault();
 		};
 		window.addEventListener("keydown", key);
 		return () => window.removeEventListener("keydown", key);
-	}, [voice, state.listener, words, settings]);
+	}, [voice, state.listener, words, talking, settings]);
 }
