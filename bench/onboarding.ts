@@ -23,12 +23,12 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { create, type Entry, Secrets, Session } from "polylogue/participant";
+import { create, type Entry, Secrets, Session } from "agentwire/participant";
 
-const RELAY = "https://polylogue.agentics.lwirth.com";
+const RELAY = "https://agentwire.agentics.lwirth.com";
 const MODES = "application/vnd.polylogue.voice.modes+json";
 const OFFER = "application/vnd.polylogue.engine.offer+json";
-const SECRET = "application/vnd.polylogue.secret+json";
+const SECRET = "application/vnd.agentwire.secret+json";
 const PERSON = "luis";
 const DEBRIEF =
 	"That was a test of the voice page's setup, and the session is over: please don't run anything more. " +
@@ -128,7 +128,7 @@ const prompt = (
 )
 	.replaceAll("{tier}", tier === "local" ? "local" : "ElevenLabs")
 	.replaceAll("{docs}", docs)
-	.replaceAll("{session}", link.slice(`${RELAY}/v1/s/`.length))
+	.replaceAll("{session}", link.slice(`${RELAY}/v2/s/`.length))
 	.replaceAll("{person}", PERSON);
 await writeFile(join(out, "prompt.txt"), `${prompt}\n`);
 

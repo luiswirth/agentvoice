@@ -17,11 +17,11 @@ import {
 	KEY,
 	SECRET,
 	Session,
-} from "polylogue/participant";
+} from "agentwire/participant";
 import { scripts } from "./conversation.ts";
 import { joined } from "./recording.ts";
 
-const RELAY = "https://polylogue.agentics.lwirth.com";
+const RELAY = "https://agentwire.agentics.lwirth.com";
 const VOICE = "https://voice.agentics.lwirth.com";
 const TRACE = "application/vnd.polylogue.voice.trace+json";
 const NAMES = "application/vnd.polylogue.voice.names+json";

@@ -1,7 +1,7 @@
-// Voice's protocol, on chat's, on the polylogue transport: entries of its own,
+// Voice's protocol, on chat's, on the agentwire transport: entries of its own,
 // and nothing changed below.
 
-import type { Session as Client, Entry } from "polylogue/participant";
+import type { Session as Client, Entry } from "agentwire/participant";
 
 export type { Entry };
 

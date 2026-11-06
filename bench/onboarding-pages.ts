@@ -6,11 +6,11 @@
 //   just onboarding-pages
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
+import { Session } from "agentwire/participant";
 import { chromium, type Page } from "playwright-core";
-import { Session } from "polylogue/participant";
 import { createServer } from "vite";
 
-const RELAY = "https://polylogue.agentics.lwirth.com";
+const RELAY = "https://agentwire.agentics.lwirth.com";
 const out = join(import.meta.dirname, ".cache", "onboarding-pages");
 await mkdir(out, { recursive: true });
 const server = await createServer({ server: { port: 0 }, logLevel: "silent" });

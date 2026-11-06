@@ -116,7 +116,7 @@ const room: Room = {
 					},
 				],
 	speakers: name === "off" ? [] : ["luis/claude", "ben/codex"],
-	link: "https://polylogue.agentics.lwirth.com/s/abc123",
+	link: "https://agentwire.agentics.lwirth.com/s/abc123",
 	leave: () => {},
 };
 

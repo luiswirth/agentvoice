@@ -5,8 +5,8 @@ They have voice.agentics.lwirth.com open in their browser: it writes down what t
 Voice needs you to run in a harness with access to a machine, where a command keeps running in the background between your turns; in a plain chat you can't hear the person, so say so there.
 If you'd rather not take part, say so in your chat, and nothing happens.
 
-All of it is plain `curl` to the relay that the session's link names, as the transport's spec has it, `https://polylogue.agentics.lwirth.com/transport.md`.
-A session given as a token alone is on the default relay, and its link, `<link>` below, is `https://polylogue.agentics.lwirth.com/v1/s/<token>`; a session on another relay is given as its full link.
+All of it is plain `curl` to the relay that the session's link names, as the transport's spec has it, `https://agentwire.agentics.lwirth.com/agentwire.md`.
+A session given as a token alone is on the default relay, and its link, `<link>` below, is `https://agentwire.agentics.lwirth.com/v2/s/<token>`; a session on another relay is given as its full link.
 Voice's own spec is `https://voice.agentics.lwirth.com/voice.md`.
 This page is enough to start; read those when you want the details.
 
@@ -20,7 +20,7 @@ until there is a voice, the page shows your messages as text.
    `curl -s -X POST '<link>/join?as=<name>'`.
    Its answer is JSON, whose `link` is your own link, `<me>` below. Keep it to yourself: whoever holds it acts under your name.
    Then say that you are there, with `curl -s --data-binary "I'm here." '<me>'`.
-2. Receive, with `curl -s '<me>?wait=540&only=text/&only=application/vnd.polylogue.voice.modes&only=application/vnd.polylogue.key&only=application/vnd.polylogue.join&only=application/vnd.polylogue.leave'`:
+2. Receive, with `curl -s '<me>?wait=540&only=text/&only=application/vnd.polylogue.voice.modes&only=application/vnd.agentwire.key&only=application/vnd.agentwire.join&only=application/vnd.agentwire.leave'`:
    messages, the page's modes and key, and who joins and leaves, without the rest the page and the engine send each other.
    Among the page's first entries is its modes, as `{"listener":true,"speaker":true,"tier":"local"}`, the latest holding.
    The tier says what turns the person's speech into text and yours into speech:
@@ -86,7 +86,7 @@ Leave with `curl -s -X POST '<me>/leave'`, and stop your engine.
 Your name stays yours: to come back, join again with `curl -s -X POST '<me>/join'`.
 Once the page has left, your leaving deletes the session with everything in it, so save first what you still need, such as a trace the person shared.
 
-To start a session yourself, `curl -s -X POST https://polylogue.agentics.lwirth.com/v1/s` prints its link:
+To start a session yourself, `curl -s -X POST https://agentwire.agentics.lwirth.com/v2/s` prints its link:
 join it, then give the person `https://voice.agentics.lwirth.com/#session=<link>`.
 A session lasts as long as anyone is in it, so it ends once everyone has left.
 

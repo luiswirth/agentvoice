@@ -17,6 +17,9 @@ importers:
       '@fontsource-variable/geist':
         specifier: ^5.3.0
         version: 5.3.0
+      agentwire:
+        specifier: github:luiswirth/agentwire
+        version: https://codeload.github.com/luiswirth/agentwire/tar.gz/a1c26f8779417545f07c807493d1fe4c7dc47f21
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -29,12 +32,9 @@ importers:
       onnxruntime-web:
         specifier: ^1.30.0
         version: 1.30.0(patch_hash=486aaa1ab01a7e27ce6ec974d994976a8f8f5884306fe71c43be574a33919053)
-      polylogue:
-        specifier: github:luiswirth/polylogue
-        version: https://codeload.github.com/luiswirth/polylogue/tar.gz/e116e85b14146bf32cd73877b4f0ed1b91dcbf0a
       polylogue-web:
         specifier: github:luiswirth/polylogue-web
-        version: https://codeload.github.com/luiswirth/polylogue-web/tar.gz/dc6dd4b9a1397d90993052f6907a5c4864bbfee4(polylogue@https://codeload.github.com/luiswirth/polylogue/tar.gz/e116e85b14146bf32cd73877b4f0ed1b91dcbf0a)(react@19.3.1)
+        version: https://codeload.github.com/luiswirth/polylogue-web/tar.gz/450831059c1d62ff05fd4d0246ed961736b306f9(agentwire@https://codeload.github.com/luiswirth/agentwire/tar.gz/a1c26f8779417545f07c807493d1fe4c7dc47f21)(react@19.3.1)
       react:
         specifier: ^19.3.1
         version: 19.3.1
@@ -864,6 +864,10 @@ packages:
   accepts@2.0.0:
     resolution: {integrity: sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng==}
     engines: {node: '>= 0.6'}
+
+  agentwire@https://codeload.github.com/luiswirth/agentwire/tar.gz/a1c26f8779417545f07c807493d1fe4c7dc47f21:
+    resolution: {gitHosted: true, integrity: sha512-/XJn26CMPOB+81jcG9NMD5gt8v+wDfL8lLye3Ez+7Dti8e9SJtGJieY5e1lylED/JUYw6W86t66qX0QqdvK1zQ==, tarball: https://codeload.github.com/luiswirth/agentwire/tar.gz/a1c26f8779417545f07c807493d1fe4c7dc47f21}
+    version: 0.0.0
 
   ajv-formats@2.1.1:
     resolution: {integrity: sha512-Wx0Kx52hxE7C18hkMEggYlEifqWZtYaRgouJor+WMdPnQyEK13vgEWyVNup7SoeeoLMsr4kf5h6dOW11I15MUA==}
@@ -1803,16 +1807,12 @@ packages:
     engines: {node: '>=20'}
     hasBin: true
 
-  polylogue-web@https://codeload.github.com/luiswirth/polylogue-web/tar.gz/dc6dd4b9a1397d90993052f6907a5c4864bbfee4:
-    resolution: {gitHosted: true, integrity: sha512-YHOp0nYbUVv6jHN+2gaokZL/6uYJ65htjHgFA57zdC6cZkHs7/oAyIezSM5qn3G/MKLdLcWGCrCFfzauXk1h5g==, tarball: https://codeload.github.com/luiswirth/polylogue-web/tar.gz/dc6dd4b9a1397d90993052f6907a5c4864bbfee4}
+  polylogue-web@https://codeload.github.com/luiswirth/polylogue-web/tar.gz/450831059c1d62ff05fd4d0246ed961736b306f9:
+    resolution: {gitHosted: true, integrity: sha512-Q+stenhDibVOmkL79SPqGaX0Evbh1UaNYTQI0d1RrqfFiyLSaWTMbDSfPevC9vB04SzsFOcKg+zb5fqOj2gxAw==, tarball: https://codeload.github.com/luiswirth/polylogue-web/tar.gz/450831059c1d62ff05fd4d0246ed961736b306f9}
     version: 0.0.0
     peerDependencies:
-      polylogue: github:luiswirth/polylogue
+      agentwire: github:luiswirth/agentwire
       react: '>=19'
-
-  polylogue@https://codeload.github.com/luiswirth/polylogue/tar.gz/e116e85b14146bf32cd73877b4f0ed1b91dcbf0a:
-    resolution: {gitHosted: true, integrity: sha512-McQocFeymPpCKM5otv0SQqPh3GtbCG2rEokOuVaQC6M8BW/Ky3glF0lW3KbgZlEp215xJVbq39aSNgiIbo+TEg==, tarball: https://codeload.github.com/luiswirth/polylogue/tar.gz/e116e85b14146bf32cd73877b4f0ed1b91dcbf0a}
-    version: 0.0.0
 
   postcss-selector-parser@7.1.7:
     resolution: {integrity: sha512-wWBro/7hJ40ye6TPiXkUQoXKCw23xSsjriUvqd7Uls9Sso3oLiON1flc18cCdnjgCRXw4fBVqUJJeOdDTh3P3g==}
@@ -2848,6 +2848,8 @@ snapshots:
       mime-types: 3.0.2
       negotiator: 1.1.0
 
+  agentwire@https://codeload.github.com/luiswirth/agentwire/tar.gz/a1c26f8779417545f07c807493d1fe4c7dc47f21: {}
+
   ajv-formats@2.1.1:
     dependencies:
       ajv: 8.20.0
@@ -3660,12 +3662,10 @@ snapshots:
 
   playwright-core@1.64.1: {}
 
-  polylogue-web@https://codeload.github.com/luiswirth/polylogue-web/tar.gz/dc6dd4b9a1397d90993052f6907a5c4864bbfee4(polylogue@https://codeload.github.com/luiswirth/polylogue/tar.gz/e116e85b14146bf32cd73877b4f0ed1b91dcbf0a)(react@19.3.1):
+  polylogue-web@https://codeload.github.com/luiswirth/polylogue-web/tar.gz/450831059c1d62ff05fd4d0246ed961736b306f9(agentwire@https://codeload.github.com/luiswirth/agentwire/tar.gz/a1c26f8779417545f07c807493d1fe4c7dc47f21)(react@19.3.1):
     dependencies:
-      polylogue: https://codeload.github.com/luiswirth/polylogue/tar.gz/e116e85b14146bf32cd73877b4f0ed1b91dcbf0a
+      agentwire: https://codeload.github.com/luiswirth/agentwire/tar.gz/a1c26f8779417545f07c807493d1fe4c7dc47f21
       react: 19.3.1
-
-  polylogue@https://codeload.github.com/luiswirth/polylogue/tar.gz/e116e85b14146bf32cd73877b4f0ed1b91dcbf0a: {}
 
   postcss-selector-parser@7.1.7:
     dependencies:

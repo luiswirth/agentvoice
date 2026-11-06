@@ -3,7 +3,7 @@
 // person's last message, and whether they answered it. From reading it until
 // answering, an agent is taken to be working on it. An engine is no agent: it
 // reads everything and answers only the page, so neither counts.
-import { type Entry, JOIN, LEAVE, type Presence } from "polylogue/participant";
+import { type Entry, JOIN, LEAVE, type Presence } from "agentwire/participant";
 import { PREFIX as ENGINE } from "./local.ts";
 import { MODES, type Session, spoken } from "./protocol.ts";
 import { TRACE } from "./trace.ts";

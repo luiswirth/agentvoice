@@ -1,6 +1,6 @@
 # Engine
 
-Engine is an extension of polylogue, whose transport is `https://polylogue.agentics.lwirth.com/transport.md`:
+Engine is an extension of polylogue, on the agentwire transport, at `https://agentwire.agentics.lwirth.com/agentwire.md`:
 a participant that turns speech into text and text into speech for the others in a session.
 The voice page uses one when the person chooses the local tier, so that their voice is heard and spoken on a machine their agent can act on, rather than by ElevenLabs.
 

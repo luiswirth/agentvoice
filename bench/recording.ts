@@ -4,7 +4,7 @@
 //   just recording <session link> [out.wav]
 import { writeFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
-import { type Entry, Session } from "polylogue/participant";
+import { type Entry, Session } from "agentwire/participant";
 import { LISTEN_RATE as RATE } from "voice-core";
 import { type Piece, recording } from "../src/voice/trace.ts";
 

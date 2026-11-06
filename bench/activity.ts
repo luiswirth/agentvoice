@@ -3,11 +3,11 @@
 // joins, reads the person's message, works, sends a file, answers, and leaves.
 // An engine is in too, which reads the message first and answers the page,
 // and neither counts: no "other", and no "read" before the agent's.
-import { create, Session } from "polylogue/participant";
+import { create, Session } from "agentwire/participant";
 import { Activity } from "../src/voice/activity.ts";
 import { Engines, PREFIX } from "../src/voice/local.ts";
 
-const RELAY = "https://polylogue.agentics.lwirth.com";
+const RELAY = "https://agentwire.agentics.lwirth.com";
 const start = Date.now();
 const log = (what: string) =>
 	console.log(`${((Date.now() - start) / 1000).toFixed(2)}s ${what}`);

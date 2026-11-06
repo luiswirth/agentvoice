@@ -18,13 +18,13 @@ import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import { create, type Entry, Session } from "agentwire/participant";
 import { chromium } from "playwright-core";
-import { create, type Entry, Session } from "polylogue/participant";
 import { preview } from "vite";
 import { scenarios } from "./scenarios.ts";
 import { speech, type Timeline } from "./speech.ts";
 
-const RELAY = "https://polylogue.agentics.lwirth.com";
+const RELAY = "https://agentwire.agentics.lwirth.com";
 const TRACE = "application/vnd.polylogue.voice.trace+json";
 
 // A scenario by name, or a recording the page shared, a WAV, to replay.

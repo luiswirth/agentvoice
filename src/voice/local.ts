@@ -77,7 +77,7 @@ export class Engines {
 			for (const resolve of this.ready.splice(0)) resolve();
 			this.changed(true, this.voices);
 		} else if (
-			type === "application/vnd.polylogue.leave" &&
+			type === "application/vnd.agentwire.leave" &&
 			this.offered.delete(entry.from)
 		)
 			this.changed(this.present, this.voices);
