@@ -19,7 +19,7 @@ importers:
         version: 5.3.0
       agentwire:
         specifier: github:luiswirth/agentwire
-        version: https://codeload.github.com/luiswirth/agentwire/tar.gz/ad27e2a6f7c487a46a3196c89d74c7a06804832b
+        version: https://codeload.github.com/luiswirth/agentwire/tar.gz/5bc97f2b02a7f52c6ee35d070f27cc43db0381ed
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -34,7 +34,7 @@ importers:
         version: 1.30.0(patch_hash=486aaa1ab01a7e27ce6ec974d994976a8f8f5884306fe71c43be574a33919053)
       polylogue-web:
         specifier: github:luiswirth/polylogue-web
-        version: https://codeload.github.com/luiswirth/polylogue-web/tar.gz/287681fff5e7e7b9a0ef026681129f77a7b9a11f(agentwire@https://codeload.github.com/luiswirth/agentwire/tar.gz/ad27e2a6f7c487a46a3196c89d74c7a06804832b)(react@19.3.1)
+        version: https://codeload.github.com/luiswirth/polylogue-web/tar.gz/438a1a125aa4a952d19587f6aae134fb8b6212dc(agentwire@https://codeload.github.com/luiswirth/agentwire/tar.gz/5bc97f2b02a7f52c6ee35d070f27cc43db0381ed)(react@19.3.1)
       react:
         specifier: ^19.3.1
         version: 19.3.1
@@ -865,8 +865,8 @@ packages:
     resolution: {integrity: sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng==}
     engines: {node: '>= 0.6'}
 
-  agentwire@https://codeload.github.com/luiswirth/agentwire/tar.gz/ad27e2a6f7c487a46a3196c89d74c7a06804832b:
-    resolution: {gitHosted: true, integrity: sha512-+3g3ynqtKiKYSZDjWULVFfFa7B40quim6eu2m0pbnynwEghTWuv3O84YlzBkefXtN1RkpUbVumIZrrZWyqO7Zw==, tarball: https://codeload.github.com/luiswirth/agentwire/tar.gz/ad27e2a6f7c487a46a3196c89d74c7a06804832b}
+  agentwire@https://codeload.github.com/luiswirth/agentwire/tar.gz/5bc97f2b02a7f52c6ee35d070f27cc43db0381ed:
+    resolution: {gitHosted: true, integrity: sha512-+dczk0H2DY95oeg3O6gnrD9vJXC+lMJDJYa/39jqkzCkRcbdauH8u46NaIybCwas5g5p6l56FILeFsa3X/60hA==, tarball: https://codeload.github.com/luiswirth/agentwire/tar.gz/5bc97f2b02a7f52c6ee35d070f27cc43db0381ed}
     version: 0.0.0
 
   ajv-formats@2.1.1:
@@ -1807,8 +1807,8 @@ packages:
     engines: {node: '>=20'}
     hasBin: true
 
-  polylogue-web@https://codeload.github.com/luiswirth/polylogue-web/tar.gz/287681fff5e7e7b9a0ef026681129f77a7b9a11f:
-    resolution: {gitHosted: true, integrity: sha512-gOYZ7UoYZjHfWJEZUTp0vUtMbB/k9pc0oFFjFtuhXjge0cUZTJOQeM18spl5F/rjEbCX6SbhRN31TfzHFPswcQ==, tarball: https://codeload.github.com/luiswirth/polylogue-web/tar.gz/287681fff5e7e7b9a0ef026681129f77a7b9a11f}
+  polylogue-web@https://codeload.github.com/luiswirth/polylogue-web/tar.gz/438a1a125aa4a952d19587f6aae134fb8b6212dc:
+    resolution: {gitHosted: true, integrity: sha512-fL+d82T+E1YwyUCHeupvO1pbOQR4iEA8UhxCKHC5qAECB9ZG9ncAbcd4//6U+vTIaNa+dncBQAetEjJE56jAmQ==, tarball: https://codeload.github.com/luiswirth/polylogue-web/tar.gz/438a1a125aa4a952d19587f6aae134fb8b6212dc}
     version: 0.0.0
     peerDependencies:
       agentwire: github:luiswirth/agentwire
@@ -2848,7 +2848,7 @@ snapshots:
       mime-types: 3.0.2
       negotiator: 1.1.0
 
-  agentwire@https://codeload.github.com/luiswirth/agentwire/tar.gz/ad27e2a6f7c487a46a3196c89d74c7a06804832b: {}
+  agentwire@https://codeload.github.com/luiswirth/agentwire/tar.gz/5bc97f2b02a7f52c6ee35d070f27cc43db0381ed: {}
 
   ajv-formats@2.1.1:
     dependencies:
@@ -3662,9 +3662,9 @@ snapshots:
 
   playwright-core@1.64.1: {}
 
-  polylogue-web@https://codeload.github.com/luiswirth/polylogue-web/tar.gz/287681fff5e7e7b9a0ef026681129f77a7b9a11f(agentwire@https://codeload.github.com/luiswirth/agentwire/tar.gz/ad27e2a6f7c487a46a3196c89d74c7a06804832b)(react@19.3.1):
+  polylogue-web@https://codeload.github.com/luiswirth/polylogue-web/tar.gz/438a1a125aa4a952d19587f6aae134fb8b6212dc(agentwire@https://codeload.github.com/luiswirth/agentwire/tar.gz/5bc97f2b02a7f52c6ee35d070f27cc43db0381ed)(react@19.3.1):
     dependencies:
-      agentwire: https://codeload.github.com/luiswirth/agentwire/tar.gz/ad27e2a6f7c487a46a3196c89d74c7a06804832b
+      agentwire: https://codeload.github.com/luiswirth/agentwire/tar.gz/5bc97f2b02a7f52c6ee35d070f27cc43db0381ed
       react: 19.3.1
 
   postcss-selector-parser@7.1.7:
