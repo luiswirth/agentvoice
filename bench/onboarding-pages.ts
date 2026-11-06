@@ -1,7 +1,8 @@
 // Screenshots of what the person sees while setting up, step by step, on a
 // Mac's window and an iPhone's, into bench/.cache/onboarding-pages/: the page
 // built from here, on the real relay, with a scripted agent that joins and
-// narrates as public/agents.md suggests.
+// narrates as public/agents.md suggests. It fails where the page shows
+// another person's message, or doesn't listen again once the agent is back.
 //
 //   just onboarding-pages
 import { mkdir } from "node:fs/promises";
@@ -115,10 +116,11 @@ try {
 				// The agent leaving takes the page back to waiting, with the
 				// engine still in the pipe, and its coming back to talking,
 				// listening again if it was.
-				// A tab starts listening once there is someone to talk with.
-				const listen = tab.getByRole("button", { name: /^Unmute \(/ });
-				if (await listen.count()) await listen.click();
-				await tab.waitForTimeout(500);
+				// A tab starts listening by itself once there is someone to talk
+				// with: a click while it switches would only mute it again.
+				await tab
+					.getByRole("button", { name: /^Mute \(/ })
+					.waitFor({ timeout: 10_000 });
 				await session.leave();
 				await shot(tab, screen, "7-local-left");
 				const back = new Session(session.link, "luis/claude-again");
@@ -130,17 +132,13 @@ try {
 				await tristan.join();
 				await tristan.send("Typed by tristan.");
 				await shot(tab, screen, "8-local-back");
-				console.log(
-					"another person shown:",
-					await tab.getByText("Typed by tristan.").count(),
-				);
+				if (await tab.getByText("Typed by tristan.").count())
+					throw new Error("another person's message is shown");
 				await tristan.leave();
 				const mic = tab.getByRole("button", { name: /^(Mute|Unmute) \(/ });
 				// Mute is pressed while muted.
-				console.log(
-					"listening again:",
-					(await mic.getAttribute("aria-pressed")) === "false",
-				);
+				if ((await mic.getAttribute("aria-pressed")) !== "false")
+					throw new Error("not listening again once the agent is back");
 				await back.leave();
 				await engine.leave();
 				await context.close();
