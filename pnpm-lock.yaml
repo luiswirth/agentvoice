@@ -34,7 +34,7 @@ importers:
         version: 1.30.0(patch_hash=486aaa1ab01a7e27ce6ec974d994976a8f8f5884306fe71c43be574a33919053)
       polylogue-web:
         specifier: github:luiswirth/polylogue-web
-        version: https://codeload.github.com/luiswirth/polylogue-web/tar.gz/450831059c1d62ff05fd4d0246ed961736b306f9(agentwire@https://codeload.github.com/luiswirth/agentwire/tar.gz/ad27e2a6f7c487a46a3196c89d74c7a06804832b)(react@19.3.1)
+        version: https://codeload.github.com/luiswirth/polylogue-web/tar.gz/287681fff5e7e7b9a0ef026681129f77a7b9a11f(agentwire@https://codeload.github.com/luiswirth/agentwire/tar.gz/ad27e2a6f7c487a46a3196c89d74c7a06804832b)(react@19.3.1)
       react:
         specifier: ^19.3.1
         version: 19.3.1
@@ -1807,8 +1807,8 @@ packages:
     engines: {node: '>=20'}
     hasBin: true
 
-  polylogue-web@https://codeload.github.com/luiswirth/polylogue-web/tar.gz/450831059c1d62ff05fd4d0246ed961736b306f9:
-    resolution: {gitHosted: true, integrity: sha512-Q+stenhDibVOmkL79SPqGaX0Evbh1UaNYTQI0d1RrqfFiyLSaWTMbDSfPevC9vB04SzsFOcKg+zb5fqOj2gxAw==, tarball: https://codeload.github.com/luiswirth/polylogue-web/tar.gz/450831059c1d62ff05fd4d0246ed961736b306f9}
+  polylogue-web@https://codeload.github.com/luiswirth/polylogue-web/tar.gz/287681fff5e7e7b9a0ef026681129f77a7b9a11f:
+    resolution: {gitHosted: true, integrity: sha512-gOYZ7UoYZjHfWJEZUTp0vUtMbB/k9pc0oFFjFtuhXjge0cUZTJOQeM18spl5F/rjEbCX6SbhRN31TfzHFPswcQ==, tarball: https://codeload.github.com/luiswirth/polylogue-web/tar.gz/287681fff5e7e7b9a0ef026681129f77a7b9a11f}
     version: 0.0.0
     peerDependencies:
       agentwire: github:luiswirth/agentwire
@@ -3662,7 +3662,7 @@ snapshots:
 
   playwright-core@1.64.1: {}
 
-  polylogue-web@https://codeload.github.com/luiswirth/polylogue-web/tar.gz/450831059c1d62ff05fd4d0246ed961736b306f9(agentwire@https://codeload.github.com/luiswirth/agentwire/tar.gz/ad27e2a6f7c487a46a3196c89d74c7a06804832b)(react@19.3.1):
+  polylogue-web@https://codeload.github.com/luiswirth/polylogue-web/tar.gz/287681fff5e7e7b9a0ef026681129f77a7b9a11f(agentwire@https://codeload.github.com/luiswirth/agentwire/tar.gz/ad27e2a6f7c487a46a3196c89d74c7a06804832b)(react@19.3.1):
     dependencies:
       agentwire: https://codeload.github.com/luiswirth/agentwire/tar.gz/ad27e2a6f7c487a46a3196c89d74c7a06804832b
       react: 19.3.1
