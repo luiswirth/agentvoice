@@ -21,43 +21,49 @@ until there is a voice, the page shows your messages as text.
    Its answer is JSON, whose `link` is your own link, `<me>` below. Keep it to yourself: whoever holds it acts under your name.
    Then say that you are there, with `curl -s --data-binary "I'm here." '<me>'`.
 2. Receive, with `curl -s '<me>?wait=540&only=text/&only=application/vnd.polylogue.voice.modes&only=application/vnd.agentwire.key&only=application/vnd.agentwire.join&only=application/vnd.agentwire.leave'`:
-   messages, the page's modes and key, and who joins and leaves, without the rest the page and the engine send each other.
+   messages, the page's modes and key, and who joins and leaves, without the rest the page sends.
    Among the page's first entries is its modes, as `{"listener":true,"speaker":true,"tier":"local"}`, the latest holding.
    The tier says what turns the person's speech into text and yours into speech:
    `local`, an engine on a machine you can act on, or `elevenlabs`, with the person's ElevenLabs key.
-   Each has a section below.
+   Either way, you give the page what it needs as a secret, encrypted to the public key it posts, so that only their page can read it.
+   Each page posts its own, so where the person joined on several, send it to each of them.
+   To send it, fetch the public key, encrypt and send, as the transport's spec shows under Secrets.
+   Each tier has a section below.
 
 ## The local tier
 
-An engine is a participant of the session that transcribes what the person says and speaks what you send.
-The page waits for one, and any that speaks `https://voice.agentics.lwirth.com/engine.md` will do.
-Voice's own is one file of about 440 lines, to read in full before you run it.
+An engine transcribes what the person says and speaks what you send.
+It is no one in the session: it talks only with the page, over a pipe, a session of their own on the same relay that no one else is in.
+You create the pipe, send its link to the page as the secret `engine`, and start the engine with it;
+the page waits for one, and any that speaks `https://voice.agentics.lwirth.com/engine.md` will do.
+Voice's own is one file of about 450 lines, to read in full before you run it.
 It needs Python 3.12 or newer with the dependencies its header names, as PEP 723 has it, and runs however you give it those, such as in a venv with them installed, or with uv, which also fetches a matching Python where the machine's is older, as macOS's is:
 
 ```sh
-curl -so engine.py https://raw.githubusercontent.com/luiswirth/polylogue-voice/c116a89/engine/engine.py
-uv run engine.py '<link>' <person>/engine
+curl -so engine.py https://raw.githubusercontent.com/luiswirth/polylogue-voice/4c37668/engine/engine.py
+curl -s -X POST '<relay>/v2/s' > pipe   # the pipe; send it to the page as the secret engine
+uv run engine.py "$(cat pipe)"
 ```
+
+`<relay>` is the start of `<link>`, before `/v2/`.
 
 Reading it shows that it uses sherpa-onnx and numpy, pinned, from PyPI;
 fetches two models in k2-fsa's conversions from Hugging Face, at pinned revisions, Parakeet v2 to transcribe and Kokoro to speak,
 and uses them only if they match the hashes in the file;
 keeps nothing but those models, in `~/.cache/polylogue-voice-engine`, for its next start;
-reaches only the session and Hugging Face; and runs no commands.
+reaches only the pipe and Hugging Face; and runs no commands.
 What it can't show is what sherpa-onnx does, which is compiled code from PyPI.
 
 On NixOS, if the import fails for want of `libstdc++.so.6`, run it with `LD_LIBRARY_PATH=$(nix build --no-link --print-out-paths nixpkgs#stdenv.cc.cc.lib)/lib`.
 If you'd rather not run it, say so: the person can switch to ElevenLabs on the page.
 The models are about 1 GB, fetched once, so the first start takes a minute or two, and later ones seconds; the page shows the person how far it is.
-Run it in the background: it logs `offered` once it is ready, and converts until it gets SIGTERM, which reaches it through `uv run`, and then leaves, and logs `left`.
+Run it in the background: it logs `offered` once it is ready, and converts until the page leaves the pipe, as it hangs up, or until it gets SIGTERM, which reaches it through `uv run`; then it leaves, and logs `left`.
 It can run on any machine you can act on, such as one with a GPU.
 
 ## The ElevenLabs tier
 
 The person's ElevenLabs key goes from their browser straight to ElevenLabs.
-When the page has none, it posts a public key, and takes the key as the secret `elevenlabs`, encrypted to it, so that only their page can read it.
-Each page posts its own, so where the person joined on several, send the key to each of them.
-To send it, fetch the public key, encrypt and send, as the transport's spec shows under Secrets.
+When the page has none, it posts a public key, and takes the key as the secret `elevenlabs`.
 A key said in your chat stays in your harness's transcript and goes to your model's provider;
 the person can also type it into the page.
 The person can type a key into the page at any time, and then talks to you: you hear them while a receive runs.

@@ -29,7 +29,7 @@ once you have named one, only the voices you named do.
 Entries of their own type tell you about the voice, and one you send tells the page who the voices are:
 
 - `application/vnd.polylogue.voice.modes+json`, as `{"listener":true,"speaker":true,"tier":"local"}`:
-  whether the person speaks to you (`listener`), whether your messages are read aloud to them (`speaker`), and what does the speech: `local`, an engine in the session, or `elevenlabs` (`tier`).
+  whether the person speaks to you (`listener`), whether your messages are read aloud to them (`speaker`), and what does the speech: `local`, an engine on a machine you can act on, or `elevenlabs` (`tier`).
   The latest one holds.
 - `application/vnd.polylogue.voice.names+json`, as `{"1":"Luis","3":"Benedict"}`, which you send:
   who the voices are, by their number, the person's name where they are a user of your harness, a name of your own otherwise.

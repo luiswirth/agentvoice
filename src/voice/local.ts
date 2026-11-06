@@ -1,8 +1,11 @@
-// The local tier: an engine in the session, a participant that transcribes
-// and speaks on a machine the person's agent can act on, as public/engine.md
-// specifies. The page sends it a stretch or a sentence, and gets the answer
-// as an entry of its own.
+// The local tier: an engine that transcribes and speaks on a machine the
+// person's agent can act on, as public/engine.md specifies. It is no one in
+// the session: the page and the engine talk over a pipe, a session of their
+// own, whose link the agent sends the page as the secret `engine`. The page
+// sends the engine a stretch or a sentence, and gets the answer as an entry
+// of its own.
 
+import { LEAVE, RelayError, Session } from "agentwire/participant";
 import {
 	LISTEN_RATE,
 	type Piece,
@@ -12,7 +15,7 @@ import {
 	type Transcript,
 	type Word,
 } from "voice-core";
-import type { Entry, Session } from "./protocol.ts";
+import type { Entry } from "./protocol.ts";
 
 /** What every type of the engine extension starts with. */
 export const PREFIX = "application/vnd.polylogue.engine.";
@@ -27,43 +30,155 @@ const ANSWERS = new Set(
 	["transcript+json", "speech", "failed+json"].map((type) => PREFIX + type),
 );
 
-/** The engines in a session, as the page sees them: whether one is in, and
- * the answers to the page's requests as they come. */
+/** What the engines tell the page, as it changes: whether the page holds a
+ * pipe, whether an engine is in it, the voices of the latest offer, and what
+ * one is doing before it offers. */
+export type EngineState = {
+	piped: boolean;
+	present: boolean;
+	voices: string[];
+	status: string | null;
+};
+
+/** The engines in the pipe, as the page sees them: whether one is in, and
+ * the answers to the page's requests as they come. The page keeps the pipe's
+ * link and its own link there, so that a reload joins again. */
 export class Engines {
-	/** The engines in the session that offered, by name. */
-	private offered = new Set<string>();
-	/** The latest offer's entry. */
-	offer = 0;
+	/** The engines in the pipe that offered, by name. */
+	private offering = new Set<string>();
+	/** When the latest offer came, as the relay timed it, in milliseconds. */
+	offered = 0;
 	/** The voices the latest offer speaks with, the first where a request
 	 * names none. */
 	voices: string[] = [];
+	/** What an engine is doing before it offers, as its latest status says. */
+	private status: string | null = null;
 	private waiting = new Map<number, (answer: Answer) => void>();
 	private early = new Map<number, Answer>();
 	/** Who hears the partial answers to an entry, until its answer. */
 	private partials = new Map<number, (entry: Entry) => void>();
 	private ready: (() => void)[] = [];
-	private readonly unsubscribe: () => void;
-	private readonly session: Session;
-	private readonly changed: (present: boolean, voices: string[]) => void;
+	private unsubscribe: () => void = () => {};
+	private pipe: Session | null = null;
+	private readonly name: string;
+	private readonly kept: string;
+	private readonly changed: (state: EngineState) => void;
 
-	/** `changed` hears whether an engine is in, and the voices of the latest
-	 * offer, as they change. */
+	/** `name` is the page's in the pipe, as in the session; `kept` where it
+	 * keeps the pipe; `changed` hears what the engines tell, as it changes. */
 	constructor(
-		session: Session,
-		changed: (present: boolean, voices: string[]) => void,
+		name: string,
+		kept: string,
+		changed: (state: EngineState) => void,
 	) {
-		this.session = session;
+		this.name = name;
+		this.kept = kept;
 		this.changed = changed;
-		this.unsubscribe = session.subscribe({
+		const pipe = JSON.parse(localStorage.getItem(kept) ?? "null") as {
+			link: string;
+			me: string | null;
+		} | null;
+		if (pipe) this.join(pipe.link, pipe.me);
+	}
+
+	/** Joins the pipe at `link`, as the agent sent it, leaving the one before:
+	 * the newest pipe holds, as of an engine started again. */
+	connect(link: string): void {
+		const old = this.pipe;
+		if (link.replace(/\/$/, "") === old?.link) return;
+		if (old) {
+			this.drop();
+			void old.leave().catch(() => {});
+		}
+		this.join(link, null);
+	}
+
+	private join(link: string, me: string | null): void {
+		const pipe = new Session(link, this.name, me);
+		this.pipe = pipe;
+		this.tell();
+		this.unsubscribe = pipe.subscribe({
 			entry: (entry) => this.entry(entry),
+			// The pipe ended, as once the engine left it: it is no more.
+			end: () => {
+				if (this.pipe === pipe) this.drop();
+			},
+		});
+		pipe.join().then(
+			() => {
+				if (this.pipe === pipe)
+					localStorage.setItem(
+						this.kept,
+						JSON.stringify({ link, me: pipe.me }),
+					);
+			},
+			(error: Error) => {
+				if (this.pipe !== pipe) return;
+				// The relay refused it, as for a pipe that ended; else it
+				// couldn't be reached, and is tried again.
+				if (error instanceof RelayError) this.drop();
+				else
+					setTimeout(() => {
+						if (this.pipe !== pipe) return;
+						this.unsubscribe();
+						this.join(link, me);
+					}, 2000);
+			},
+		);
+	}
+
+	/** Leaves the pipe, as the page hangs up, which has the engine leave it
+	 * too. The page is going, so nothing is told. */
+	async leave(): Promise<void> {
+		const pipe = this.pipe;
+		this.unsubscribe();
+		this.unsubscribe = () => {};
+		this.pipe = null;
+		localStorage.removeItem(this.kept);
+		await pipe?.leave().catch(() => {});
+	}
+
+	/** Forgets the pipe, and what was asked in it. */
+	private drop(): void {
+		this.unsubscribe();
+		this.unsubscribe = () => {};
+		this.pipe?.close();
+		this.pipe = null;
+		localStorage.removeItem(this.kept);
+		const gone = new Error("The engine is gone.");
+		for (const resolve of this.waiting.values()) resolve(gone);
+		this.waiting.clear();
+		this.early.clear();
+		this.partials.clear();
+		this.offering.clear();
+		this.offered = 0;
+		this.voices = [];
+		this.status = null;
+		this.tell();
+	}
+
+	private tell(): void {
+		this.changed({
+			piped: this.pipe !== null,
+			present: this.present,
+			voices: this.voices,
+			status: this.present ? null : this.status,
 		});
 	}
 
 	private entry(entry: Entry): void {
 		const [type, ...params] = entry.type.split(";").map((part) => part.trim());
-		if (type === `${PREFIX}offer+json`) {
-			this.offered.add(entry.from);
-			this.offer = entry.n;
+		if (type === `${PREFIX}status+json`) {
+			try {
+				const { text } = JSON.parse(entry.text ?? "{}") as { text?: unknown };
+				this.status = typeof text === "string" ? text : null;
+			} catch {
+				this.status = null;
+			}
+			this.tell();
+		} else if (type === `${PREFIX}offer+json`) {
+			this.offering.add(entry.from);
+			this.offered = Date.parse(entry.time);
 			try {
 				const { voices } = JSON.parse(entry.text ?? "{}") as {
 					voices?: unknown;
@@ -75,12 +190,8 @@ export class Engines {
 				this.voices = [];
 			}
 			for (const resolve of this.ready.splice(0)) resolve();
-			this.changed(true, this.voices);
-		} else if (
-			type === "application/vnd.agentwire.leave" &&
-			this.offered.delete(entry.from)
-		)
-			this.changed(this.present, this.voices);
+			this.tell();
+		} else if (type === LEAVE && this.offering.delete(entry.from)) this.tell();
 		const of = params.find((param) => param.startsWith("of="));
 		if (!type || !ANSWERS.has(type) || !of) return;
 		const n = Number(of.slice(3));
@@ -101,17 +212,12 @@ export class Engines {
 		else this.early.set(n, answer);
 	}
 
-	/** Whether `name` is an engine in the session. */
-	has(name: string): boolean {
-		return this.offered.has(name);
-	}
-
-	/** Whether an engine is in the session. */
+	/** Whether an engine is in the pipe. */
 	get present(): boolean {
-		return this.offered.size > 0;
+		return this.offering.size > 0;
 	}
 
-	/** Resolves once an engine is in the session. */
+	/** Resolves once an engine is in the pipe. */
 	arrived(): Promise<void> {
 		if (this.present) return Promise.resolve();
 		return new Promise((resolve) => this.ready.push(resolve));
@@ -125,7 +231,8 @@ export class Engines {
 	/** Sends an entry once an engine is in; its number. */
 	async send(body: Blob | string, type: string): Promise<number> {
 		await this.arrived();
-		return this.session.send(body, { type });
+		if (!this.pipe) throw new Error("The engine is gone.");
+		return this.pipe.send(body, { type });
 	}
 
 	/** The engine's answer to entry `n`, with `partial` hearing the partial
@@ -142,11 +249,14 @@ export class Engines {
 	}
 
 	async payload(entry: Entry): Promise<ArrayBuffer> {
-		return (await this.session.fetch(entry.n)).arrayBuffer();
+		if (!this.pipe) throw new Error("The engine is gone.");
+		return (await this.pipe.fetch(entry.n)).arrayBuffer();
 	}
 
+	/** Stops receiving without leaving, as when the page closes. */
 	close(): void {
 		this.unsubscribe();
+		this.pipe?.close();
 	}
 }
 

@@ -6,7 +6,7 @@
 //
 // It uses the ElevenLabs key in ~/secrets/elevenlabs-api-key.txt and the
 // public relay. `TIER=local` has the page hear and speak through voice's engine,
-// which the bench starts in the session. `SHOTS=<seconds>` takes a screenshot of
+// which the bench starts on a pipe, whose link it sends the page as an agent does. `SHOTS=<seconds>` takes a screenshot of
 // the page that often, into bench/.cache/shots, at `VIEWPORT=<width>x<height>`.
 // `THROTTLE=<rate>` slows the page's CPU down that many times, as a phone's.
 // `PAGE=<url>` plays into the page served there instead, such as the deployed one.
@@ -18,10 +18,11 @@ import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { create, type Entry, Session } from "agentwire/participant";
+import { create, type Entry, KEY, Session } from "agentwire/participant";
 import { chromium } from "playwright-core";
 import { preview } from "vite";
 import { scenarios } from "./scenarios.ts";
+import { sendSecret } from "./secret.ts";
 import { speech, type Timeline } from "./speech.ts";
 
 const RELAY = "https://agentwire.agentics.lwirth.com";
@@ -63,15 +64,25 @@ agent.subscribe({
 	},
 });
 
-// The local tier's engine, voice's own, as an agent would start it.
-const engine =
-	process.env.TIER === "local"
-		? spawn(
-				"uv",
-				["run", join(import.meta.dirname, "../engine/engine.py"), agent.link],
-				{ stdio: ["ignore", "ignore", "inherit"] },
-			)
-		: null;
+// The local tier's engine, voice's own, as an agent would start it: on a pipe
+// of its own, whose link goes to the page encrypted to its key.
+const pipe = process.env.TIER === "local" ? await create(RELAY) : null;
+const engine = pipe
+	? spawn(
+			"uv",
+			["run", join(import.meta.dirname, "../engine/engine.py"), pipe],
+			{
+				stdio: ["ignore", "ignore", "inherit"],
+			},
+		)
+	: null;
+if (pipe)
+	agent.subscribe({
+		entry: (entry) => {
+			if (entry.from === "person" && entry.type.startsWith(KEY))
+				void sendSecret(agent, entry.n, "engine", pipe);
+		},
+	});
 
 const browser = await chromium.launch({
 	executablePath: process.env.CHROMIUM ?? "",

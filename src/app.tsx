@@ -1,8 +1,9 @@
 // A page to talk with an agent by voice, on a session of the agentwire transport.
 // Whoever starts creates the session: the page, which then hands the agent
 // a prompt with its link, or the agent, which gives the person the page with
-// the link as `#session=<link>`. The ElevenLabs key comes encrypted from the
-// agent, or typed in, and stays in this browser; the local tier needs none.
+// the link as `#session=<link>`. Either tier's speech comes from the agent as
+// a secret, encrypted to the page: the ElevenLabs key, which can also be typed
+// in, and stays in this browser, or the link of the pipe to the engine.
 import { type Entry, LEAVE, Secrets } from "agentwire/participant";
 import { Frame, Named, Onboard } from "polylogue-web/onboard";
 import { useSession } from "polylogue-web/react";
@@ -26,22 +27,6 @@ import {
 
 const KEY = "elevenlabs-key";
 const SERVICE = "voice.agentics.lwirth.com";
-/** What the engine is doing before it offers, as public/engine.md has it. */
-const STATUS = "application/vnd.polylogue.engine.status+json";
-/** What an engine sends once it is ready. This and its status are what only
- * an engine sends, which marks a participant as one: the pages send the
- * extension's requests too. */
-const OFFER = "application/vnd.polylogue.engine.offer+json";
-
-/** The text of a status entry's payload, empty where it has none. */
-function statusText(payload: string): string {
-	try {
-		const { text } = JSON.parse(payload) as { text?: unknown };
-		return typeof text === "string" ? text : "";
-	} catch {
-		return "";
-	}
-}
 
 export function App() {
 	return (
@@ -131,20 +116,34 @@ function Page({ name, rename }: { name: string; rename: () => void }) {
 		else chooseTier(chosen);
 	};
 
-	// Without a key, a public key of its own for the agent to send it to.
+	// The secrets the agent sends: the key, or the pipe to the engine.
+	const [secrets, setSecrets] = useState<Secrets | null>(null);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: offer only sets state
 	useEffect(() => {
-		if (!session || key) return;
+		if (!session || !voice) return;
 		const secrets = new Secrets(session);
-		void secrets.publish();
+		setSecrets(secrets);
 		return session.subscribe({
 			entry: (entry) =>
 				void secrets.open(entry).then((secret) => {
 					if (secret?.name === "elevenlabs")
 						void offer(secret.value.trim(), entry.n);
+					if (secret?.name === "engine") voice.connect(secret.value.trim());
 				}),
 		});
-	}, [session, key]);
+	}, [session, voice]);
+	// A public key of its own, once, for the agent to send the tier's secret
+	// to, while the tier lacks it.
+	const lacking =
+		state !== null &&
+		(state.tier === "elevenlabs" ? key === null : !state.piped);
+	useEffect(() => {
+		if (secrets && lacking) void secrets.publish();
+	}, [secrets, lacking]);
+	const hangUp = () => {
+		void voice?.hangUp();
+		void leave();
+	};
 
 	// Three states, which the presence decides, on one page that changes in
 	// place until talking: onboarding until an agent came, waiting for it
@@ -153,7 +152,7 @@ function Page({ name, rename }: { name: string; rename: () => void }) {
 	// The tier is chosen while onboarding, and is a setting while talking.
 	const current = state?.tier ?? tier;
 	const room = session ? roomOf(name, entries, presence) : undefined;
-	const agent = room?.people.some((person) => !person.engine) ?? false;
+	const agent = (room?.people.length ?? 0) > 0;
 	const talking = Boolean(session && voice && state?.ready && agent);
 	// Listening runs only while talking.
 	useEffect(() => {
@@ -179,7 +178,7 @@ function Page({ name, rename }: { name: string; rename: () => void }) {
 				description={problem}
 			>
 				<Actions>
-					<Button size="lg" onClick={() => void leave()}>
+					<Button size="lg" onClick={hangUp}>
 						Start a new session
 					</Button>
 				</Actions>
@@ -189,7 +188,7 @@ function Page({ name, rename }: { name: string; rename: () => void }) {
 	// Until the page is in the presence, it can't tell who is here.
 	if (session && !room) return null;
 	if (session && room && !talking) {
-		const here = room.people.find((person) => !person.engine)?.name ?? null;
+		const here = room.people[0]?.name ?? null;
 		// Onboarding until an agent came into this session, as before a reload.
 		const came = here !== null || room.left !== null;
 		return (
@@ -238,6 +237,7 @@ function Page({ name, rename }: { name: string; rename: () => void }) {
 				<Waiting
 					name={name}
 					entries={entries}
+					status={state?.engineStatus ?? null}
 					agent={here}
 					switchTier={
 						came
@@ -273,7 +273,7 @@ function Page({ name, rename }: { name: string; rename: () => void }) {
 										})),
 									speakers: speakers(entries),
 									link: session.link,
-									leave: () => void leave(),
+									leave: hangUp,
 								}
 							: undefined
 					}
@@ -284,18 +284,12 @@ function Page({ name, rename }: { name: string; rename: () => void }) {
 }
 
 /** The session as the voice page shows it: the others in it now, and,
- * once everyone to talk with left, who left last. An engine is no one to
- * talk with. */
+ * once everyone left, who left last. */
 function roomOf(
 	name: string,
 	entries: Entry[],
 	presence: Record<string, { receiving: boolean; since?: string }>,
 ): { people: Present[]; left: string | null } | undefined {
-	const engines = new Set(
-		entries
-			.filter((e) => e.type.startsWith(OFFER) || e.type.startsWith(STATUS))
-			.map((e) => e.from),
-	);
 	// Until the page itself is in the presence, it holds no one yet.
 	if (!(name in presence)) return undefined;
 	const people = Object.entries(presence)
@@ -304,14 +298,11 @@ function roomOf(
 			name: other,
 			receiving,
 			since,
-			engine: engines.has(other),
 		}));
-	const gone = people.every((person) => person.engine)
-		? entries.findLast(
-				(e) =>
-					e.type.startsWith(LEAVE) && e.from !== name && !engines.has(e.from),
-			)
-		: undefined;
+	const gone =
+		people.length === 0
+			? entries.findLast((e) => e.type.startsWith(LEAVE) && e.from !== name)
+			: undefined;
 	return { people, left: gone?.from ?? null };
 }
 
@@ -371,12 +362,15 @@ function Refusable({
 function Waiting({
 	name,
 	entries,
+	status,
 	agent,
 	local,
 	switchTier,
 }: {
 	name: string;
 	entries: Entry[];
+	/** What the engine is doing, before it offers. */
+	status: string | null;
 	/** The agent here now, by its name. */
 	agent: string | null;
 	local: boolean;
@@ -388,26 +382,27 @@ function Waiting({
 		entries.findLast(
 			(entry) => entry.type.startsWith(LEAVE) && entry.from !== name,
 		)?.n ?? -1;
-	const recent = entries.filter((entry) => entry.n > since);
-	const status = recent.findLast(
-		(entry) => entry.type.startsWith(STATUS) && entry.text !== undefined,
-	);
-	const said = recent.filter(
+	const said = entries.filter(
 		(entry): entry is Entry & { text: string } =>
-			(entry.from !== name && spoken(entry)) || entry === status,
+			entry.n > since && entry.from !== name && spoken(entry),
 	);
+	// The engine's latest status comes last, as what is going on now.
+	const steps = [
+		...said.map((entry) => ({ key: String(entry.n), text: entry.text })),
+		...(status && local ? [{ key: "engine", text: status }] : []),
+	];
 	return (
 		<>
 			<ol className="flex flex-col gap-3 rounded-2xl border bg-card/40 p-5">
 				{agent ? (
 					<>
 						<Step done>{label(agent)} joined.</Step>
-						{said.map((entry, i) => (
-							<Step key={entry.n} done={i < said.length - 1}>
-								{entry === status ? statusText(entry.text) : entry.text}
+						{steps.map((step, i) => (
+							<Step key={step.key} done={i < steps.length - 1}>
+								{step.text}
 							</Step>
 						))}
-						{said.length === 0 && <Step>Waiting for its first step…</Step>}
+						{steps.length === 0 && <Step>Waiting for its first step…</Step>}
 					</>
 				) : (
 					<Step>Waiting for your agent to join…</Step>

@@ -2,8 +2,8 @@
 // session, with the browser's microphone and speaker. The page reads the
 // agents' messages from the log into it, and sends the person's turns and
 // modes into the log, as voice's protocol has them. Transcription and speech
-// synthesis run on ElevenLabs or on an engine in the session, the tier the
-// person chooses.
+// synthesis run on ElevenLabs or on an engine on the agent's machine, over a
+// pipe of the page's and the engine's own, the tier the person chooses.
 import {
 	Conversation,
 	type Fact,
@@ -64,8 +64,12 @@ export type VoiceState = Omit<State, "reading"> & {
 	/** Whether the error is ElevenLabs refusing the key, which another key
 	 * fixes. */
 	refused: boolean;
-	/** Whether an engine is in the session, which the local tier needs. */
+	/** Whether the page holds a pipe to an engine, as the agent sent it. */
+	piped: boolean;
+	/** Whether an engine is in the pipe, which the local tier needs. */
 	engine: boolean;
+	/** What the engine is doing before it offers, as its latest status says. */
+	engineStatus: string | null;
 	/** The voices the engine speaks with, as it offered them. */
 	engineVoices: string[];
 	/** The engine's voice the agent speaks with: the one last chosen in this
@@ -185,7 +189,9 @@ export class Voice {
 			tier: chosenTier(session.log),
 			error: null,
 			refused: false,
+			piped: false,
 			engine: false,
+			engineStatus: null,
 			engineVoices: [],
 			engineVoice: null,
 			ready: false,
@@ -238,10 +244,14 @@ export class Voice {
 		this.core.on("modes", () => void this.modes());
 		this.core.on("heard", ({ id }) => this.done(Number(id)));
 		this.core.on("turn", ({ text, cut }) => this.turn(text, cut));
-		this.engines = new Engines(session, (engine, engineVoices) => {
+		const pipe = `voice-pipe ${location.href}`;
+		this.engines = new Engines(name, pipe, (engines) => {
 			const chosen = localStorage.getItem(ENGINE_VOICE);
+			const engineVoices = engines.voices;
 			this.set({
-				engine,
+				piped: engines.piped,
+				engine: engines.present,
+				engineStatus: engines.status,
 				engineVoices,
 				engineVoice:
 					chosen !== null && engineVoices.includes(chosen)
@@ -261,8 +271,7 @@ export class Voice {
 			},
 		});
 		const notice = (fact: Fact) => () => this.core.notice(fact);
-		const engines = this.engines;
-		this.activity = new Activity(session, name, (other) => engines.has(other), {
+		this.activity = new Activity(session, name, {
 			read: notice("read"),
 			message: notice("message"),
 			other: notice("other"),
@@ -446,7 +455,16 @@ export class Voice {
 			synthesize: ready ? () => this.synthesizer() : null,
 		});
 		if (ready && this.core.state.speaker)
-			this.backlog(local ? this.engines.offer : after);
+			this.backlog(local ? this.offered() : after);
+	}
+
+	/** The last entry of the session from before the engine's latest offer
+	 * in the pipe, as the relay timed both. */
+	private offered(): number {
+		const at = this.engines.offered;
+		return (
+			this.session.log.findLast((entry) => Date.parse(entry.time) <= at)?.n ?? 0
+		);
 	}
 
 	/**
@@ -482,7 +500,7 @@ export class Voice {
 		}
 		await this.core.set({ speaker: on });
 		if (on && this.armed)
-			this.backlog(this.own.tier === "local" ? this.engines.offer : 0);
+			this.backlog(this.own.tier === "local" ? this.offered() : 0);
 	}
 
 	/** Hands-free, where turns end by themselves as the person pauses and
@@ -547,7 +565,7 @@ export class Voice {
 		const heard = audio.length > 0 ? recording(audio) : null;
 		const messages = this.session.log.filter(
 			({ type }) =>
-				!/^application\/vnd\.polylogue\.(key|secret)/.test(type) &&
+				!/^application\/vnd\.agentwire\.(key|secret)/.test(type) &&
 				!type.startsWith(TRACE) &&
 				!type.startsWith("audio/"),
 		);
@@ -605,6 +623,20 @@ export class Voice {
 		return new Speech(this.elevenlabs());
 	}
 
+	/** Joins the engine's pipe at `link`, as the agent sent it. */
+	connect(link: string): void {
+		this.engines.connect(link);
+	}
+
+	/** Hangs up: leaves the engine's pipe, which has the engine leave it, and
+	 * closes. */
+	async hangUp(): Promise<void> {
+		const left = this.engines.leave();
+		this.close();
+		await left;
+	}
+
+	/** Stops, without leaving, as when the page closes. */
 	close(): void {
 		this.unsubscribe();
 		this.unwatchAudio();

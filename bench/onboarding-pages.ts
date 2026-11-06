@@ -6,11 +6,13 @@
 //   just onboarding-pages
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { Session } from "agentwire/participant";
+import { create, Session } from "agentwire/participant";
 import { chromium, type Page } from "playwright-core";
 import { createServer } from "vite";
+import { keyOf, sendSecret } from "./secret.ts";
 
 const RELAY = "https://agentwire.agentics.lwirth.com";
+const ENGINE = "application/vnd.polylogue.engine.";
 const out = join(import.meta.dirname, ".cache", "onboarding-pages");
 await mkdir(out, { recursive: true });
 const server = await createServer({ server: { port: 0 }, logLevel: "silent" });
@@ -83,28 +85,35 @@ try {
 			const session = await agent(tab);
 			await session.send("I'm here.");
 			await shot(tab, screen, `4-${tier}-joined`);
+			// The engine, on a pipe of its own with the page, whose link the
+			// agent sends it as a secret, as agents.md has it.
+			let engine: Session | null = null;
 			if (tier === "local") {
 				await session.send("Reading the engine.");
 				await tab.waitForTimeout(300);
 				await session.send("Starting it: the models are about 1 GB, once.");
+				const pipe = await create(RELAY);
+				engine = new Session(pipe, "engine");
+				await engine.join();
+				await sendSecret(session, await keyOf(session, "luis"), "engine", pipe);
+				await engine.send(
+					JSON.stringify({ text: "Fetching the models: 420 of 1010 MB." }),
+					{ type: `${ENGINE}status+json` },
+				);
 			} else {
 				await session.send("Sending your ElevenLabs key.");
 			}
 			await shot(tab, screen, `5-${tier}-narrating`);
-			if (tier === "local") {
+			if (engine) {
 				// An engine's offer, as engine.md has it, which the page takes
 				// as the voice being ready.
-				const engine = new Session(session.link, "luis/engine");
-				await engine.join();
 				await engine.send(
 					JSON.stringify({ transcription: "t", synthesis: "s" }),
-					{
-						type: "application/vnd.polylogue.engine.offer+json",
-					},
+					{ type: `${ENGINE}offer+json` },
 				);
 				await shot(tab, screen, "6-local-ready");
 				// The agent leaving takes the page back to waiting, with the
-				// engine still in the session, and its coming back to talking,
+				// engine still in the pipe, and its coming back to talking,
 				// listening again if it was.
 				// A tab starts listening once there is someone to talk with.
 				const listen = tab.getByRole("button", { name: /^Unmute \(/ });

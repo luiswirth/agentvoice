@@ -8,10 +8,10 @@
 // (`codex exec`, on the OpenAI key in ~/secrets). Either runs in bubblewrap,
 // with an empty home in place of the user's and the rest of the machine
 // read-only, so that what it installs goes nowhere. `tier` is
-// `local`, which ends at the engine's offer, or `elevenlabs`, which ends at
-// the key's secret. A fake page takes the person's place, on the real relay:
-// it sends the modes as the page does, and the public key on the ElevenLabs
-// tier. The agent reads `public/agents.md` from this checkout, served on
+// `local`, which ends at the engine's offer in the pipe whose link the agent
+// sends as a secret, or `elevenlabs`, which ends at the key's secret. A fake
+// page takes the person's place, on the real relay: it sends the modes and
+// the public key as the page does, and joins the pipe. The agent reads `public/agents.md` from this checkout, served on
 // localhost, unless DOCS names another base, such as
 // https://voice.agentics.lwirth.com. MODEL picks the model; the engine's
 // models come from the user's cache, unless COLD=1, which has it fetch them;
@@ -95,7 +95,9 @@ await page.send(JSON.stringify({ listener: true, speaker: true, tier }), {
 	type: MODES,
 });
 const secrets = new Secrets(page);
-if (tier === "elevenlabs") await secrets.publish();
+await secrets.publish();
+/** The pipe to the engine, once the agent sent it. */
+let pipe = null as Session | null;
 
 let finish: (why: string) => void = () => {};
 const finished = new Promise<string>((done) => {
@@ -114,10 +116,29 @@ page.subscribe({
 					? `offer ${entry.text}`
 					: type;
 		mark(`${entry.from}: ${what}`);
-		if (type === OFFER) finish("the engine's offer arrived");
-		if (type === SECRET) finish("the key's secret arrived");
+		if (type === SECRET)
+			void secrets.open(entry).then((secret) => {
+				if (secret?.name === "elevenlabs") finish("the key's secret arrived");
+				if (secret?.name === "engine" && !pipe)
+					void connect(secret.value.trim());
+			});
 	},
 });
+
+/** Joins the pipe as the page does, and marks what the engine sends there. */
+async function connect(link: string): Promise<void> {
+	mark("page joins the pipe");
+	pipe = new Session(link, PERSON);
+	await pipe.join();
+	pipe.subscribe({
+		entry(entry) {
+			if (entry.from === PERSON) return;
+			const type = entry.type.split(";")[0];
+			mark(`pipe ${entry.from}: ${type} ${entry.text ?? ""}`);
+			if (type === OFFER) finish("the engine's offer arrived in the pipe");
+		},
+	});
+}
 
 // The page's prompt for the tier chosen on it, or PROMPT's variant of it,
 // with {docs}, {session}, {person} and {tier}. The session is on the default
@@ -326,10 +347,15 @@ for (let asked = 1; asked <= 2 && id && asks && !ended; asked++) {
 	id = (await run(`agent-${asked}.jsonl`, { id, text }, why)) ?? id;
 }
 mark(`setup ended: ${ended ?? "the agent stopped first"}`);
+// Leaving the pipe has the engine leave it and stop.
+await pipe?.leave();
 await page.leave();
-// An engine the agent started apart from its own group, found by the session's
-// link on its command line.
-spawn("pkill", ["-f", link.split("/").at(-1) ?? link]);
+// An engine the agent started apart from its own group, and that still runs,
+// found by the pipe's link on its command line.
+if (pipe) {
+	await new Promise((wake) => setTimeout(wake, 3000));
+	spawn("pkill", ["-f", pipe.link.split("/").at(-1) ?? pipe.link]);
+}
 
 if (id) {
 	mark("debrief");

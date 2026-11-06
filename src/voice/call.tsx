@@ -39,8 +39,6 @@ export type Present = {
 	receiving: boolean;
 	/** If not receiving, since when. */
 	since?: string | undefined;
-	/** Whether it is a speech engine rather than someone to talk with. */
-	engine: boolean;
 };
 
 /** A message said in the session, by the person or an agent: another
@@ -81,7 +79,7 @@ export function Call({
 	const [settings, setSettings] = useState(false);
 	useLevels(voice, root);
 	useShortcuts(voice, state, settings);
-	const people = (room?.people ?? []).filter((person) => !person.engine);
+	const people = room?.people ?? [];
 	const agents = people.filter((person) => agent(person.name));
 	const speakers = room?.speakers ?? [];
 	const reader = room?.turns.find((turn) => turn.n === state.reading)?.from;

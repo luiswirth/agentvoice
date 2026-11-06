@@ -1,10 +1,8 @@
 // What the others in the session do, as far as the page can tell from the
 // log and the presence: who joins and leaves, whether they have read the
 // person's last message, and whether they answered it. From reading it until
-// answering, an agent is taken to be working on it. An engine is no agent: it
-// reads everything and answers only the page, so neither counts.
+// answering, an agent is taken to be working on it.
 import { type Entry, JOIN, LEAVE, type Presence } from "agentwire/participant";
-import { PREFIX as ENGINE } from "./local.ts";
 import { MODES, type Session, spoken } from "./protocol.ts";
 import { TRACE } from "./trace.ts";
 
@@ -25,13 +23,12 @@ export type ActivityEvents = {
 };
 
 /** Entries that are no one's acts: what the voice pages send about
- * themselves, and the engine extension's. */
-const NO_ACTS = [MODES, TRACE, ENGINE];
+ * themselves. */
+const NO_ACTS = [MODES, TRACE];
 
 export class Activity {
 	private readonly name: string;
 	private readonly events: ActivityEvents;
-	private readonly engine: (name: string) => boolean;
 	/** The person's last message, by its entry, while no one answered it. */
 	private waiting: number | null = null;
 	private progress: Progress = null;
@@ -39,15 +36,8 @@ export class Activity {
 	private live: boolean;
 	readonly close: () => void;
 
-	/** `engine` tells whether a participant is an engine. */
-	constructor(
-		session: Session,
-		name: string,
-		engine: (name: string) => boolean,
-		events: ActivityEvents,
-	) {
+	constructor(session: Session, name: string, events: ActivityEvents) {
 		this.name = name;
-		this.engine = engine;
 		this.events = events;
 		// The log so far comes with the first receive, which ends at its
 		// presence: until it did, the presence is empty.
@@ -80,8 +70,7 @@ export class Activity {
 		if (this.waiting === null || this.progress !== "sent") return;
 		const waiting = this.waiting;
 		const read = Object.entries(presence).some(
-			([name, { read }]) =>
-				name !== this.name && !this.engine(name) && read >= waiting,
+			([name, { read }]) => name !== this.name && read >= waiting,
 		);
 		if (!read) return;
 		this.set("working");

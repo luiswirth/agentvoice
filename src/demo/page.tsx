@@ -59,24 +59,20 @@ setInterval(() => {
 	state.level = state.listener ? speech(0) : 0.01;
 }, 30);
 
-// The agent, receiving unless it works, and the engine on the local tier.
+// The agent, receiving unless it works.
 const room: Room = {
 	people: [
 		{
 			name: "luis/claude",
 			receiving: state.progress !== "working",
-			engine: false,
 		},
 		// In the group states, a second agent, in a shade of its own, and
 		// another person.
 		...(name?.startsWith("group")
 			? [
-					{ name: "ben/codex", receiving: true, engine: false },
-					{ name: "tristan", receiving: true, engine: false },
+					{ name: "ben/codex", receiving: true },
+					{ name: "tristan", receiving: true },
 				]
-			: []),
-		...(state.engine
-			? [{ name: "luis/claude/engine", receiving: true, engine: true }]
 			: []),
 	],
 	// A conversation so far, but in the state named off, before anything was said.
