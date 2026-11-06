@@ -4,7 +4,11 @@
 // of 0.1 s. `playback` plays what the page renders at `SPEECH_RATE`, which it
 // asks for as it plays, keeping a little ahead, so that the device's clock is
 // the one voice plays by.
-import { LISTEN_RATE, Resampler, SPEECH_RATE } from "voice-core";
+// The core's leaves alone: its index pulls in modules that need the page's
+// globals, which the audio thread lacks, so the dev server's unbundled
+// worklet would fail to load, and register no processor.
+import { Resampler } from "voice-core/resampler";
+import { LISTEN_RATE, SPEECH_RATE } from "voice-core/tier";
 
 // The AudioWorkletGlobalScope, which TypeScript's DOM types lack.
 declare const sampleRate: number;
