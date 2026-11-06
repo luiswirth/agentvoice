@@ -3,19 +3,20 @@
 # dependencies = ["sherpa-onnx==1.12.40", "numpy==2.3.4"]
 # ///
 # sherpa-onnx 2.0 drops the words Kokoro's lexicon lacks, such as numbers, rather than spelling them out.
-"""Voice's engine: a participant of a polylogue session that transcribes and speaks.
+"""Voice's engine: transcribes and speaks for the voice page, over a pipe of the two.
 
-    python engine.py <session link> [name]
+    python engine.py <pipe link> [name]
 
 with Python 3.12 or newer and the dependencies above, such as by `uv run engine.py`.
 
-It speaks the engine extension, https://voice.agentics.lwirth.com/engine.md:
+It speaks the engine extension, https://voice.agentics.lwirth.com/engine.md, in the pipe,
+an agentwire session that only it and the page are in:
 it transcribes with NVIDIA's Parakeet v2 and speaks with Kokoro v1.0,
 both in k2-fsa's conversions for sherpa-onnx, fetched once from Hugging Face at pinned revisions
 and checked against the hashes below.
-It reaches only the session and Hugging Face, keeps nothing but the models,
+It reaches only the pipe and Hugging Face, keeps nothing but the models,
 in ~/.cache/polylogue-voice-engine, and runs no commands.
-It runs until stopped, by SIGTERM or SIGINT, and then leaves the session.
+It runs until stopped, by SIGTERM or SIGINT, or until everyone else left the pipe, and then leaves it.
 """
 
 import difflib, hashlib, io, json, os, queue, shutil, signal, sys, tempfile, threading, time, wave
@@ -54,7 +55,8 @@ PREFIX = "application/vnd.polylogue.engine."
 CACHE = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "polylogue-voice-engine"
 THREADS = min(4, os.cpu_count() or 1)
 # Set as the engine is stopped, so that downloads end at once and their partial files are removed.
-STOPPING = threading.Event()
+# A plain flag, not an Event: a second signal in the handler would wait forever on the Event's lock.
+STOPPING = False
 
 
 class Progress:
@@ -85,7 +87,7 @@ def download(url, path, progress, attempts=4):
             got = 0
             with urllib.request.urlopen(url, timeout=60) as response, open(path, "wb") as file:
                 while data := response.read(1 << 20):
-                    if STOPPING.is_set():
+                    if STOPPING:
                         raise SystemExit
                     hash.update(data)
                     file.write(data)
@@ -277,12 +279,12 @@ class Session:
         self.request(self.me, payload, PREFIX + type)
 
     def receive(self):
-        """The entries after the last one received, waiting up to a minute for one."""
+        """The entries after the last one received, waiting up to a minute for one, and who is in."""
         lines = self.request(f"{self.me}?after={self.read}&wait=60", timeout=90).decode().splitlines()
         entries = [json.loads(line) for line in lines[:-1]]
         if entries:
             self.read = entries[-1]["n"]
-        return entries
+        return entries, json.loads(lines[-1])["presence"]
 
     def payload(self, n):
         return self.request(f"{self.me}/{n}")
@@ -298,7 +300,11 @@ def main():
     link, name = sys.argv[1].rstrip("/"), sys.argv[2] if len(sys.argv) == 3 else "engine"
 
     def stop(*_):
-        STOPPING.set()
+        # A signal can come twice, such as from `pkill -f`, which reaches both uv and its child.
+        global STOPPING
+        if STOPPING:
+            return
+        STOPPING = True
         sys.exit(0)
 
     # SIGINT too, which a shell leaves ignored for a command it runs in the background.
@@ -413,9 +419,12 @@ def serve(session):
     }).encode())
     log("offered; converting until stopped")
 
+    # Whether anyone else was in the pipe, as its presence or their leaving shows:
+    # once they all left, it has no one to convert for.
+    met = False
     while True:
         try:
-            entries = session.receive()
+            entries, presence = session.receive()
         except urllib.error.HTTPError as error:
             if error.code in (403, 404, 410):
                 raise SystemExit(f"the session is gone for the engine: {error.code} {error.read().decode().strip()}") from None
@@ -424,6 +433,12 @@ def serve(session):
         except OSError:
             time.sleep(1)
             continue
+        others = len(presence) > 1
+        met = met or any(entry["type"].startswith("application/vnd.agentwire.leave") for entry in entries)
+        if met and not others:
+            log("everyone else left the pipe")
+            return
+        met = met or others
         for entry in entries:
             type, *params = (part.strip() for part in entry["type"].split(";"))
             params = dict(param.partition("=")[::2] for param in params)
