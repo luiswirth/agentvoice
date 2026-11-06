@@ -49,8 +49,18 @@ pinned:
     set -euo pipefail
     for repo in agentwire polylogue-web; do
         head=$(git ls-remote "https://github.com/luiswirth/$repo" HEAD | cut -f1)
-        grep -q "luiswirth/$repo/tar.gz/$head" pnpm-lock.yaml \
-            || { echo "$repo is pinned behind $head: run just bump" >&2; exit 1; }
+        pin=$(grep -o "luiswirth/$repo/tar.gz/[0-9a-f]*" pnpm-lock.yaml | head -1 | cut -d/ -f4)
+        [ "$pin" = "$head" ] && continue
+        # Only a commit to what the package holds puts the pin behind.
+        packaged=$(gh api -H "Accept: application/vnd.github.raw" "repos/luiswirth/$repo/contents/package.json" \
+            | jq -r '"package.json", (.files[] + "/")')
+        changed=$(gh api "repos/luiswirth/$repo/compare/$pin...$head" --jq '.files[].filename')
+        for path in $packaged; do
+            if grep -qxF -e "$path" <<<"$changed" || grep -q "^$path" <<<"$changed"; then
+                echo "$repo is pinned behind $head, which changes $path: run just bump" >&2
+                exit 1
+            fi
+        done
     done
 
 # Screenshots of the call in each state of src/demo/states.ts, on a
