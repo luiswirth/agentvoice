@@ -19,7 +19,7 @@ importers:
         version: 5.3.0
       agentwire:
         specifier: github:luiswirth/agentwire
-        version: https://codeload.github.com/luiswirth/agentwire/tar.gz/a1c26f8779417545f07c807493d1fe4c7dc47f21
+        version: https://codeload.github.com/luiswirth/agentwire/tar.gz/85c3ad200114e94d5fda540f6f186c9768a93fae
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -34,7 +34,7 @@ importers:
         version: 1.30.0(patch_hash=486aaa1ab01a7e27ce6ec974d994976a8f8f5884306fe71c43be574a33919053)
       polylogue-web:
         specifier: github:luiswirth/polylogue-web
-        version: https://codeload.github.com/luiswirth/polylogue-web/tar.gz/450831059c1d62ff05fd4d0246ed961736b306f9(agentwire@https://codeload.github.com/luiswirth/agentwire/tar.gz/a1c26f8779417545f07c807493d1fe4c7dc47f21)(react@19.3.1)
+        version: https://codeload.github.com/luiswirth/polylogue-web/tar.gz/450831059c1d62ff05fd4d0246ed961736b306f9(agentwire@https://codeload.github.com/luiswirth/agentwire/tar.gz/85c3ad200114e94d5fda540f6f186c9768a93fae)(react@19.3.1)
       react:
         specifier: ^19.3.1
         version: 19.3.1
@@ -865,8 +865,8 @@ packages:
     resolution: {integrity: sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng==}
     engines: {node: '>= 0.6'}
 
-  agentwire@https://codeload.github.com/luiswirth/agentwire/tar.gz/a1c26f8779417545f07c807493d1fe4c7dc47f21:
-    resolution: {gitHosted: true, integrity: sha512-/XJn26CMPOB+81jcG9NMD5gt8v+wDfL8lLye3Ez+7Dti8e9SJtGJieY5e1lylED/JUYw6W86t66qX0QqdvK1zQ==, tarball: https://codeload.github.com/luiswirth/agentwire/tar.gz/a1c26f8779417545f07c807493d1fe4c7dc47f21}
+  agentwire@https://codeload.github.com/luiswirth/agentwire/tar.gz/85c3ad200114e94d5fda540f6f186c9768a93fae:
+    resolution: {gitHosted: true, integrity: sha512-WHrCSvYLKXTfO5h489aIUOSGouCijsjUhseJEhoMrVChT5flUH3rVOxXGXFuSBaUlHkrPF9pGCTWb938FVtWaQ==, tarball: https://codeload.github.com/luiswirth/agentwire/tar.gz/85c3ad200114e94d5fda540f6f186c9768a93fae}
     version: 0.0.0
 
   ajv-formats@2.1.1:
@@ -2848,7 +2848,7 @@ snapshots:
       mime-types: 3.0.2
       negotiator: 1.1.0
 
-  agentwire@https://codeload.github.com/luiswirth/agentwire/tar.gz/a1c26f8779417545f07c807493d1fe4c7dc47f21: {}
+  agentwire@https://codeload.github.com/luiswirth/agentwire/tar.gz/85c3ad200114e94d5fda540f6f186c9768a93fae: {}
 
   ajv-formats@2.1.1:
     dependencies:
@@ -3662,9 +3662,9 @@ snapshots:
 
   playwright-core@1.64.1: {}
 
-  polylogue-web@https://codeload.github.com/luiswirth/polylogue-web/tar.gz/450831059c1d62ff05fd4d0246ed961736b306f9(agentwire@https://codeload.github.com/luiswirth/agentwire/tar.gz/a1c26f8779417545f07c807493d1fe4c7dc47f21)(react@19.3.1):
+  polylogue-web@https://codeload.github.com/luiswirth/polylogue-web/tar.gz/450831059c1d62ff05fd4d0246ed961736b306f9(agentwire@https://codeload.github.com/luiswirth/agentwire/tar.gz/85c3ad200114e94d5fda540f6f186c9768a93fae)(react@19.3.1):
     dependencies:
-      agentwire: https://codeload.github.com/luiswirth/agentwire/tar.gz/a1c26f8779417545f07c807493d1fe4c7dc47f21
+      agentwire: https://codeload.github.com/luiswirth/agentwire/tar.gz/85c3ad200114e94d5fda540f6f186c9768a93fae
       react: 19.3.1
 
   postcss-selector-parser@7.1.7:
