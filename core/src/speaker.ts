@@ -94,6 +94,26 @@ export class Speaker {
 		return Math.min(heard / reading.length, 1);
 	}
 
+	/** Why the message being read may not sound: paused by the person, or
+	 * while they have the floor, and the seconds of its speech made so far,
+	 * of which `queued` are still to render. */
+	why(): {
+		held: boolean;
+		yielded: boolean;
+		paused: boolean;
+		made: number;
+		queued: number;
+	} {
+		const reading = this.readings[0];
+		const last = reading?.chars.at(-1);
+		return {
+			held: this.held,
+			yielded: this.yielded,
+			...this.player.held,
+			made: last?.at ?? 0,
+		};
+	}
+
 	/** How loud the speaker sounds now, from 0 to 1. */
 	level(): number {
 		return this.player.level();

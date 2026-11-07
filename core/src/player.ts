@@ -103,6 +103,15 @@ export class Player {
 		return this.queue.length > 0 && !this.paused;
 	}
 
+	/** Whether it is paused, and the seconds of speech it still has to render. */
+	get held(): { paused: boolean; queued: number } {
+		const samples = this.queue.reduce(
+			(sum, s) => sum + s.samples.length - s.at,
+			0,
+		);
+		return { paused: this.paused, queued: samples / SPEECH_RATE };
+	}
+
 	/** Seconds of the line played so far. */
 	progress(line: number): number {
 		return this.progressOf.get(line) ?? 0;

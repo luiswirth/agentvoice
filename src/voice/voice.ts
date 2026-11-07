@@ -301,10 +301,18 @@ export class Voice {
 	 * starts the page's audio. */
 	private sound(): void {
 		if (this.output !== null) return;
+		let failure: string | null = null;
 		const output = new Output({
 			play: (out, rate, played) => this.core.play(out, rate, played),
 			dropped: (samples) => this.core.unplay(samples),
 			short: (short) => this.trace.event("short", { samples: short }),
+			// Once for each failure, which may repeat with every block.
+			failed: (error) => {
+				if (error.message === failure) return;
+				failure = error.message;
+				console.error(error);
+				this.trace.event("playback.failed", { error: error.message });
+			},
 		});
 		this.output = output;
 		this.core.on("flush", () => output.flush());

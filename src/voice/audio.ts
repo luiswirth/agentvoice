@@ -112,6 +112,9 @@ type OutputHandlers = {
 	/** Called with how many samples the device had nothing to play for in
 	 * all, as that grows. */
 	short: (samples: number) => void;
+	/** Called with what failed in playing: playback goes on, with silence
+	 * where rendering failed. */
+	failed: (error: Error) => void;
 };
 
 /** What the page plays: `play` renders it as the device asks for it, at
@@ -135,9 +138,20 @@ export class Output {
 				if ("short" in data) return handlers.short(data.short);
 				if ("dropped" in data) return handlers.dropped(data.dropped);
 				const out = new Float32Array(data.need);
-				handlers.play(out, SPEECH_RATE, data.played);
+				// Every block asked for is given, silent where rendering failed:
+				// playback asks only for what it lacks, so a block never given
+				// would keep it from asking for good.
+				try {
+					handlers.play(out, SPEECH_RATE, data.played);
+				} catch (error) {
+					out.fill(0);
+					handlers.failed(error as Error);
+				}
 				node.port.postMessage(out.buffer, [out.buffer]);
 			};
+			node.addEventListener("processorerror", () =>
+				handlers.failed(new Error("The audio thread's playback failed.")),
+			);
 			node.connect(audio.destination);
 			this.node = node;
 		});

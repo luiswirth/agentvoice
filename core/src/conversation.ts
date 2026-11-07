@@ -179,6 +179,9 @@ const BACKCHANNEL = new Set([
 ]);
 /** How long words that didn't count show, in seconds. */
 const MISSED = 12;
+/** How long, in seconds, a message is read with nothing of it heard before
+ * the trace tells why. */
+const SILENT = 3;
 
 /** The person's audio is heard in chunks of 0.1 s. */
 const CHUNK = LISTEN_RATE / 10;
@@ -254,6 +257,10 @@ export class Conversation {
 	private missedClear: ReturnType<typeof setTimeout> | undefined;
 	/** When the speaker last finished a message, by `performance.now()`. */
 	private readEnded = Number.NEGATIVE_INFINITY;
+	/** When the host last pulled what to play, by `performance.now()`. */
+	private pulled = Number.NEGATIVE_INFINITY;
+	/** Checks a message being read that isn't heard yet. */
+	private silent: ReturnType<typeof setTimeout> | undefined;
 	state: State;
 
 	/** Starts as `options` set it, without the cues of turning on: listening
@@ -372,6 +379,7 @@ export class Conversation {
 	 * host played by now, for one that holds some a while before it plays it;
 	 * without it, all of it. What was heard follows what was played. */
 	play(out: Float32Array, rate: number, played?: number): void {
+		this.pulled = performance.now();
 		if (rate !== this.rate) {
 			this.given = 0;
 			this.rate = rate;
@@ -717,9 +725,29 @@ export class Conversation {
 				if (reading === null && before !== null)
 					this.readEnded = performance.now();
 				this.update({ reading });
+				clearTimeout(this.silent);
+				if (reading !== null)
+					this.silent = setTimeout(() => {
+						if (speaker.reading !== reading || speaker.progress() > 0) return;
+						this.trace("silent", {
+							id: reading,
+							// How long ago the host last pulled what to play, if ever.
+							pulled: Number.isFinite(this.pulled)
+								? Math.round(performance.now() - this.pulled)
+								: "never",
+							...speaker.why(),
+						});
+					}, SILENT * 1000);
 			};
 			speaker.played = (samples) => this.listener?.played(samples);
-			speaker.done = (heard) => this.emit("heard", heard);
+			speaker.done = (heard) => {
+				this.trace("heard", {
+					id: heard.id,
+					whole: heard.whole,
+					chars: heard.text.length,
+				});
+				this.emit("heard", heard);
+			};
 			speaker.player.flush = () => this.flush();
 			speaker.failed = (error) => {
 				this.trace("failed", { error: error.message });
@@ -847,6 +875,7 @@ export class Conversation {
 		clearTimeout(this.working);
 		clearTimeout(this.readCue);
 		clearTimeout(this.missedClear);
+		clearTimeout(this.silent);
 		this.listener?.close();
 		this.speaker?.close();
 	}
