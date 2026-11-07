@@ -23,6 +23,8 @@ type Reading = {
 	/** How many characters the whole message is read as. */
 	length: number;
 	done: boolean;
+	/** When its first speech came, by `performance.now()`. */
+	came: number | null;
 };
 
 /** How much speech, in seconds, the speaker gives away at once, and the
@@ -95,22 +97,25 @@ export class Speaker {
 	}
 
 	/** Why the message being read may not sound: paused by the person, or
-	 * while they have the floor, and the seconds of its speech made so far,
-	 * of which `queued` are still to render. */
+	 * while they have the floor; how many seconds ago its first speech came,
+	 * if it did, and the seconds of its speech made so far, of which `queued`
+	 * are still to render. */
 	why(): {
 		held: boolean;
 		yielded: boolean;
 		paused: boolean;
+		came: number | null;
 		made: number;
 		queued: number;
 	} {
 		const reading = this.readings[0];
-		const last = reading?.chars.at(-1);
+		const came = reading?.came ?? null;
 		return {
 			held: this.held,
 			yielded: this.yielded,
 			...this.player.held,
-			made: last?.at ?? 0,
+			came: came === null ? null : (performance.now() - came) / 1000,
+			made: reading?.chars.at(-1)?.at ?? 0,
 		};
 	}
 
@@ -182,11 +187,13 @@ export class Speaker {
 			text: this.heard(reading),
 			whole: false,
 		}));
-		for (const { line } of this.readings) {
+		// Let go of first, so that stopping them settles none as read to its end.
+		const readings = this.readings;
+		this.readings = [];
+		for (const { line } of readings) {
 			this.dropped.add(line);
 			this.player.stop(line);
 		}
-		this.readings = [];
 		for (const each of heard) this.done(each);
 		this.resume();
 		this.changed(this.reading);
@@ -211,6 +218,7 @@ export class Speaker {
 			chars: [],
 			length: paragraphs.join(" ").length,
 			done: false,
+			came: null,
 		};
 		this.readings.push(reading);
 		if (this.readings.length === 1) this.changed(message.id);
@@ -247,6 +255,7 @@ export class Speaker {
 					}
 					for (const { char, at } of piece.chars)
 						reading.chars.push({ char, at: from + at });
+					reading.came ??= performance.now();
 					this.player.play(line, start, piece.samples);
 					start += piece.samples.length / SPEECH_RATE;
 					unsent.push(piece.samples);
@@ -282,12 +291,15 @@ export class Speaker {
 	}
 
 	private drop(id: string): void {
-		for (const reading of this.readings.filter((r) => r.id === id)) {
+		const dropped = this.readings.filter((r) => r.id === id);
+		// Let go of first, so that stopping them settles none as read to its end.
+		this.readings = this.readings.filter((reading) => reading.id !== id);
+		for (const reading of dropped) {
+			const text = this.heard(reading);
 			this.dropped.add(reading.line);
 			this.player.stop(reading.line);
-			this.done({ id, text: this.heard(reading), whole: false });
+			this.done({ id, text, whole: false });
 		}
-		this.readings = this.readings.filter((reading) => reading.id !== id);
 		this.changed(this.reading);
 	}
 }

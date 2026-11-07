@@ -180,8 +180,8 @@ const BACKCHANNEL = new Set([
 /** How long words that didn't count show, in seconds. */
 const MISSED = 12;
 /** How long, in seconds, a message is read with nothing of it heard before
- * the trace tells why. */
-const SILENT = 3;
+ * the trace tells why: once its speech came, and while none came. */
+const SILENT = { came: 3, coming: 10 };
 
 /** The person's audio is heard in chunks of 0.1 s. */
 const CHUNK = LISTEN_RATE / 10;
@@ -260,7 +260,7 @@ export class Conversation {
 	/** When the host last pulled what to play, by `performance.now()`. */
 	private pulled = Number.NEGATIVE_INFINITY;
 	/** Checks a message being read that isn't heard yet. */
-	private silent: ReturnType<typeof setTimeout> | undefined;
+	private silent: ReturnType<typeof setInterval> | undefined;
 	state: State;
 
 	/** Starts as `options` set it, without the cues of turning on: listening
@@ -551,8 +551,7 @@ export class Conversation {
 		}
 		this.update({ switching: "listener" });
 		this.emit("error", null);
-		this.words = false;
-		this.floor = false;
+		this.yieldFloor();
 		this.few = false;
 		this.heard = "";
 		this.known = false;
@@ -593,6 +592,7 @@ export class Conversation {
 						this.trace("failed", { error: error.message });
 						this.listener = null;
 						this.stopping = false;
+						this.yieldFloor();
 						this.update({
 							listener: false,
 							hearing: "",
@@ -725,19 +725,31 @@ export class Conversation {
 				if (reading === null && before !== null)
 					this.readEnded = performance.now();
 				this.update({ reading });
-				clearTimeout(this.silent);
-				if (reading !== null)
-					this.silent = setTimeout(() => {
-						if (speaker.reading !== reading || speaker.progress() > 0) return;
+				clearInterval(this.silent);
+				if (reading !== null) {
+					const since = performance.now();
+					this.silent = setInterval(() => {
+						if (speaker.reading !== reading || speaker.progress() > 0)
+							return clearInterval(this.silent);
+						const why = speaker.why();
+						const waited = (performance.now() - since) / 1000;
+						if (
+							why.came === null
+								? waited < SILENT.coming
+								: why.came < SILENT.came
+						)
+							return;
+						clearInterval(this.silent);
 						this.trace("silent", {
 							id: reading,
 							// How long ago the host last pulled what to play, if ever.
 							pulled: Number.isFinite(this.pulled)
 								? Math.round(performance.now() - this.pulled)
 								: "never",
-							...speaker.why(),
+							...why,
 						});
-					}, SILENT * 1000);
+					}, 1000);
+				}
 			};
 			speaker.played = (samples) => this.listener?.played(samples);
 			speaker.done = (heard) => {
@@ -778,6 +790,16 @@ export class Conversation {
 		this.listener?.close();
 		this.listener = null;
 		this.update({ hearing: "", level: 0, voice: undefined });
+		this.yieldFloor();
+	}
+
+	/** Ends the floor the person took, as listening closes with no words of
+	 * theirs still to come: the speaker reads on, unless a draft waits. */
+	private yieldFloor(): void {
+		this.words = false;
+		if (!this.floor) return;
+		this.floor = false;
+		if (!this.state.draft) this.speaker?.resume();
 	}
 
 	/** Pauses the speaker for the words in progress, once they may take the floor. */
@@ -875,7 +897,7 @@ export class Conversation {
 		clearTimeout(this.working);
 		clearTimeout(this.readCue);
 		clearTimeout(this.missedClear);
-		clearTimeout(this.silent);
+		clearInterval(this.silent);
 		this.listener?.close();
 		this.speaker?.close();
 	}
