@@ -32,9 +32,6 @@ importers:
       onnxruntime-web:
         specifier: ^1.30.0
         version: 1.30.0(patch_hash=486aaa1ab01a7e27ce6ec974d994976a8f8f5884306fe71c43be574a33919053)
-      polylogue-web:
-        specifier: github:luiswirth/polylogue-web
-        version: https://codeload.github.com/luiswirth/polylogue-web/tar.gz/438a1a125aa4a952d19587f6aae134fb8b6212dc(agentwire@https://codeload.github.com/luiswirth/agentwire/tar.gz/5bc97f2b02a7f52c6ee35d070f27cc43db0381ed)(react@19.3.1)
       react:
         specifier: ^19.3.1
         version: 19.3.1
@@ -47,6 +44,9 @@ importers:
       tw-animate-css:
         specifier: ^1.4.0
         version: 1.4.0
+      vibe-together-web:
+        specifier: github:luiswirth/vibe-together-web
+        version: https://codeload.github.com/luiswirth/vibe-together-web/tar.gz/12ca8d8fbb885bc62b418d9da2144db9d2aff6a0(agentwire@https://codeload.github.com/luiswirth/agentwire/tar.gz/5bc97f2b02a7f52c6ee35d070f27cc43db0381ed)(react@19.3.1)
       voice-core:
         specifier: workspace:*
         version: link:core
@@ -1807,13 +1807,6 @@ packages:
     engines: {node: '>=20'}
     hasBin: true
 
-  polylogue-web@https://codeload.github.com/luiswirth/polylogue-web/tar.gz/438a1a125aa4a952d19587f6aae134fb8b6212dc:
-    resolution: {gitHosted: true, integrity: sha512-fL+d82T+E1YwyUCHeupvO1pbOQR4iEA8UhxCKHC5qAECB9ZG9ncAbcd4//6U+vTIaNa+dncBQAetEjJE56jAmQ==, tarball: https://codeload.github.com/luiswirth/polylogue-web/tar.gz/438a1a125aa4a952d19587f6aae134fb8b6212dc}
-    version: 0.0.0
-    peerDependencies:
-      agentwire: github:luiswirth/agentwire
-      react: '>=19'
-
   postcss-selector-parser@7.1.7:
     resolution: {integrity: sha512-wWBro/7hJ40ye6TPiXkUQoXKCw23xSsjriUvqd7Uls9Sso3oLiON1flc18cCdnjgCRXw4fBVqUJJeOdDTh3P3g==}
     engines: {node: '>=4'}
@@ -2121,6 +2114,13 @@ packages:
   vary@1.1.2:
     resolution: {integrity: sha512-BNGbWLfd0eUPabhkXUVm0j8uuvREyTh5ovRa/dyow/BqAbZJyC+5fU+IzQOzmAKzYqYRAISoRhdQr3eIZ/PXqg==}
     engines: {node: '>= 0.8'}
+
+  vibe-together-web@https://codeload.github.com/luiswirth/vibe-together-web/tar.gz/12ca8d8fbb885bc62b418d9da2144db9d2aff6a0:
+    resolution: {gitHosted: true, integrity: sha512-VjZOShLZfmn1sp1/pRH1eptn2lZXfyhp+WOXkgmZm01Me+qvR6aurl7MAGrmvftsVHkhmfgy0EaQQkqqU9w3ZA==, tarball: https://codeload.github.com/luiswirth/vibe-together-web/tar.gz/12ca8d8fbb885bc62b418d9da2144db9d2aff6a0}
+    version: 0.0.0
+    peerDependencies:
+      agentwire: github:luiswirth/agentwire
+      react: '>=19'
 
   vite@8.3.4:
     resolution: {integrity: sha512-IftLE8phJhdNRIGNEV4JCCvfNScoZQVfcXaN8TQropWGJtOHcu+iAB9pHcuGvmEb/kddw0LBe/jS8ztdC6xdiQ==}
@@ -3662,11 +3662,6 @@ snapshots:
 
   playwright-core@1.64.1: {}
 
-  polylogue-web@https://codeload.github.com/luiswirth/polylogue-web/tar.gz/438a1a125aa4a952d19587f6aae134fb8b6212dc(agentwire@https://codeload.github.com/luiswirth/agentwire/tar.gz/5bc97f2b02a7f52c6ee35d070f27cc43db0381ed)(react@19.3.1):
-    dependencies:
-      agentwire: https://codeload.github.com/luiswirth/agentwire/tar.gz/5bc97f2b02a7f52c6ee35d070f27cc43db0381ed
-      react: 19.3.1
-
   postcss-selector-parser@7.1.7:
     dependencies:
       cssesc: 3.0.0
@@ -4041,6 +4036,11 @@ snapshots:
   validate-npm-package-name@7.0.2: {}
 
   vary@1.1.2: {}
+
+  vibe-together-web@https://codeload.github.com/luiswirth/vibe-together-web/tar.gz/12ca8d8fbb885bc62b418d9da2144db9d2aff6a0(agentwire@https://codeload.github.com/luiswirth/agentwire/tar.gz/5bc97f2b02a7f52c6ee35d070f27cc43db0381ed)(react@19.3.1):
+    dependencies:
+      agentwire: https://codeload.github.com/luiswirth/agentwire/tar.gz/5bc97f2b02a7f52c6ee35d070f27cc43db0381ed
+      react: 19.3.1
 
   vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15):
     dependencies:

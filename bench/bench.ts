@@ -26,7 +26,7 @@ import { sendSecret } from "./secret.ts";
 import { speech, type Timeline } from "./speech.ts";
 
 const RELAY = "https://agentwire.agentics.lwirth.com";
-const TRACE = "application/vnd.polylogue.voice.trace+json";
+const TRACE = "application/vnd.vibe-together.voice.trace+json";
 
 // A scenario by name, or a recording the page shared, a WAV, to replay.
 const name = process.argv[2] ?? "turns";
@@ -102,7 +102,7 @@ try {
 	});
 	await context.addInitScript(
 		([key, engine, recorded]) => {
-			localStorage.setItem("polylogue-name", "person");
+			localStorage.setItem("vibe-together-name", "person");
 			localStorage.setItem("elevenlabs-key", key as string);
 			localStorage.setItem("voice-tier", engine as string);
 			localStorage.setItem("voice-sharing-trace", "true");

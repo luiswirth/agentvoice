@@ -20,7 +20,7 @@ until there is a voice, the page shows your messages as text.
    `curl -s -X POST '<link>/join?as=<name>'`.
    Its answer is JSON, whose `link` is your own link, `<me>` below. Keep it to yourself: whoever holds it acts under your name.
    Then say that you are there, with `curl -s --data-binary "I'm here." '<me>'`.
-2. Receive, with `curl -s '<me>?wait=540&only=text/&only=application/vnd.polylogue.voice.modes&only=application/vnd.agentwire.key&only=application/vnd.agentwire.join&only=application/vnd.agentwire.leave'`:
+2. Receive, with `curl -s '<me>?wait=540&only=text/&only=application/vnd.vibe-together.voice.modes&only=application/vnd.agentwire.key&only=application/vnd.agentwire.join&only=application/vnd.agentwire.leave'`:
    messages, the page's modes and key, and who joins and leaves, without the rest the page sends.
    Among the page's first entries is its modes, as `{"listener":true,"speaker":true,"tier":"local"}`, the latest holding.
    The tier says what turns the person's speech into text and yours into speech:
@@ -40,7 +40,7 @@ Voice's own is one file of about 450 lines, to read in full before you run it.
 It needs Python 3.12 or newer with the dependencies its header names, as PEP 723 has it, and runs however you give it those, such as in a venv with them installed, or with uv, which also fetches a matching Python where the machine's is older, as macOS's is:
 
 ```sh
-curl -so engine.py https://raw.githubusercontent.com/luiswirth/polylogue-voice/4c37668/engine/engine.py
+curl -so engine.py https://raw.githubusercontent.com/luiswirth/vibe-together-voice/4c37668/engine/engine.py
 curl -s -X POST '<relay>/v2/s' > pipe   # the pipe; send it to the page as the secret engine
 uv run engine.py "$(cat pipe)"
 ```
@@ -50,7 +50,7 @@ uv run engine.py "$(cat pipe)"
 Reading it shows that it uses sherpa-onnx and numpy, pinned, from PyPI;
 fetches two models in k2-fsa's conversions from Hugging Face, at pinned revisions, Parakeet v2 to transcribe and Kokoro to speak,
 and uses them only if they match the hashes in the file;
-keeps nothing but those models, in `~/.cache/polylogue-voice-engine`, for its next start;
+keeps nothing but those models, in `~/.cache/vibe-together-voice-engine`, for its next start;
 reaches only the pipe and Hugging Face; and runs no commands.
 What it can't show is what sherpa-onnx does, which is compiled code from PyPI.
 
@@ -84,7 +84,7 @@ Without one, they can switch the page to the local tier, or talk with you in you
 
 The person's messages tag each voice by number, and anything near their microphone, your own echo too, can cut you off until you name a voice.
 So once you can tell who talks to you, name them:
-`curl -s -H 'Content-Type: application/vnd.polylogue.voice.names+json' --data-binary '{"1":"Luis"}' '<me>'`.
+`curl -s -H 'Content-Type: application/vnd.vibe-together.voice.names+json' --data-binary '{"1":"Luis"}' '<me>'`.
 
 ## Ending
 

@@ -13,7 +13,7 @@ import { createServer } from "vite";
 import { keyOf, sendSecret } from "./secret.ts";
 
 const RELAY = "https://agentwire.agentics.lwirth.com";
-const ENGINE = "application/vnd.polylogue.engine.";
+const ENGINE = "application/vnd.vibe-together.engine.";
 const out = join(import.meta.dirname, ".cache", "onboarding-pages");
 await mkdir(out, { recursive: true });
 const server = await createServer({ server: { port: 0 }, logLevel: "silent" });
@@ -66,7 +66,9 @@ try {
 				console.log("name as typed:", await input.inputValue());
 				await shot(tab, screen, "1-name");
 			}
-			await tab.evaluate(() => localStorage.setItem("polylogue-name", "luis"));
+			await tab.evaluate(() =>
+				localStorage.setItem("vibe-together-name", "luis"),
+			);
 			await tab.reload();
 			await tab.waitForFunction(() => location.hash.includes("session="));
 			await tab.waitForTimeout(1500);

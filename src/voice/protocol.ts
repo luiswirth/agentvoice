@@ -11,7 +11,7 @@ export type Session = Pick<Client, "send" | "subscribe" | "log" | "fetch">;
 
 /** Which of the person's listener and speaker are on, and the tier they
  * chose: sent as any of them changes. */
-export const MODES = "application/vnd.polylogue.voice.modes+json";
+export const MODES = "application/vnd.vibe-together.voice.modes+json";
 export type Modes = {
 	listener: boolean;
 	speaker: boolean;
@@ -24,7 +24,7 @@ export type Tier = "elevenlabs" | "local";
 /** Who the voices are, by the number of their tag, as the agent names them:
  * the latest one holds. A named voice can cut in, and once any is named, an
  * unnamed one can't. */
-export const NAMES = "application/vnd.polylogue.voice.names+json";
+export const NAMES = "application/vnd.vibe-together.voice.names+json";
 export type Names = Record<string, string>;
 
 /** The names an entry holds: none where it is no object of names. */

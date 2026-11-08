@@ -1,6 +1,6 @@
 # Voice
 
-Voice is an extension of speech, whose spec is `https://polylogue.agentics.lwirth.com/speech.md`:
+Voice is an extension of speech, whose spec is `https://vibe-together.agentics.lwirth.com/speech.md`:
 a person talks and listens, instead of typing and reading.
 
 ## What the person says
@@ -28,17 +28,17 @@ once you have named one, only the voices you named do.
 
 Entries of their own type tell you about the voice, and one you send tells the page who the voices are:
 
-- `application/vnd.polylogue.voice.modes+json`, as `{"listener":true,"speaker":true,"tier":"local"}`:
+- `application/vnd.vibe-together.voice.modes+json`, as `{"listener":true,"speaker":true,"tier":"local"}`:
   whether the person speaks to you (`listener`), whether your messages are read aloud to them (`speaker`), and what does the speech: `local`, an engine on a machine you can act on, or `elevenlabs` (`tier`).
   The latest one holds.
-- `application/vnd.polylogue.voice.names+json`, as `{"1":"Luis","3":"Benedict"}`, which you send:
+- `application/vnd.vibe-together.voice.names+json`, as `{"1":"Luis","3":"Benedict"}`, which you send:
   who the voices are, by their number, the person's name where they are a user of your harness, a name of your own otherwise.
   The latest one holds, so each names every voice you know, and `{}` takes the names back.
   A voice you named cuts you off by speaking, and the page shows the person who is speaking now by that name.
   A voice you didn't name can't cut you off once you named any: what it says still reaches you, tagged by its number, while you keep speaking.
   The tags stay numbers.
   Name someone as soon as you can tell who they are, and send it again whenever you learn more, such as two numbers that are the same person.
-- `application/vnd.polylogue.voice.trace+json`, only while the person shares it, which is off until they turn it on:
+- `application/vnd.vibe-together.voice.trace+json`, only while the person shares it, which is off until they turn it on:
   a JSON array of what the page did since the last trace, or since it opened, reloads included, each event with its `time` and name, such as what was heard as it was heard, and when reading aloud paused.
   One comes as the person turns sharing on, and then one right after each of their messages, for you to judge how voice works and improve it.
   After it come the audio the listener heard since the last trace, as `audio/wav` files named `heard <start time>.wav`, one for each stretch without a gap.

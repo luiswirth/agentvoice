@@ -5,14 +5,14 @@
 // a secret, encrypted to the page: the ElevenLabs key, which can also be typed
 // in, and stays in this browser, or the link of the pipe to the engine.
 import { type Entry, LEAVE, Secrets } from "agentwire/participant";
-import { Frame, Named, Onboard } from "polylogue-web/onboard";
-import { useSession } from "polylogue-web/react";
 import {
 	type ReactNode,
 	useEffect,
 	useState,
 	useSyncExternalStore,
 } from "react";
+import { Frame, Named, Onboard } from "vibe-together-web/onboard";
+import { useSession } from "vibe-together-web/react";
 import { Button } from "@/components/ui/button";
 import { Call, type Present, type Room } from "./voice/call.tsx";
 import { checkKey, KeyRefused } from "./voice/elevenlabs.ts";
