@@ -19,7 +19,7 @@ importers:
         version: 5.3.0
       agentwire:
         specifier: github:luiswirth/agentwire
-        version: https://codeload.github.com/luiswirth/agentwire/tar.gz/5bc97f2b02a7f52c6ee35d070f27cc43db0381ed
+        version: https://codeload.github.com/luiswirth/agentwire/tar.gz/00ccbdfe47a7d1d868f459fea8059620032d6a05
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -46,7 +46,7 @@ importers:
         version: 1.4.0
       vibe-together-web:
         specifier: github:luiswirth/vibe-together-web
-        version: https://codeload.github.com/luiswirth/vibe-together-web/tar.gz/12ca8d8fbb885bc62b418d9da2144db9d2aff6a0(agentwire@https://codeload.github.com/luiswirth/agentwire/tar.gz/5bc97f2b02a7f52c6ee35d070f27cc43db0381ed)(react@19.3.1)
+        version: https://codeload.github.com/luiswirth/vibe-together-web/tar.gz/db57eaedfb000f1b17e269d478d252f9b4ef48c3(agentwire@https://codeload.github.com/luiswirth/agentwire/tar.gz/00ccbdfe47a7d1d868f459fea8059620032d6a05)(react@19.3.1)
       voice-core:
         specifier: workspace:*
         version: link:core
@@ -865,8 +865,8 @@ packages:
     resolution: {integrity: sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng==}
     engines: {node: '>= 0.6'}
 
-  agentwire@https://codeload.github.com/luiswirth/agentwire/tar.gz/5bc97f2b02a7f52c6ee35d070f27cc43db0381ed:
-    resolution: {gitHosted: true, integrity: sha512-+dczk0H2DY95oeg3O6gnrD9vJXC+lMJDJYa/39jqkzCkRcbdauH8u46NaIybCwas5g5p6l56FILeFsa3X/60hA==, tarball: https://codeload.github.com/luiswirth/agentwire/tar.gz/5bc97f2b02a7f52c6ee35d070f27cc43db0381ed}
+  agentwire@https://codeload.github.com/luiswirth/agentwire/tar.gz/00ccbdfe47a7d1d868f459fea8059620032d6a05:
+    resolution: {gitHosted: true, integrity: sha512-1eoWjwx6Baxmo12qsSg+zA93i9uRcd2OWlihLAxTRktU5/ZJdbnmCmmWLFSDzrB+9KitIEybsHAlwMOFaP+Kfg==, tarball: https://codeload.github.com/luiswirth/agentwire/tar.gz/00ccbdfe47a7d1d868f459fea8059620032d6a05}
     version: 0.0.0
 
   ajv-formats@2.1.1:
@@ -2115,8 +2115,8 @@ packages:
     resolution: {integrity: sha512-BNGbWLfd0eUPabhkXUVm0j8uuvREyTh5ovRa/dyow/BqAbZJyC+5fU+IzQOzmAKzYqYRAISoRhdQr3eIZ/PXqg==}
     engines: {node: '>= 0.8'}
 
-  vibe-together-web@https://codeload.github.com/luiswirth/vibe-together-web/tar.gz/12ca8d8fbb885bc62b418d9da2144db9d2aff6a0:
-    resolution: {gitHosted: true, integrity: sha512-VjZOShLZfmn1sp1/pRH1eptn2lZXfyhp+WOXkgmZm01Me+qvR6aurl7MAGrmvftsVHkhmfgy0EaQQkqqU9w3ZA==, tarball: https://codeload.github.com/luiswirth/vibe-together-web/tar.gz/12ca8d8fbb885bc62b418d9da2144db9d2aff6a0}
+  vibe-together-web@https://codeload.github.com/luiswirth/vibe-together-web/tar.gz/db57eaedfb000f1b17e269d478d252f9b4ef48c3:
+    resolution: {gitHosted: true, integrity: sha512-JAIMe7Kwd9zBm1JYeOpQdcnJd7EAzLdsWluxmL0sLhoaR7rlkLBCq/KjW5zmYtiFUNky6qjyutlQjKL6Q4CO4A==, tarball: https://codeload.github.com/luiswirth/vibe-together-web/tar.gz/db57eaedfb000f1b17e269d478d252f9b4ef48c3}
     version: 0.0.0
     peerDependencies:
       agentwire: github:luiswirth/agentwire
@@ -2848,7 +2848,7 @@ snapshots:
       mime-types: 3.0.2
       negotiator: 1.1.0
 
-  agentwire@https://codeload.github.com/luiswirth/agentwire/tar.gz/5bc97f2b02a7f52c6ee35d070f27cc43db0381ed: {}
+  agentwire@https://codeload.github.com/luiswirth/agentwire/tar.gz/00ccbdfe47a7d1d868f459fea8059620032d6a05: {}
 
   ajv-formats@2.1.1:
     dependencies:
@@ -4037,9 +4037,9 @@ snapshots:
 
   vary@1.1.2: {}
 
-  vibe-together-web@https://codeload.github.com/luiswirth/vibe-together-web/tar.gz/12ca8d8fbb885bc62b418d9da2144db9d2aff6a0(agentwire@https://codeload.github.com/luiswirth/agentwire/tar.gz/5bc97f2b02a7f52c6ee35d070f27cc43db0381ed)(react@19.3.1):
+  vibe-together-web@https://codeload.github.com/luiswirth/vibe-together-web/tar.gz/db57eaedfb000f1b17e269d478d252f9b4ef48c3(agentwire@https://codeload.github.com/luiswirth/agentwire/tar.gz/00ccbdfe47a7d1d868f459fea8059620032d6a05)(react@19.3.1):
     dependencies:
-      agentwire: https://codeload.github.com/luiswirth/agentwire/tar.gz/5bc97f2b02a7f52c6ee35d070f27cc43db0381ed
+      agentwire: https://codeload.github.com/luiswirth/agentwire/tar.gz/00ccbdfe47a7d1d868f459fea8059620032d6a05
       react: 19.3.1
 
   vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15):
