@@ -38,16 +38,16 @@ label dir:
 deploy: pinned ci
     rsync -rlpt --delete --delay-updates --chmod=D755,F644 dist/ root@lwirth-cloud:/srv/voice/
 
-# Moves the lock to the newest commits of agentwire and vibe-together-web.
+# Moves the lock to the newest commits of agentwire and vibetogether-web.
 bump:
-    pnpm update agentwire vibe-together-web
+    pnpm update agentwire vibetogether-web
 
-# Fails where the lock pins agentwire or vibe-together-web behind its newest
+# Fails where the lock pins agentwire or vibetogether-web behind its newest
 # commit, which the page would otherwise be built against unnoticed.
 pinned:
     #!/usr/bin/env bash
     set -euo pipefail
-    for repo in agentwire vibe-together-web; do
+    for repo in agentwire vibetogether-web; do
         head=$(git ls-remote "https://github.com/luiswirth/$repo" HEAD | cut -f1)
         pin=$(grep -o "luiswirth/$repo/tar.gz/[0-9a-f]*" pnpm-lock.yaml | head -1 | cut -d/ -f4)
         [ "$pin" = "$head" ] && continue

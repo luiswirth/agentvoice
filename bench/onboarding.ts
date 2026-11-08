@@ -26,8 +26,8 @@ import { join } from "node:path";
 import { create, type Entry, Secrets, Session } from "agentwire/participant";
 
 const RELAY = "https://agentwire.agentics.lwirth.com";
-const MODES = "application/vnd.vibe-together.voice.modes+json";
-const OFFER = "application/vnd.vibe-together.engine.offer+json";
+const MODES = "application/vnd.vibetogether.voice.modes+json";
+const OFFER = "application/vnd.vibetogether.engine.offer+json";
 const SECRET = "application/vnd.agentwire.secret+json";
 const PERSON = "luis";
 const DEBRIEF =
@@ -55,7 +55,7 @@ await mkdir(cwd);
 // link.
 let docs = process.env.DOCS?.replace(/\/$/, "");
 const PINNED =
-	/https:\/\/raw\.githubusercontent\.com\/luiswirth\/vibe-together-voice\/[^/]+\/engine\/engine\.py/g;
+	/https:\/\/raw\.githubusercontent\.com\/luiswirth\/vibetogether-voice\/[^/]+\/engine\/engine\.py/g;
 const server = createServer(async (request, response) => {
 	try {
 		const engine = process.env.ENGINE;
@@ -162,7 +162,7 @@ const env: Record<string, string> = { ...process.env } as Record<
 	string
 >;
 delete env.XDG_CACHE_HOME;
-const engineCache = join(homedir(), ".cache/vibe-together-voice-engine");
+const engineCache = join(homedir(), ".cache/vibetogether-voice-engine");
 const sandbox = [
 	"--ro-bind",
 	"/",

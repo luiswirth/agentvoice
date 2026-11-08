@@ -23,8 +23,8 @@ import { joined } from "./recording.ts";
 
 const RELAY = "https://agentwire.agentics.lwirth.com";
 const VOICE = "https://voice.agentics.lwirth.com";
-const TRACE = "application/vnd.vibe-together.voice.trace+json";
-const NAMES = "application/vnd.vibe-together.voice.names+json";
+const TRACE = "application/vnd.vibetogether.voice.trace+json";
+const NAMES = "application/vnd.vibetogether.voice.names+json";
 
 const [out, script = "conversation", port = "8794"] = process.argv.slice(2);
 if (!out || !(script in scripts))

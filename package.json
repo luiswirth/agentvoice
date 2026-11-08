@@ -1,5 +1,5 @@
 {
-	"name": "vibe-together-voice",
+	"name": "vibetogether-voice",
 	"private": true,
 	"type": "module",
 	"scripts": {
@@ -14,7 +14,7 @@
 		"lucide-react": "^1.60.0",
 		"onnxruntime-web": "^1.30.0",
 		"agentwire": "github:luiswirth/agentwire",
-		"vibe-together-web": "github:luiswirth/vibe-together-web",
+		"vibetogether-web": "github:luiswirth/vibetogether-web",
 		"react": "^19.3.1",
 		"react-dom": "^19.3.1",
 		"shadcn": "^4.22.1",

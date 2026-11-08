@@ -83,7 +83,7 @@ const browser = await firefox.launch({
 try {
 	const context = await browser.newContext();
 	await context.addInitScript((spoken) => {
-		localStorage.setItem("vibe-together-name", "person");
+		localStorage.setItem("vibetogether-name", "person");
 		localStorage.setItem("voice-tier", "local");
 		if (!spoken) return;
 		// The microphone plays the scenario's speech, from when it opens.
