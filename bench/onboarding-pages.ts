@@ -13,7 +13,7 @@ import { createServer } from "vite";
 import { keyOf, sendSecret } from "./secret.ts";
 
 const RELAY = "https://agentwire.agentics.lwirth.com";
-const ENGINE = "application/vnd.vibetogether.engine.";
+const ENGINE = "application/vnd.agentwire.engine.";
 const out = join(import.meta.dirname, ".cache", "onboarding-pages");
 await mkdir(out, { recursive: true });
 const server = await createServer({ server: { port: 0 }, logLevel: "silent" });

@@ -26,7 +26,7 @@ import { sendSecret } from "./secret.ts";
 import { speech, type Timeline } from "./speech.ts";
 
 const RELAY = "https://agentwire.agentics.lwirth.com";
-const TRACE = "application/vnd.vibetogether.voice.trace+json";
+const TRACE = "application/vnd.agentwire.voice.trace+json";
 
 // A scenario by name, or a recording the page shared, a WAV, to replay.
 const name = process.argv[2] ?? "turns";

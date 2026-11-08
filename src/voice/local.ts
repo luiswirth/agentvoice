@@ -18,7 +18,7 @@ import {
 import type { Entry } from "./protocol.ts";
 
 /** What every type of the engine extension starts with. */
-export const PREFIX = "application/vnd.vibetogether.engine.";
+export const PREFIX = "application/vnd.agentwire.engine.";
 export const TRANSCRIBE = `${PREFIX}transcribe`;
 export const SYNTHESIZE = `${PREFIX}synthesize+json`;
 

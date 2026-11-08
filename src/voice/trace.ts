@@ -7,7 +7,7 @@
 
 /** A trace of what voice did since the last one was sent, or since the page
  * opened. */
-export const TRACE = "application/vnd.vibetogether.voice.trace+json";
+export const TRACE = "application/vnd.agentwire.voice.trace+json";
 
 import { LISTEN_RATE } from "voice-core";
 

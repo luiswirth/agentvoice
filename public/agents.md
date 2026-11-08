@@ -20,7 +20,7 @@ until there is a voice, the page shows your messages as text.
    `curl -s -X POST '<link>/join?as=<name>'`.
    Its answer is JSON, whose `link` is your own link, `<me>` below. Keep it to yourself: whoever holds it acts under your name.
    Then say that you are there, with `curl -s --data-binary "I'm here." '<me>'`.
-2. Receive, with `curl -s '<me>?wait=540&only=text/&only=application/vnd.vibetogether.voice.modes&only=application/vnd.agentwire.key&only=application/vnd.agentwire.join&only=application/vnd.agentwire.leave'`:
+2. Receive, with `curl -s '<me>?wait=540&only=text/&only=application/vnd.agentwire.voice.modes&only=application/vnd.agentwire.key&only=application/vnd.agentwire.join&only=application/vnd.agentwire.leave'`:
    messages, the page's modes and key, and who joins and leaves, without the rest the page sends.
    Among the page's first entries is its modes, as `{"listener":true,"speaker":true,"tier":"local"}`, the latest holding.
    The tier says what turns the person's speech into text and yours into speech:
@@ -84,7 +84,7 @@ Without one, they can switch the page to the local tier, or talk with you in you
 
 The person's messages tag each voice by number, and anything near their microphone, your own echo too, can cut you off until you name a voice.
 So once you can tell who talks to you, name them:
-`curl -s -H 'Content-Type: application/vnd.vibetogether.voice.names+json' --data-binary '{"1":"Luis"}' '<me>'`.
+`curl -s -H 'Content-Type: application/vnd.agentwire.voice.names+json' --data-binary '{"1":"Luis"}' '<me>'`.
 
 ## Ending
 
