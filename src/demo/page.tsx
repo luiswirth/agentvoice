@@ -59,18 +59,19 @@ setInterval(() => {
 	state.level = state.listener ? speech(0) : 0.01;
 }, 30);
 
-// The agent, receiving unless it works.
+// The agent, receiving unless it works, and verified as the person's own.
 const room: Room = {
 	people: [
 		{
 			name: "luis/claude",
 			receiving: state.progress !== "working",
+			account: "luis",
 		},
 		// In the group states, a second agent, in a shade of its own, and
-		// another person.
+		// another person, who joined by the link alone.
 		...(name?.startsWith("group")
 			? [
-					{ name: "ben/codex", receiving: true },
+					{ name: "ben/codex", receiving: true, account: "ben" },
 					{ name: "tristan", receiving: true },
 				]
 			: []),

@@ -288,16 +288,20 @@ function Page({ name, rename }: { name: string; rename: () => void }) {
 function roomOf(
 	name: string,
 	entries: Entry[],
-	presence: Record<string, { receiving: boolean; since?: string }>,
+	presence: Record<
+		string,
+		{ receiving: boolean; since?: string; account?: string }
+	>,
 ): { people: Present[]; left: string | null } | undefined {
 	// Until the page itself is in the presence, it holds no one yet.
 	if (!(name in presence)) return undefined;
 	const people = Object.entries(presence)
 		.filter(([other]) => other !== name)
-		.map(([other, { receiving, since }]) => ({
+		.map(([other, { receiving, since, account }]) => ({
 			name: other,
 			receiving,
 			since,
+			account,
 		}));
 	const gone =
 		people.length === 0

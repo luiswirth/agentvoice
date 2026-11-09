@@ -7,6 +7,7 @@
 // headphones do on a call: a tap mutes, or sends.
 import {
 	AudioLines,
+	BadgeCheck,
 	Check,
 	Copy,
 	Download,
@@ -39,6 +40,9 @@ export type Present = {
 	receiving: boolean;
 	/** If not receiving, since when. */
 	since?: string | undefined;
+	/** The account the relay vouches for them by: only then is their name
+	 * verified, else it says only who joined with it. */
+	account?: string | undefined;
 };
 
 /** A message said in the session, by the person or an agent: another
@@ -325,7 +329,7 @@ function Faces({
 				return (
 					<li
 						key={person.name}
-						title={`${person.name}: ${person.receiving ? "here, listening" : "busy"}`}
+						title={`${person.name}, ${person.account ? `verified as ${person.account}` : "not verified"}: ${person.receiving ? "here, listening" : "busy"}`}
 						className="flex animate-[arrive_0.4s_ease-out] flex-col items-center gap-2"
 						style={
 							isAgent
@@ -335,7 +339,7 @@ function Faces({
 					>
 						<div
 							data-meter={speaking ? "" : undefined}
-							className={`grid place-items-center rounded-full font-light text-white transition-[box-shadow] duration-150 ${group ? "size-[4.5rem] text-3xl" : "size-28 text-5xl"} ${working ? "animate-[breathe_2.4s_ease-in-out_infinite]" : ""}`}
+							className={`relative grid place-items-center rounded-full font-light text-white transition-[box-shadow] duration-150 ${group ? "size-[4.5rem] text-3xl" : "size-28 text-5xl"} ${working ? "animate-[breathe_2.4s_ease-in-out_infinite]" : ""}`}
 							style={{
 								background:
 									"linear-gradient(160deg, color-mix(in oklch, var(--agent) 75%, white), color-mix(in oklch, var(--agent) 55%, black))",
@@ -345,6 +349,12 @@ function Faces({
 							}}
 						>
 							{name.charAt(0).toUpperCase()}
+							{person.account && (
+								<BadgeCheck
+									aria-label={`verified as ${person.account}`}
+									className={`absolute right-0 bottom-0 rounded-full bg-background fill-[var(--agent)] text-background ${group ? "size-6" : "size-8"}`}
+								/>
+							)}
 						</div>
 						{group && <span className="text-lg font-light">{name}</span>}
 					</li>
