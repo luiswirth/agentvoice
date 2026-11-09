@@ -6,6 +6,7 @@ ci:
     pnpm exec tsc -p .
     pnpm exec tsc -p core
     pnpm build
+    just engine-pinned
 
 # The page to try voice on, at localhost:5173.
 dev:
@@ -62,6 +63,23 @@ pinned:
             fi
         done
     done
+
+# Fails where agents.md has agents fetch an engine.py other than this one,
+# or tells its length wrong: "about" a number of lines, to the nearest 50.
+engine-pinned:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    pin=$(grep -o 'vibetogether-voice/[0-9a-f]*/engine/engine.py' public/agents.md | cut -d/ -f2)
+    if ! git show "$pin:engine/engine.py" | cmp -s - engine/engine.py; then
+        echo "agents.md pins engine.py at $pin, which differs from engine/engine.py: commit it, then pin that commit" >&2
+        exit 1
+    fi
+    lines=$(wc -l < engine/engine.py)
+    about=$(grep -o 'about [0-9]* lines' public/agents.md | cut -d' ' -f2)
+    if [ "$about" != $(( (lines + 25) / 50 * 50 )) ]; then
+        echo "agents.md says engine.py is about $about lines, but it is $lines" >&2
+        exit 1
+    fi
 
 # Screenshots of the call in each state of src/demo/states.ts, on a
 # Mac's window and an iPhone's, into bench/.cache/gallery/.
