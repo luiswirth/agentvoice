@@ -301,7 +301,9 @@ function roomOf(
 			name: other,
 			receiving,
 			since,
-			account,
+			// Verified only as the account's own name, as the MCP server
+			// counts it, whatever else an access service may vouch for.
+			account: account === other.split("/")[0] ? account : undefined,
 		}));
 	const gone =
 		people.length === 0
