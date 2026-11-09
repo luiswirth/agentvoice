@@ -22,9 +22,12 @@ export type ActivityEvents = {
 	progress(progress: Progress): void;
 };
 
-/** Entries that are no one's acts: what the voice pages send about
- * themselves. */
-const NO_ACTS = [MODES, TRACE];
+/** A participant's status, as the MCP server's `status.md` defines it. */
+const STATUS = "application/vnd.agentwire.status+json";
+
+/** Entries that are no one's acts: what the voice pages, and participants
+ * with their status, send about themselves. */
+const NO_ACTS = [MODES, TRACE, STATUS];
 
 export class Activity {
 	private readonly name: string;
