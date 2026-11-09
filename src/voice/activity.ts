@@ -22,8 +22,8 @@ export type ActivityEvents = {
 	progress(progress: Progress): void;
 };
 
-/** A participant's status, as the MCP server's `status.md` defines it. */
-const STATUS = "application/vnd.agentwire.status+json";
+/** A participant's status, as chat defines it. */
+const STATUS = "application/vnd.agentwire.chat.status+json";
 
 /** Entries that are no one's acts: what the voice pages, and participants
  * with their status, send about themselves. */
