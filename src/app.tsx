@@ -11,8 +11,8 @@ import {
 	useState,
 	useSyncExternalStore,
 } from "react";
-import { Frame, Named, Onboard } from "vibetogether-web/onboard";
-import { useSession } from "vibetogether-web/react";
+import { Frame, Named, Onboard } from "ui/onboard";
+import { useSession } from "ui/react";
 import { Button } from "@/components/ui/button";
 import { Call, type Present, type Room } from "./voice/call.tsx";
 import { checkKey, KeyRefused } from "./voice/elevenlabs.ts";

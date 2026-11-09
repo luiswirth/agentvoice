@@ -3,7 +3,7 @@
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
 
-@source "../node_modules/vibetogether-web/onboard";
+@source "../node_modules/ui/onboard";
 
 @custom-variant dark (&:is(.dark *));
 
