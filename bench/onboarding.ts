@@ -189,7 +189,7 @@ if (agent === "claude") {
 	env.CODEX_HOME = join(homedir(), ".codex");
 	await mkdir(join(home, ".codex"));
 	env.CODEX_API_KEY = readFileSync(
-		join(homedir(), "secrets/openai-api-key.txt"),
+		join(homedir(), "secrets/model-providers/openai-api.txt"),
 		"utf8",
 	).trim();
 }
