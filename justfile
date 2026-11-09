@@ -41,8 +41,8 @@ deploy: ci
 engine-pinned:
     #!/usr/bin/env bash
     set -euo pipefail
-    pin=$(grep -o 'PotentialHedge/vibetogether/[0-9a-f]*/voice/engine/engine.py' public/agents.md | cut -d/ -f3)
-    if ! git show "$pin:voice/engine/engine.py" | cmp -s - engine/engine.py; then
+    pin=$(grep -o 'PotentialHedge/vibetogether/[0-9a-f]*/apps/voice/engine/engine.py' public/agents.md | cut -d/ -f3)
+    if ! git show "$pin:apps/voice/engine/engine.py" | cmp -s - engine/engine.py; then
         echo "agents.md pins engine.py at $pin, which differs from engine/engine.py: commit it, then pin that commit" >&2
         exit 1
     fi
