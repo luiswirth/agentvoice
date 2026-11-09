@@ -1,8 +1,0 @@
-packages:
-  - core
-allowBuilds:
-  esbuild: true
-  protobufjs: false
-  workerd: true
-patchedDependencies:
-  onnxruntime-web@1.30.0: patches/onnxruntime-web@1.30.0.patch

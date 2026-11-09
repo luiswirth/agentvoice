@@ -1,8 +1,5 @@
-# Everything CI runs.
+# The page's own checks; the root's `just ci` adds the shared ones.
 ci:
-    nix fmt -- --ci
-    pnpm install --frozen-lockfile
-    biome check
     pnpm exec tsc -p .
     pnpm exec tsc -p core
     pnpm build
@@ -36,41 +33,16 @@ label dir:
 
 # Builds the page and serves it at voice.agentics.lwirth.com, from lwirth-cloud,
 # whose serve.nix in dotcloud says how.
-deploy: pinned ci
+deploy: ci
     rsync -rlpt --delete --delay-updates --chmod=D755,F644 dist/ root@lwirth-cloud:/srv/voice/
-
-# Moves the lock to the newest commits of agentwire and vibetogether-web.
-bump:
-    pnpm update agentwire vibetogether-web
-
-# Fails where the lock pins agentwire or vibetogether-web behind its newest
-# commit, which the page would otherwise be built against unnoticed.
-pinned:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    for repo in agentwire vibetogether-web; do
-        head=$(git ls-remote "https://github.com/luiswirth/$repo" HEAD | cut -f1)
-        pin=$(grep -o "luiswirth/$repo/tar.gz/[0-9a-f]*" pnpm-lock.yaml | head -1 | cut -d/ -f4)
-        [ "$pin" = "$head" ] && continue
-        # Only a commit to what the package holds puts the pin behind.
-        packaged=$(gh api -H "Accept: application/vnd.github.raw" "repos/luiswirth/$repo/contents/package.json" \
-            | jq -r '"package.json", (.files[] + "/")')
-        changed=$(gh api "repos/luiswirth/$repo/compare/$pin...$head" --jq '.files[].filename')
-        for path in $packaged; do
-            if grep -qxF -e "$path" <<<"$changed" || grep -q "^$path" <<<"$changed"; then
-                echo "$repo is pinned behind $head, which changes $path: run just bump" >&2
-                exit 1
-            fi
-        done
-    done
 
 # Fails where agents.md has agents fetch an engine.py other than this one,
 # or tells its length wrong: "about" a number of lines, to the nearest 50.
 engine-pinned:
     #!/usr/bin/env bash
     set -euo pipefail
-    pin=$(grep -o 'vibetogether-voice/[0-9a-f]*/engine/engine.py' public/agents.md | cut -d/ -f2)
-    if ! git show "$pin:engine/engine.py" | cmp -s - engine/engine.py; then
+    pin=$(grep -o 'PotentialHedge/vibetogether/[0-9a-f]*/voice/engine/engine.py' public/agents.md | cut -d/ -f3)
+    if ! git show "$pin:voice/engine/engine.py" | cmp -s - engine/engine.py; then
         echo "agents.md pins engine.py at $pin, which differs from engine/engine.py: commit it, then pin that commit" >&2
         exit 1
     fi

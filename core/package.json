@@ -8,6 +8,6 @@
 		"./tier": "./src/tier.ts"
 	},
 	"dependencies": {
-		"onnxruntime-web": "^1.30.0"
+		"onnxruntime-web": "1.30.0"
 	}
 }

@@ -14,7 +14,7 @@ The engine leaves the pipe once everyone else has left it, which ends the pipe.
 An engine only converts.
 It decides nothing about turns, voices or interruptions, which stay with the client,
 and keeps no state beyond its models and the stretches of speech still coming in.
-Anyone may run one, with any models: voice's own is one short file, `https://github.com/luiswirth/vibetogether-voice/blob/main/engine/engine.py`.
+Anyone may run one, with any models: voice's own is one short file, `https://github.com/PotentialHedge/vibetogether/blob/main/voice/engine/engine.py`.
 
 ## Entries
 

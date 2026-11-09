@@ -50,7 +50,7 @@ VOICES = [
     "bm_daniel", "bm_fable", "bm_george", "bm_lewis",
 ]
 VOICE = "af_heart"  # spoken where a request names none
-SOURCE = "https://github.com/luiswirth/vibetogether-voice/blob/main/engine/engine.py"
+SOURCE = "https://github.com/PotentialHedge/vibetogether/blob/main/voice/engine/engine.py"
 PREFIX = "application/vnd.agentwire.engine."
 CACHE = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "vibetogether-voice-engine"
 THREADS = min(4, os.cpu_count() or 1)

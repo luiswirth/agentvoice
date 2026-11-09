@@ -55,7 +55,7 @@ await mkdir(cwd);
 // link.
 let docs = process.env.DOCS?.replace(/\/$/, "");
 const PINNED =
-	/https:\/\/raw\.githubusercontent\.com\/luiswirth\/vibetogether-voice\/[^/]+\/engine\/engine\.py/g;
+	/https:\/\/raw\.githubusercontent\.com\/PotentialHedge\/vibetogether\/[^/]+\/voice\/engine\/engine\.py/g;
 const server = createServer(async (request, response) => {
 	try {
 		const engine = process.env.ENGINE;
