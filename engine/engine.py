@@ -15,7 +15,7 @@ it transcribes with NVIDIA's Parakeet v2 and speaks with Kokoro v1.0,
 both in k2-fsa's conversions for sherpa-onnx, fetched once from Hugging Face at pinned revisions
 and checked against the hashes below.
 It reaches only the pipe and Hugging Face, keeps nothing but the models,
-in ~/.cache/vibetogether-voice-engine, and runs no commands.
+in ~/.cache/agentvoice-engine, and runs no commands.
 It runs until stopped, by SIGTERM or SIGINT, or until everyone else left the pipe, and then leaves it.
 """
 
@@ -50,9 +50,9 @@ VOICES = [
     "bm_daniel", "bm_fable", "bm_george", "bm_lewis",
 ]
 VOICE = "af_heart"  # spoken where a request names none
-SOURCE = "https://github.com/PotentialHedge/vibetogether/blob/main/apps/voice/engine/engine.py"
+SOURCE = "https://github.com/luiswirth/agentvoice/blob/main/engine/engine.py"
 PREFIX = "application/vnd.agentwire.engine."
-CACHE = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "vibetogether-voice-engine"
+CACHE = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "agentvoice-engine"
 THREADS = min(4, os.cpu_count() or 1)
 # Set as the engine is stopped, so that downloads end at once and their partial files are removed.
 # A plain flag, not an Event: a second signal in the handler would wait forever on the Event's lock.

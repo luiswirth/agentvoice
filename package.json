@@ -1,5 +1,5 @@
 {
-	"name": "vibetogether-voice",
+	"name": "agentvoice",
 	"private": true,
 	"type": "module",
 	"scripts": {
@@ -13,8 +13,8 @@
 		"cn": "^0.5.0",
 		"lucide-react": "^1.60.0",
 		"onnxruntime-web": "1.30.0",
-		"agentwire": "workspace:*",
-		"ui": "workspace:*",
+		"agentwire": "github:PotentialHedge/vibetogether#f36abb8fd90496cbeecffbf7615d4d55b84763ef&path:/agentwire",
+		"ui": "github:PotentialHedge/vibetogether#f36abb8fd90496cbeecffbf7615d4d55b84763ef&path:/ui",
 		"react": "^19.3.1",
 		"react-dom": "^19.3.1",
 		"shadcn": "^4.22.1",

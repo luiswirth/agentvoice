@@ -55,7 +55,7 @@ await mkdir(cwd);
 // link.
 let docs = process.env.DOCS?.replace(/\/$/, "");
 const PINNED =
-	/https:\/\/raw\.githubusercontent\.com\/PotentialHedge\/vibetogether\/[^/]+\/apps\/voice\/engine\/engine\.py/g;
+	/https:\/\/raw\.githubusercontent\.com\/luiswirth\/agentvoice\/[^/]+\/engine\/engine\.py/g;
 const server = createServer(async (request, response) => {
 	try {
 		const engine = process.env.ENGINE;
@@ -162,7 +162,7 @@ const env: Record<string, string> = { ...process.env } as Record<
 	string
 >;
 delete env.XDG_CACHE_HOME;
-const engineCache = join(homedir(), ".cache/vibetogether-voice-engine");
+const engineCache = join(homedir(), ".cache/agentvoice-engine");
 const sandbox = [
 	"--ro-bind",
 	"/",

@@ -1,6 +1,6 @@
 # Engine
 
-Engine is an extension of Vibe Together, on the agentwire transport, at `https://agentwire.agentics.lwirth.com/agentwire.md`:
+Engine is an extension of agentwire, at `https://agentwire.agentics.lwirth.com/agentwire.md`:
 a program that turns speech into text and text into speech for a client, such as the voice page.
 The page uses one when the person chooses the local tier, so that their voice is heard and spoken on a machine their agent can act on, rather than by ElevenLabs.
 
@@ -14,7 +14,7 @@ The engine leaves the pipe once everyone else has left it, which ends the pipe.
 An engine only converts.
 It decides nothing about turns, voices or interruptions, which stay with the client,
 and keeps no state beyond its models and the stretches of speech still coming in.
-Anyone may run one, with any models: voice's own is one short file, `https://github.com/PotentialHedge/vibetogether/blob/main/apps/voice/engine/engine.py`.
+Anyone may run one, with any models: voice's own is one short file, `https://github.com/luiswirth/agentvoice/blob/main/engine/engine.py`.
 
 ## Entries
 

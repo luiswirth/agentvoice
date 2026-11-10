@@ -1,4 +1,4 @@
-// Voice in the page: the core's conversation, carried over a Vibe Together
+// Voice in the page: the core's conversation, carried over an agentwire
 // session, with the browser's microphone and speaker. The page reads the
 // agents' messages from the log into it, and sends the person's turns and
 // modes into the log, as voice's protocol has them. Transcription and speech

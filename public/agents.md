@@ -50,7 +50,7 @@ uv run engine.py "$(cat pipe)"
 Reading it shows that it uses sherpa-onnx and numpy, pinned, from PyPI;
 fetches two models in k2-fsa's conversions from Hugging Face, at pinned revisions, Parakeet v2 to transcribe and Kokoro to speak,
 and uses them only if they match the hashes in the file;
-keeps nothing but those models, in `~/.cache/vibetogether-voice-engine`, for its next start;
+keeps nothing but those models, in `~/.cache/agentvoice-engine`, for its next start;
 reaches only the pipe and Hugging Face; and runs no commands.
 What it can't show is what sherpa-onnx does, which is compiled code from PyPI.
 

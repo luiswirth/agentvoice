@@ -1,5 +1,8 @@
-# The page's own checks; the root's `just ci` adds the shared ones.
+# Everything CI runs.
 ci:
+    nix fmt -- --ci
+    pnpm install --frozen-lockfile
+    biome check
     pnpm exec tsc -p .
     pnpm exec tsc -p core
     pnpm build
@@ -33,7 +36,7 @@ label dir:
 
 # Builds the page and serves it at voice.agentics.lwirth.com, from lwirth-cloud,
 # whose serve.nix in dotcloud says how.
-deploy: ci
+deploy: pinned ci
     rsync -rlpt --delete --delay-updates --chmod=D755,F644 dist/ root@lwirth-cloud:/srv/voice/
 
 # Fails where agents.md has agents fetch an engine.py other than this one,
@@ -41,8 +44,8 @@ deploy: ci
 engine-pinned:
     #!/usr/bin/env bash
     set -euo pipefail
-    pin=$(grep -o 'PotentialHedge/vibetogether/[0-9a-f]*/apps/voice/engine/engine.py' public/agents.md | cut -d/ -f3)
-    if ! git show "$pin:apps/voice/engine/engine.py" | cmp -s - engine/engine.py; then
+    pin=$(grep -o 'luiswirth/agentvoice/[0-9a-f]*/engine/engine.py' public/agents.md | cut -d/ -f3)
+    if ! git show "$pin:engine/engine.py" | cmp -s - engine/engine.py; then
         echo "agents.md pins engine.py at $pin, which differs from engine/engine.py: commit it, then pin that commit" >&2
         exit 1
     fi
@@ -50,6 +53,34 @@ engine-pinned:
     about=$(grep -o 'about [0-9]* lines' public/agents.md | cut -d' ' -f2)
     if [ "$about" != $(( (lines + 25) / 50 * 50 )) ]; then
         echo "agents.md says engine.py is about $about lines, but it is $lines" >&2
+        exit 1
+    fi
+
+# Moves agentwire's participant library and Vibe Together's ui, both from
+# PotentialHedge/vibetogether, to its newest commit.
+bump:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    head=$(git ls-remote https://github.com/PotentialHedge/vibetogether HEAD | cut -f1)
+    for part in agentwire ui; do
+        jq --arg part "$part" --arg spec "github:PotentialHedge/vibetogether#$head&path:/$part" \
+            '.dependencies[$part] = $spec' package.json > package.json.new
+        mv package.json.new package.json
+    done
+    pnpm install
+
+# Fails where the lock pins agentwire or ui behind PotentialHedge/vibetogether's
+# newest commit, which the page would otherwise be built against unnoticed.
+# Only a commit that changes what one of them holds puts the pin behind.
+pinned:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    head=$(git ls-remote https://github.com/PotentialHedge/vibetogether HEAD | cut -f1)
+    pin=$(jq -r '.dependencies.agentwire' package.json | sed 's/.*#\([0-9a-f]*\)&.*/\1/')
+    [ "$pin" = "$head" ] && exit 0
+    changed=$(gh api "repos/PotentialHedge/vibetogether/compare/$pin...$head" --jq '.files[].filename')
+    if grep -qE '^(agentwire/(package.json|participant/)|ui/)' <<<"$changed"; then
+        echo "agentwire or ui is pinned behind $head, which changes them: run just bump" >&2
         exit 1
     fi
 
