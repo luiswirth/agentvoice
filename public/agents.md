@@ -40,7 +40,7 @@ Voice's own is one file of about 450 lines, to read in full before you run it.
 It needs Python 3.12 or newer with the dependencies its header names, as PEP 723 has it, and runs however you give it those, such as in a venv with them installed, or with uv, which also fetches a matching Python where the machine's is older, as macOS's is:
 
 ```sh
-curl -so engine.py https://raw.githubusercontent.com/luiswirth/agentvoice/3f9249e/engine/engine.py
+curl -so engine.py https://raw.githubusercontent.com/luiswirth/agentvoice/536a5c8/engine/engine.py
 curl -s -X POST '<relay>/v2/s' > pipe   # the pipe; send it to the page as the secret engine
 uv run engine.py "$(cat pipe)"
 ```
