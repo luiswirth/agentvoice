@@ -18,8 +18,8 @@ importers:
         specifier: ^5.3.0
         version: 5.3.0
       agentwire:
-        specifier: github:PotentialHedge/vibetogether#f36abb8fd90496cbeecffbf7615d4d55b84763ef&path:/agentwire
-        version: https://codeload.github.com/PotentialHedge/vibetogether/tar.gz/f36abb8fd90496cbeecffbf7615d4d55b84763ef#path:/agentwire
+        specifier: github:PotentialHedge/vibetogether#9a14015e916a1d5e1ad5217827589d6b5f212b38&path:/agentwire
+        version: https://codeload.github.com/PotentialHedge/vibetogether/tar.gz/9a14015e916a1d5e1ad5217827589d6b5f212b38#path:/agentwire
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -45,8 +45,8 @@ importers:
         specifier: ^1.4.0
         version: 1.4.0
       ui:
-        specifier: github:PotentialHedge/vibetogether#f36abb8fd90496cbeecffbf7615d4d55b84763ef&path:/ui
-        version: https://codeload.github.com/PotentialHedge/vibetogether/tar.gz/f36abb8fd90496cbeecffbf7615d4d55b84763ef#path:/ui(agentwire@https://codeload.github.com/PotentialHedge/vibetogether/tar.gz/f36abb8fd90496cbeecffbf7615d4d55b84763ef#path:/agentwire)(react@19.3.1)
+        specifier: github:PotentialHedge/vibetogether#9a14015e916a1d5e1ad5217827589d6b5f212b38&path:/ui
+        version: https://codeload.github.com/PotentialHedge/vibetogether/tar.gz/9a14015e916a1d5e1ad5217827589d6b5f212b38#path:/ui(agentwire@https://codeload.github.com/PotentialHedge/vibetogether/tar.gz/9a14015e916a1d5e1ad5217827589d6b5f212b38#path:/agentwire)(react@19.3.1)
       voice-core:
         specifier: workspace:*
         version: link:core
@@ -852,8 +852,8 @@ packages:
       oxc-transform-react:
         optional: true
 
-  agentwire@https://codeload.github.com/PotentialHedge/vibetogether/tar.gz/f36abb8fd90496cbeecffbf7615d4d55b84763ef#path:/agentwire:
-    resolution: {gitHosted: true, integrity: sha512-ZRHxstwtt+ZKTaTK8XYZuTd9tFUkCoTONs+jw0Yl+zRKFI3LtSUPEjS2A8WHUPRAayLekPbkEt8sTfXzgExA3Q==, path: /agentwire, tarball: https://codeload.github.com/PotentialHedge/vibetogether/tar.gz/f36abb8fd90496cbeecffbf7615d4d55b84763ef}
+  agentwire@https://codeload.github.com/PotentialHedge/vibetogether/tar.gz/9a14015e916a1d5e1ad5217827589d6b5f212b38#path:/agentwire:
+    resolution: {gitHosted: true, integrity: sha512-RH5aw2Ik2UlJpqXVU06qD7Lg7lTwfyYNY2h9ou6Vgki6b9aQ/8+lTltOPmI6A1aqWF3W2aXSBAm2aOjE9iL9vg==, path: /agentwire, tarball: https://codeload.github.com/PotentialHedge/vibetogether/tar.gz/9a14015e916a1d5e1ad5217827589d6b5f212b38}
     version: 0.0.0
 
   ajv-formats@2.1.1:
@@ -1708,8 +1708,8 @@ packages:
     engines: {node: '>=16.20.0'}
     hasBin: true
 
-  ui@https://codeload.github.com/PotentialHedge/vibetogether/tar.gz/f36abb8fd90496cbeecffbf7615d4d55b84763ef#path:/ui:
-    resolution: {gitHosted: true, integrity: sha512-ZRHxstwtt+ZKTaTK8XYZuTd9tFUkCoTONs+jw0Yl+zRKFI3LtSUPEjS2A8WHUPRAayLekPbkEt8sTfXzgExA3Q==, path: /ui, tarball: https://codeload.github.com/PotentialHedge/vibetogether/tar.gz/f36abb8fd90496cbeecffbf7615d4d55b84763ef}
+  ui@https://codeload.github.com/PotentialHedge/vibetogether/tar.gz/9a14015e916a1d5e1ad5217827589d6b5f212b38#path:/ui:
+    resolution: {gitHosted: true, integrity: sha512-RH5aw2Ik2UlJpqXVU06qD7Lg7lTwfyYNY2h9ou6Vgki6b9aQ/8+lTltOPmI6A1aqWF3W2aXSBAm2aOjE9iL9vg==, path: /ui, tarball: https://codeload.github.com/PotentialHedge/vibetogether/tar.gz/9a14015e916a1d5e1ad5217827589d6b5f212b38}
     version: 0.0.0
     peerDependencies:
       agentwire: workspace:*
@@ -2444,7 +2444,7 @@ snapshots:
       '@rolldown/pluginutils': 1.1.0
       vite: 8.3.7(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)
 
-  agentwire@https://codeload.github.com/PotentialHedge/vibetogether/tar.gz/f36abb8fd90496cbeecffbf7615d4d55b84763ef#path:/agentwire: {}
+  agentwire@https://codeload.github.com/PotentialHedge/vibetogether/tar.gz/9a14015e916a1d5e1ad5217827589d6b5f212b38#path:/agentwire: {}
 
   ajv-formats@2.1.1:
     dependencies:
@@ -3236,9 +3236,9 @@ snapshots:
       '@typescript/typescript-win32-arm64': 7.0.2
       '@typescript/typescript-win32-x64': 7.0.2
 
-  ui@https://codeload.github.com/PotentialHedge/vibetogether/tar.gz/f36abb8fd90496cbeecffbf7615d4d55b84763ef#path:/ui(agentwire@https://codeload.github.com/PotentialHedge/vibetogether/tar.gz/f36abb8fd90496cbeecffbf7615d4d55b84763ef#path:/agentwire)(react@19.3.1):
+  ui@https://codeload.github.com/PotentialHedge/vibetogether/tar.gz/9a14015e916a1d5e1ad5217827589d6b5f212b38#path:/ui(agentwire@https://codeload.github.com/PotentialHedge/vibetogether/tar.gz/9a14015e916a1d5e1ad5217827589d6b5f212b38#path:/agentwire)(react@19.3.1):
     dependencies:
-      agentwire: https://codeload.github.com/PotentialHedge/vibetogether/tar.gz/f36abb8fd90496cbeecffbf7615d4d55b84763ef#path:/agentwire
+      agentwire: https://codeload.github.com/PotentialHedge/vibetogether/tar.gz/9a14015e916a1d5e1ad5217827589d6b5f212b38#path:/agentwire
       react: 19.3.1
 
   undici-types@8.9.0: {}
