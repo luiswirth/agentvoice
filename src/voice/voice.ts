@@ -8,11 +8,12 @@ import {
 	Conversation,
 	type Fact,
 	type Heard,
+	type Hearer,
+	type Perception,
+	reflexive,
 	type State,
 	type Store,
 	type Synthesizer,
-	type Transcriber,
-	type Transcript,
 } from "voice-core";
 import { Activity, type Progress } from "./activity.ts";
 import {
@@ -208,9 +209,7 @@ export class Voice {
 		this.wanted = modes.listener ?? autoEnd;
 		const speaker = modes.speaker ?? true;
 		this.core = new Conversation({
-			transcribe: (heard) => this.transcribe(heard),
-			reflexes,
-			store: kept(),
+			listen: (heard) => this.listen(heard),
 			input: {
 				open: async (cut) => {
 					this.sound();
@@ -496,7 +495,7 @@ export class Voice {
 
 	/** Opens listening again, for what it hears with to change. */
 	private async reopen(): Promise<void> {
-		await this.core.set({ transcribe: (heard) => this.transcribe(heard) });
+		await this.core.set({ listen: (heard) => this.listen(heard) });
 	}
 
 	/** Call it from a click, since it starts the page's audio. */
@@ -617,9 +616,14 @@ export class Voice {
 		return this.key;
 	}
 
-	private async transcribe(heard: Transcript): Promise<Transcriber> {
+	/** The local tier hears on the core's reflexes, ElevenLabs on its own. */
+	private listen(heard: Perception): Promise<Hearer> {
 		if (this.own.tier === "local")
-			return new LocalTranscriber(this.engines, heard);
+			return reflexive(
+				async (transcript) => new LocalTranscriber(this.engines, transcript),
+				reflexes,
+				kept(),
+			)(heard);
 		return Scribe.open(this.elevenlabs(), heard, this.own.languages);
 	}
 

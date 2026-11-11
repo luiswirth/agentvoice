@@ -5,8 +5,6 @@
 // models' bytes.
 import * as ort from "onnxruntime-web/wasm";
 import { loadModels } from "./models.ts";
-import { Resampler } from "./resampler.ts";
-import { SPEECH_RATE } from "./tier.ts";
 import { type TurnEvent, Turns } from "./turns.ts";
 
 /** One end of a channel of messages, as a worker's: what is posted on one
@@ -74,12 +72,10 @@ export function serveTurns(
 
 /** The voice fingerprint keeps the last minute of the microphone's 16-bit
  * PCM at 16 kHz, and embeds a stretch of it on request, in seconds since the
- * first chunk. It embeds the speech the speaker plays too, as it is given. */
+ * first chunk. */
 export type ToFingerprints =
 	| { type: "audio"; pcm: ArrayBuffer }
-	| { type: "embed" | "probe"; from: number; to: number }
-	/** Speech the speaker plays, at `SPEECH_RATE`. */
-	| { type: "played"; samples: ArrayBuffer };
+	| { type: "embed" | "probe"; from: number; to: number };
 
 export type FromFingerprints =
 	| { type: "ready" }
@@ -87,8 +83,6 @@ export type FromFingerprints =
 	| { type: "embedding"; embedding: Float32Array }
 	/** The same for a `probe`, in the same order. */
 	| { type: "probe"; embedding: Float32Array }
-	/** The same for speech the speaker plays, in the same order. */
-	| { type: "played"; embedding: Float32Array }
 	| { type: "failed"; error: string };
 
 const RATE = 16_000;
@@ -126,11 +120,6 @@ export function serveFingerprints(
 		return samples;
 	};
 
-	/** Speech the speaker plays, at `RATE`: each on its own, since what the
-	 * speaker plays comes apart. */
-	const played = (samples: Float32Array): Float32Array =>
-		new Resampler(SPEECH_RATE, RATE).push(samples);
-
 	const embed = async (samples: Float32Array): Promise<Float32Array> => {
 		const embedding = new Float32Array(DIMENSIONS);
 		if (samples.length < SHORTEST) return embedding;
@@ -153,10 +142,7 @@ export function serveFingerprints(
 			return;
 		}
 		const type = data.type === "embed" ? "embedding" : data.type;
-		const samples =
-			data.type === "played"
-				? played(new Float32Array(data.samples))
-				: heardBetween(data.from, data.to);
+		const samples = heardBetween(data.from, data.to);
 		queue = queue
 			.then(() => embed(samples))
 			.then(

@@ -1,16 +1,15 @@
 // ElevenLabs, reached straight from the browser with the user's own key:
-// Scribe v2 Realtime hears, Eleven v4 Turbo speaks. Nothing here touches an
+// Scribe v3 Live hears, Eleven v4 Turbo speaks. Nothing here touches an
 // audio device, so it runs in Node as well.
 
 import {
+	type Hearer,
 	LISTEN_RATE,
-	Offsets,
+	type Perception,
 	type Piece,
+	type Said,
 	SPEECH_RATE,
 	type Synthesizer,
-	type Transcriber,
-	type Transcript,
-	type Word,
 } from "voice-core";
 
 const API = "https://api.elevenlabs.io/v1";
@@ -99,49 +98,93 @@ function unbase64(text: string): Uint8Array {
 	return Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
 }
 
-/** Scribe bills every second of audio it is sent, silence included, and
- * closes a session that is sent none for about 15 s. */
-const KEEPALIVE = 5 * LISTEN_RATE;
-/** What keeps the session open: 10 ms of silence. */
-const ALIVE = new Int16Array(LISTEN_RATE / 100);
+/** Scribe v3 Live's word, as it labels it: `speaker_0` and on, null while
+ * it doesn't know whose it is yet. */
+type Labeled = {
+	text: string;
+	start?: number | null;
+	end?: number | null;
+	speaker_id?: string | null;
+};
 
-/** A Scribe session over a stream, of which it hears what `hear` gives it
- * and skips the rest, so that only what is heard is paid for; its segments
- * end where `commit` settles them, or on their own after about 36 s. */
-export class Scribe implements Transcriber {
+/** When a segment ends, by Scribe's turn prediction, how likely it finds
+ * that the person is done, and how long they have been silent, in seconds:
+ * at once where it is `sure`, after `wait` where it is `likely`, and after
+ * `longest` anyway, where their words trail off. Scribe's own commits on
+ * its prediction wait for 0.9, which plain statements reach only after
+ * about 3 s, and for no longer silence than 3 s, which cuts a turn a
+ * person pauses in to think. */
+const END = { sure: 0.8, likely: 0.5, wait: 3, longest: 6 };
+
+/** How long a segment gets, in seconds, before Scribe ends it on its own,
+ * at about 36 s, whether or not the person paused: such an end is no turn's,
+ * and its words go on into the next segment. */
+const LONGEST = 30;
+
+/** Scribe v3 Live, left to detect the language, writes English with the
+ * punctuation of Chinese, as "today？": each such mark after a Latin
+ * letter, with its own mark. */
+const MARKS: Record<string, string> = {
+	"，": ",",
+	"。": ".",
+	"？": "?",
+	"！": "!",
+	"：": ":",
+	"；": ";",
+};
+const LATIN_MARK = /(?<=[\p{Script=Latin}\p{N}])([，。？！：；])/gu;
+
+/**
+ * Scribe v3 Live's hearing over the whole of listening, on its own turn
+ * prediction and its own speaker labels: a segment ends as `END` judges it,
+ * and each word takes the voice of its label. Scribe numbers the voices of
+ * one session, so a new session numbers them anew: nothing maps one
+ * session's voices to another's.
+ */
+export class Scribe implements Hearer {
 	/** Samples sent since the last commit: Scribe refuses a commit of under 0.3 s, and closes. */
-	uncommitted = 0;
-	/** Commits not yet answered. */
-	private commits = 0;
-	/** Samples skipped since the last sent. */
-	private quiet = 0;
-	private readonly offsets = new Offsets();
-
-	/** Samples sent in all, which Scribe bills. */
-	get sent(): number {
-		return this.offsets.sent;
-	}
-
+	private uncommitted = 0;
+	/** How long the segment Scribe ended last is, in samples. */
+	private length = 0;
+	/** The words of segments Scribe ended on its own, for their length, which
+	 * go on into the next. */
+	private held: Said[] = [];
+	/** Which label each merged label became. */
+	private readonly merged = new Map<string, string>();
+	/** The voice heard last, and how sure Scribe is that the turn is done. */
+	private voice: number | null | undefined;
+	private probability = 0;
+	/** Why the segment in progress is being ended, once a commit is sent. */
+	private asked: string | null = null;
+	/** Seconds of audio sent, and where its words last changed. */
+	private sent = 0;
+	private changed = 0;
+	/** The words of the segment in progress, as letters, to tell a change. */
+	private letters = "";
 	private readonly socket: WebSocket;
+	private readonly heard: Perception;
 
-	private constructor(socket: WebSocket) {
+	private constructor(socket: WebSocket, heard: Perception) {
 		this.socket = socket;
+		this.heard = heard;
 	}
 
 	/** `languages`: what the person speaks, most likely first, as BCP 47 tags
-	 * or bare codes; Scribe hears only these, and detects the language
-	 * where there are none. */
+	 * or bare codes; Scribe hears only these, following the person from one
+	 * to another, and detects the language where there are none. */
 	static async open(
 		key: string,
-		heard: Transcript,
+		heard: Perception,
 		languages: readonly string[],
 	): Promise<Scribe> {
 		const query = new URLSearchParams({
-			model_id: "scribe_v2_realtime",
+			model_id: "scribe_v3_live",
 			token: await token(key, "realtime_scribe"),
 			audio_format: `pcm_${LISTEN_RATE}`,
 			commit_strategy: "manual",
-			include_timestamps: "true",
+			diarize: "true",
+			// A partial at least every second, so that a silence is judged in time.
+			keepalive_interval_ms: "1000",
 		});
 		const codes = languages.map(
 			(tag) => tag.split("-")[0]?.toLowerCase() ?? "",
@@ -149,68 +192,113 @@ export class Scribe implements Transcriber {
 		const [first, ...rest] = [...new Set(codes)].filter((code) => code !== "");
 		if (first !== undefined) query.set("language_code", first);
 		for (const code of rest) query.append("secondary_languages", code);
+		if (rest.length > 0) query.set("multilang_mode", "true");
 		const socket = new WebSocket(`${SOCKETS}/speech-to-text/realtime?${query}`);
-		const scribe = new Scribe(socket);
-		socket.addEventListener("message", ({ data }) => {
-			const message = JSON.parse(String(data));
-			switch (message.message_type) {
-				case "partial_transcript":
-					heard.partial(message.text ?? "");
-					return;
-				// Each commit comes twice, the second time with its words.
-				case "committed_transcript":
-					return;
-				case "committed_transcript_with_timestamps": {
-					const automatic = scribe.commits === 0;
-					if (automatic) scribe.uncommitted = 0;
-					else scribe.commits--;
-					const words: Word[] = message.words ?? [];
-					heard.committed(
-						message.text ?? "",
-						automatic,
-						words.map((word) => scribe.offsets.place(word)),
-					);
-					return;
-				}
-				default:
-					if (message.error) {
-						heard.closed(refusal(message.message_type, message.error));
-						socket.close();
-					}
-			}
-		});
-		socket.addEventListener("close", (event) =>
-			heard.closed(event.code === 1000 ? undefined : closed(event)),
+		const scribe = new Scribe(socket, heard);
+		socket.addEventListener("message", ({ data }) =>
+			scribe.receive(JSON.parse(String(data))),
 		);
+		socket.addEventListener("close", (event) => {
+			if (event.code !== 1000) heard.failed(closed(event));
+		});
 		await opened(socket);
 		return scribe;
 	}
 
-	/** The stream's next 16-bit PCM at `LISTEN_RATE`, to transcribe. */
+	private receive(message: Record<string, unknown>): void {
+		switch (message.message_type) {
+			case "partial_transcript": {
+				const words = this.said(message);
+				this.probability = Number(message.turn_probability ?? 0);
+				const voice = words.findLast((w) => w.voice !== null)?.voice;
+				if (voice !== undefined && voice !== this.voice) {
+					this.voice = voice;
+					this.heard.voice(voice);
+				}
+				this.heard.partial(this.after(words));
+				this.judge(String(message.text ?? ""));
+				return;
+			}
+			// A segment ends with its labels, which come right after.
+			case "committed_transcript":
+				this.length = this.uncommitted;
+				this.uncommitted = 0;
+				return;
+			case "diarized_transcript": {
+				const words = this.after(this.said(message));
+				const asked = this.asked;
+				this.asked = null;
+				this.letters = "";
+				if (asked === null && this.length >= LONGEST * LISTEN_RATE) {
+					this.heard.trace("cut", { probability: this.probability });
+					this.held = words;
+					return;
+				}
+				this.heard.trace("turn.end", {
+					reason: asked ?? "silence",
+					probability: this.probability,
+				});
+				this.held = [];
+				this.voice = undefined;
+				this.probability = 0;
+				this.heard.segment(words);
+				return;
+			}
+			case "speakers_merged": {
+				const from = String(message.from_speaker_id);
+				const to = String(message.to_speaker_id);
+				this.merged.set(from, to);
+				this.heard.trace("voice.merged", { from, to });
+				return;
+			}
+			default:
+				if (message.error) {
+					this.heard.failed(
+						refusal(String(message.message_type), String(message.error)),
+					);
+					this.socket.close();
+				}
+		}
+	}
+
+	/** Words after those held, if any. */
+	private after(words: Said[]): Said[] {
+		if (this.held.length === 0) return words;
+		return [...this.held, { text: " ", voice: null }, ...words];
+	}
+
+	/** A message's words, each with the voice of its label, or its text as
+	 * one word where it has none. */
+	private said(message: Record<string, unknown>): Said[] {
+		const words = (message.words ?? []) as Labeled[];
+		if (words.length === 0)
+			return [{ text: latin(String(message.text ?? "")), voice: null }];
+		return words.map((word, i) => ({
+			text: latin(word.text, words[i + 1]?.text),
+			voice: this.number(word.speaker_id ?? null),
+			start: word.start ?? undefined,
+			end: word.end ?? undefined,
+		}));
+	}
+
+	/** The number of a label, after its merges: `speaker_0` is 1. */
+	private number(label: string | null): number | null {
+		let at = label;
+		for (
+			let next = at && this.merged.get(at);
+			next;
+			next = this.merged.get(next)
+		)
+			at = next;
+		const n = Number(at?.match(/^speaker_(\d+)$/)?.[1] ?? Number.NaN);
+		return Number.isNaN(n) ? null : n + 1;
+	}
+
+	/** The next 0.1 s of the person's audio: Scribe hears all of it. */
 	hear(pcm: Int16Array): void {
-		this.quiet = 0;
-		if (this.send(pcm)) this.offsets.hear(pcm.length);
-		else this.offsets.skip(pcm.length);
-	}
-
-	/** The stream's next `samples`, not to transcribe. */
-	skip(samples: number): void {
-		this.offsets.skip(samples);
-		this.quiet += samples;
-		if (this.quiet < KEEPALIVE) return;
-		this.quiet = 0;
-		if (this.send(ALIVE)) this.offsets.pad(ALIVE.length);
-	}
-
-	/** Scribe hears a turn as one stream, since a commit at each pause gives
-	 * each stretch a sentence of its own. */
-	spoke(): void {}
-	paused(): void {}
-
-	/** Whether it was sent. */
-	private send(pcm: Int16Array): boolean {
-		if (this.socket.readyState !== WebSocket.OPEN) return false;
+		if (this.socket.readyState !== WebSocket.OPEN) return;
 		this.uncommitted += pcm.length;
+		this.sent += pcm.length / LISTEN_RATE;
 		this.socket.send(
 			JSON.stringify({
 				message_type: "input_audio_chunk",
@@ -221,14 +309,36 @@ export class Scribe implements Transcriber {
 				sample_rate: LISTEN_RATE,
 			}),
 		);
-		return true;
 	}
 
-	/** Settles the segment in progress, if it holds enough audio to; whether it did. */
-	commit(): boolean {
+	/** Ends the segment in progress where Scribe's turn prediction and the
+	 * silence since its words last changed say the person is done. */
+	private judge(text: string): void {
+		const letters = text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+		if (letters !== this.letters) {
+			this.letters = letters;
+			this.changed = this.sent;
+		}
+		if (letters === "" || this.asked !== null) return;
+		const silence = this.sent - this.changed;
+		const p = this.probability;
+		if (p >= END.sure) this.commit("turn");
+		else if (silence >= END.wait && p >= END.likely) this.commit("wait");
+		else if (silence >= END.longest) this.commit("silence");
+	}
+
+	/** Ends the segment in progress now, if it holds enough audio to; whether it will. */
+	finish(): boolean {
+		return this.commit("by hand");
+	}
+
+	/** Ends the segment in progress for `why`, if it holds enough audio to; whether it will. */
+	private commit(why: string): boolean {
+		if (this.asked !== null) return true;
 		if (this.uncommitted < (2 * LISTEN_RATE) / 5) return false;
+		if (this.socket.readyState !== WebSocket.OPEN) return false;
 		this.uncommitted = 0;
-		this.commits++;
+		this.asked = why;
 		this.socket.send(
 			JSON.stringify({
 				message_type: "input_audio_chunk",
@@ -243,6 +353,18 @@ export class Scribe implements Transcriber {
 	close(): void {
 		this.socket.close(1000);
 	}
+}
+
+/** Text with the Chinese marks Scribe puts after Latin letters made Latin,
+ * each followed by a space where a Latin letter follows it right away, as
+ * Chinese needs none. */
+function latin(text: string, next = ""): string {
+	return text.replace(
+		LATIN_MARK,
+		(mark, _, at: number) =>
+			(MARKS[mark] ?? mark) +
+			(/\p{Script=Latin}/u.test(text[at + 1] ?? next[0] ?? "") ? " " : ""),
+	);
 }
 
 /**

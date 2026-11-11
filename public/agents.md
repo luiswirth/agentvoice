@@ -75,7 +75,7 @@ Without one, they can switch the page to the local tier, or talk with you in you
   A second receive ends the one running, so look an entry up by its number instead, with `curl -s '<me>/<n>'`.
   Where your harness runs commands in the background, receive there, so the person can still type to you.
 - The person often cuts in before a long reply ends.
-- An answer that repeats your last words is taken for your echo, and dropped, such as "Yes" after a question ending "Yes or no?".
+- Words said while you speak that are mostly words you just said are taken for your echo, and dropped.
 - A file, any entry with a filename, is never read aloud.
 - While you work, the person hears only a soft sound now and then, not what you do.
 - When the person cuts in, what they hadn't heard yet is dropped, and their message starts with what of it they heard, as `[cut in on 12 after "The first part of"]`.

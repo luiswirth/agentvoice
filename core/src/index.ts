@@ -26,6 +26,7 @@ export {
 	type ToFingerprints,
 	type ToTurns,
 } from "./reflexes.ts";
+export { reflexive } from "./reflexive.ts";
 export { Resampler } from "./resampler.ts";
 export type { Heard, Message } from "./speaker.ts";
 export { speech } from "./speech.ts";
