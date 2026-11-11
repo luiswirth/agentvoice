@@ -206,8 +206,10 @@ export class Scribe implements Hearer {
 	private open = false;
 	private voiced = false;
 	private silent = 0;
-	/** Whether speech detection works: without it, the gate stays open. */
-	private gating = true;
+	/** Why speech detection failed, which stops hearing: an open gate would
+	 * send all the person's audio, which the page says it doesn't. */
+	private broken: Error | null = null;
+	private stopped = false;
 	/** The chunks speech detection has not heard yet, in order. */
 	private readonly unheard: Int16Array[] = [];
 	/** Seconds of the stream speech detection heard. */
@@ -239,7 +241,7 @@ export class Scribe implements Hearer {
 		this.fingerprints = new Fingerprints(fingerprints, store);
 		speech.receive(
 			(data) => this.detected(data),
-			(error) => this.ungate(error.message),
+			(error) => this.fail(error.message),
 		);
 	}
 
@@ -447,11 +449,11 @@ export class Scribe implements Hearer {
 	/** The next 0.1 s of the person's audio, which speech detection hears
 	 * first, and the fingerprint at once. */
 	hear(pcm: Int16Array, sounding: boolean): void {
-		this.fingerprints.hear(pcm, sounding);
-		if (!this.gating) {
-			this.take(pcm);
+		if (this.broken !== null) {
+			this.stop();
 			return;
 		}
+		this.fingerprints.hear(pcm, sounding);
 		this.unheard.push(pcm);
 		const copy = pcm.slice();
 		this.speech.post({ type: "audio", pcm: copy.buffer }, [copy.buffer]);
@@ -487,19 +489,26 @@ export class Scribe implements Hearer {
 				this.heard.voiced(false);
 				return;
 			case "failed":
-				this.ungate(data.error);
+				this.fail(data.error);
 				return;
 		}
 	}
 
-	/** Lets all audio through, as speech detection failed. */
-	private ungate(error: string): void {
-		if (!this.gating) return;
+	/** Speech detection failed: nothing more is sent, and hearing stops at
+	 * the next audio, once the listener is there to tell. */
+	private fail(error: string): void {
+		if (this.broken !== null) return;
 		this.heard.trace("gate.failed", { error });
-		this.gating = false;
-		this.open = true;
-		for (const { pcm } of this.kept.splice(0)) this.send(pcm);
-		for (const pcm of this.unheard.splice(0)) this.take(pcm);
+		this.broken = new Error(`Speech detection failed: ${error}`);
+		this.open = false;
+		this.unheard.length = 0;
+		this.kept = [];
+	}
+
+	private stop(): void {
+		if (this.stopped || this.broken === null) return;
+		this.stopped = true;
+		this.heard.failed(this.broken);
 	}
 
 	/** Sends the chunk speech detection heard next, or keeps it while the
@@ -507,7 +516,7 @@ export class Scribe implements Hearer {
 	private take(pcm: Int16Array): void {
 		const at = this.passed;
 		this.passed += pcm.length / LISTEN_RATE;
-		if (this.open && this.gating && !this.voiced) {
+		if (this.open && !this.voiced) {
 			const after = this.passed - this.silent;
 			const over =
 				this.asked !== null ||
