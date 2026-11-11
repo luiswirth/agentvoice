@@ -44,9 +44,6 @@ importers:
       tw-animate-css:
         specifier: ^1.4.0
         version: 1.4.0
-      ui:
-        specifier: github:PotentialHedge/vibetogether#9a14015e916a1d5e1ad5217827589d6b5f212b38&path:/ui
-        version: https://codeload.github.com/PotentialHedge/vibetogether/tar.gz/9a14015e916a1d5e1ad5217827589d6b5f212b38#path:/ui(agentwire@https://codeload.github.com/PotentialHedge/vibetogether/tar.gz/9a14015e916a1d5e1ad5217827589d6b5f212b38#path:/agentwire)(react@19.3.1)
       voice-core:
         specifier: workspace:*
         version: link:core
@@ -1708,13 +1705,6 @@ packages:
     engines: {node: '>=16.20.0'}
     hasBin: true
 
-  ui@https://codeload.github.com/PotentialHedge/vibetogether/tar.gz/9a14015e916a1d5e1ad5217827589d6b5f212b38#path:/ui:
-    resolution: {gitHosted: true, integrity: sha512-RH5aw2Ik2UlJpqXVU06qD7Lg7lTwfyYNY2h9ou6Vgki6b9aQ/8+lTltOPmI6A1aqWF3W2aXSBAm2aOjE9iL9vg==, path: /ui, tarball: https://codeload.github.com/PotentialHedge/vibetogether/tar.gz/9a14015e916a1d5e1ad5217827589d6b5f212b38}
-    version: 0.0.0
-    peerDependencies:
-      agentwire: workspace:*
-      react: '>=19'
-
   undici-types@8.9.0:
     resolution: {integrity: sha512-KTDyRTYX8sWmKXAikPHHSyc63CRPETMctyjKFupcC6OBLXT3xsN0e9aF7m+mIXutFWpUXuedtowG7iLOzp0kQg==}
 
@@ -3235,11 +3225,6 @@ snapshots:
       '@typescript/typescript-sunos-x64': 7.0.2
       '@typescript/typescript-win32-arm64': 7.0.2
       '@typescript/typescript-win32-x64': 7.0.2
-
-  ui@https://codeload.github.com/PotentialHedge/vibetogether/tar.gz/9a14015e916a1d5e1ad5217827589d6b5f212b38#path:/ui(agentwire@https://codeload.github.com/PotentialHedge/vibetogether/tar.gz/9a14015e916a1d5e1ad5217827589d6b5f212b38#path:/agentwire)(react@19.3.1):
-    dependencies:
-      agentwire: https://codeload.github.com/PotentialHedge/vibetogether/tar.gz/9a14015e916a1d5e1ad5217827589d6b5f212b38#path:/agentwire
-      react: 19.3.1
 
   undici-types@8.9.0: {}
 

@@ -62,7 +62,7 @@ bump:
     #!/usr/bin/env bash
     set -euo pipefail
     head=$(git ls-remote https://github.com/PotentialHedge/vibetogether HEAD | cut -f1)
-    for part in agentwire ui; do
+    for part in agentwire; do
         jq --arg part "$part" --arg spec "github:PotentialHedge/vibetogether#$head&path:/$part" \
             '.dependencies[$part] = $spec' package.json > package.json.new
         mv package.json.new package.json
@@ -79,8 +79,8 @@ pinned:
     pin=$(jq -r '.dependencies.agentwire' package.json | sed 's/.*#\([0-9a-f]*\)&.*/\1/')
     [ "$pin" = "$head" ] && exit 0
     changed=$(gh api "repos/PotentialHedge/vibetogether/compare/$pin...$head" --jq '.files[].filename')
-    if grep -qE '^(agentwire/(package.json|participant/)|ui/)' <<<"$changed"; then
-        echo "agentwire or ui is pinned behind $head, which changes them: run just bump" >&2
+    if grep -qE '^agentwire/(package.json|participant/)' <<<"$changed"; then
+        echo "agentwire is pinned behind $head, which changes it: run just bump" >&2
         exit 1
     fi
 
