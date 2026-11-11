@@ -50,7 +50,7 @@ const TIERS = [
 		id: "elevenlabs",
 		title: "ElevenLabs",
 		description:
-			"Hosted speech models, through your own ElevenLabs account. Your agent can send its key.",
+			"Hosted speech models, through your own ElevenLabs account. While listening, everything your microphone hears goes to ElevenLabs. Your agent can send its key.",
 		facts: ["Higher quality", "Many languages", "Paid per use", "Needs a key"],
 		goal: "set up voice on the ElevenLabs tier so we can talk",
 	},

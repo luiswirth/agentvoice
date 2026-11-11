@@ -62,7 +62,7 @@ It can run on any machine you can act on, such as one with a GPU.
 
 ## The ElevenLabs tier
 
-The person's ElevenLabs key goes from their browser straight to ElevenLabs.
+The person's ElevenLabs key goes from their browser straight to ElevenLabs, and so does everything their microphone hears while they listen.
 When the page has none, it posts a public key, and takes the key as the secret `elevenlabs`.
 A key said in your chat stays in your harness's transcript and goes to your model's provider;
 the person can also type it into the page.
