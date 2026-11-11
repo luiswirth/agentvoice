@@ -9,7 +9,7 @@
 
 with Python 3.12 or newer and the dependencies above, such as by `uv run engine.py`.
 
-It speaks the engine extension, https://voice.agentics.lwirth.com/engine.md, in the pipe,
+It speaks the engine extension, https://agentvoice.lwirth.com/engine.md, in the pipe,
 an agentwire session that only it and the page are in:
 it transcribes with NVIDIA's Parakeet v2 and speaks with Kokoro v1.0,
 both in k2-fsa's conversions for sherpa-onnx, fetched once from Hugging Face at pinned revisions

@@ -13,7 +13,7 @@
 // page takes the person's place, on the real relay: it sends the modes and
 // the public key as the page does, and joins the pipe. The agent reads `public/agents.md` from this checkout, served on
 // localhost, unless DOCS names another base, such as
-// https://voice.agentics.lwirth.com. MODEL picks the model; the engine's
+// https://agentvoice.lwirth.com. MODEL picks the model; the engine's
 // models come from the user's cache, unless COLD=1, which has it fetch them;
 // TIMEOUT is in seconds. Afterwards the agent is asked how the setup felt.
 // Everything lands in bench/.cache/onboarding/<agent>-<tier>-<time>/.

@@ -1,13 +1,13 @@
-# voice.agentics.lwirth.com
+# agentvoice.lwirth.com
 
 The person you work with pasted you this page's prompt because they want to talk with you by voice.
-They have voice.agentics.lwirth.com open in their browser: it writes down what they say and sends it to you as text, and reads what you send aloud to them.
+They have agentvoice.lwirth.com open in their browser: it writes down what they say and sends it to you as text, and reads what you send aloud to them.
 Voice needs you to run in a harness with access to a machine, where a command keeps running in the background between your turns; in a plain chat you can't hear the person, so say so there.
 If you'd rather not take part, say so in your chat, and nothing happens.
 
 All of it is plain `curl` to the relay that the session's link names, as the transport's spec has it, `https://agentwire.agentics.lwirth.com/agentwire.md`.
 A session given as its address alone is on the default relay, and its link, `<link>` below, is `https://agentwire.agentics.lwirth.com/v2/s/<address>`; a session on another relay is given as its full link.
-Voice's own spec is `https://voice.agentics.lwirth.com/voice.md`.
+Voice's own spec is `https://agentvoice.lwirth.com/voice.md`.
 This page is enough to start; read those when you want the details.
 
 ## Setting up
@@ -35,7 +35,7 @@ until there is a voice, the page shows your messages as text.
 An engine transcribes what the person says and speaks what you send.
 It is no one in the session: it talks only with the page, over a pipe, a session of their own on the same relay that no one else is in.
 You create the pipe, send its link to the page as the secret `engine`, and start the engine with it;
-the page waits for one, and any that speaks `https://voice.agentics.lwirth.com/engine.md` will do.
+the page waits for one, and any that speaks `https://agentvoice.lwirth.com/engine.md` will do.
 Voice's own is one file of about 450 lines, to read in full before you run it.
 It needs Python 3.12 or newer with the dependencies its header names, as PEP 723 has it, and runs however you give it those, such as in a venv with them installed, or with uv, which also fetches a matching Python where the machine's is older, as macOS's is:
 
@@ -93,7 +93,7 @@ Your name stays yours: to come back, join again with `curl -s -X POST '<me>/join
 Once the page has left, your leaving deletes the session with everything in it, so save first what you still need, such as a trace the person shared.
 
 To start a session yourself, `curl -s -X POST https://agentwire.agentics.lwirth.com/v2/s` prints its link:
-join it, then give the person `https://voice.agentics.lwirth.com/#session=<link>`.
+join it, then give the person `https://agentvoice.lwirth.com/#session=<link>`.
 A session lasts as long as anyone is in it, so it ends once everyone has left, or once nobody has received in it for a week.
 
 If talking worked well, consider offering once to make voice permanent:

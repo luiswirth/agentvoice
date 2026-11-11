@@ -8,7 +8,7 @@ An engine is no participant of the conversation, but a part of its client.
 Where it runs on another machine than the client, as for the voice page, the two talk over a pipe: an agentwire session of their own, that no one else is in.
 This extension is what they say there.
 Whoever starts the engine gives it the pipe's link, and the client the same link;
-voice's page gets it from the agent, as `https://voice.agentics.lwirth.com/agents.md` has it.
+voice's page gets it from the agent, as `https://agentvoice.lwirth.com/agents.md` has it.
 The engine leaves the pipe once everyone else has left it, which ends the pipe.
 
 An engine only converts.

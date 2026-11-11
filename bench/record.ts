@@ -22,7 +22,7 @@ import { scripts } from "./conversation.ts";
 import { joined } from "./recording.ts";
 
 const RELAY = "https://agentwire.agentics.lwirth.com";
-const VOICE = "https://voice.agentics.lwirth.com";
+const VOICE = "https://agentvoice.lwirth.com";
 const TRACE = "application/vnd.agentwire.voice.trace+json";
 const NAMES = "application/vnd.agentwire.voice.names+json";
 

@@ -26,7 +26,7 @@ import {
 } from "./voice/voice.ts";
 
 const KEY = "elevenlabs-key";
-const SERVICE = "voice.agentics.lwirth.com";
+const SERVICE = "agentvoice.lwirth.com";
 
 export function App() {
 	return (
