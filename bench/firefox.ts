@@ -83,7 +83,7 @@ const browser = await firefox.launch({
 try {
 	const context = await browser.newContext();
 	await context.addInitScript((spoken) => {
-		localStorage.setItem("vibetogether-name", "person");
+		localStorage.setItem("agentvoice-name", "person");
 		localStorage.setItem("voice-tier", "local");
 		if (!spoken) return;
 		// The microphone plays the scenario's speech, from when it opens.

@@ -66,9 +66,7 @@ try {
 				console.log("name as typed:", await input.inputValue());
 				await shot(tab, screen, "1-name");
 			}
-			await tab.evaluate(() =>
-				localStorage.setItem("vibetogether-name", "luis"),
-			);
+			await tab.evaluate(() => localStorage.setItem("agentvoice-name", "luis"));
 			await tab.reload();
 			await tab.waitForFunction(() => location.hash.includes("session="));
 			await tab.waitForTimeout(1500);

@@ -102,7 +102,7 @@ try {
 	});
 	await context.addInitScript(
 		([key, engine, recorded]) => {
-			localStorage.setItem("vibetogether-name", "person");
+			localStorage.setItem("agentvoice-name", "person");
 			localStorage.setItem("elevenlabs-key", key as string);
 			localStorage.setItem("voice-tier", engine as string);
 			localStorage.setItem("voice-sharing-trace", "true");
