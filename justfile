@@ -56,30 +56,28 @@ engine-pinned:
         exit 1
     fi
 
-# Moves agentwire's participant library and Vibe Together's ui, both from
-# PotentialHedge/vibetogether, to its newest commit.
+# Moves agentwire's participant library, from PotentialHedge/agentwire, to
+# its newest commit.
 bump:
     #!/usr/bin/env bash
     set -euo pipefail
-    head=$(git ls-remote https://github.com/PotentialHedge/vibetogether HEAD | cut -f1)
-    for part in agentwire; do
-        jq --arg part "$part" --arg spec "github:PotentialHedge/vibetogether#$head&path:/$part" \
-            '.dependencies[$part] = $spec' package.json > package.json.new
-        mv package.json.new package.json
-    done
+    head=$(git ls-remote https://github.com/PotentialHedge/agentwire HEAD | cut -f1)
+    jq --arg spec "github:PotentialHedge/agentwire#$head" '.dependencies.agentwire = $spec' package.json > package.json.new
+    mv package.json.new package.json
+    biome format --write package.json
     pnpm install
 
-# Fails where the lock pins agentwire or ui behind PotentialHedge/vibetogether's
-# newest commit, which the page would otherwise be built against unnoticed.
-# Only a commit that changes what one of them holds puts the pin behind.
+# Fails where the lock pins agentwire behind PotentialHedge/agentwire's newest
+# commit, which the page would otherwise be built against unnoticed. Only a
+# commit that changes the participant library puts the pin behind.
 pinned:
     #!/usr/bin/env bash
     set -euo pipefail
-    head=$(git ls-remote https://github.com/PotentialHedge/vibetogether HEAD | cut -f1)
-    pin=$(jq -r '.dependencies.agentwire' package.json | sed 's/.*#\([0-9a-f]*\)&.*/\1/')
+    head=$(git ls-remote https://github.com/PotentialHedge/agentwire HEAD | cut -f1)
+    pin=$(jq -r '.dependencies.agentwire' package.json | sed 's/.*#//')
     [ "$pin" = "$head" ] && exit 0
-    changed=$(gh api "repos/PotentialHedge/vibetogether/compare/$pin...$head" --jq '.files[].filename')
-    if grep -qE '^agentwire/(package.json|participant/)' <<<"$changed"; then
+    changed=$(gh api "repos/PotentialHedge/agentwire/compare/$pin...$head" --jq '.files[].filename')
+    if grep -qE '^(package.json|participant/)' <<<"$changed"; then
         echo "agentwire is pinned behind $head, which changes it: run just bump" >&2
         exit 1
     fi

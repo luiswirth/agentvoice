@@ -207,7 +207,7 @@ export function Frame({
 
 /** The default relay, which every service's page for agents names, so that a
  * session's token alone means a session on it. */
-export const defaultRelay = "https://agentwire.agentics.lwirth.com";
+export const defaultRelay = "https://agentwire.potentialhedge.com";
 
 /** What names the session at `link` for an agent: its token alone where it is
  * on the default relay, and its full link on any other. */

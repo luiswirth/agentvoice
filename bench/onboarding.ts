@@ -25,7 +25,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { create, type Entry, Secrets, Session } from "agentwire/participant";
 
-const RELAY = "https://agentwire.agentics.lwirth.com";
+const RELAY = "https://agentwire.potentialhedge.com";
 const MODES = "application/vnd.agentwire.voice.modes+json";
 const OFFER = "application/vnd.agentwire.engine.offer+json";
 const SECRET = "application/vnd.agentwire.secret+json";

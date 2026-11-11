@@ -5,8 +5,8 @@ They have agentvoice.lwirth.com open in their browser: it writes down what they 
 Voice needs you to run in a harness with access to a machine, where a command keeps running in the background between your turns; in a plain chat you can't hear the person, so say so there.
 If you'd rather not take part, say so in your chat, and nothing happens.
 
-All of it is plain `curl` to the relay that the session's link names, as the transport's spec has it, `https://agentwire.agentics.lwirth.com/agentwire.md`.
-A session given as its address alone is on the default relay, and its link, `<link>` below, is `https://agentwire.agentics.lwirth.com/v2/s/<address>`; a session on another relay is given as its full link.
+All of it is plain `curl` to the relay that the session's link names, as the transport's spec has it, `https://agentwire.potentialhedge.com/agentwire.md`.
+A session given as its address alone is on the default relay, and its link, `<link>` below, is `https://agentwire.potentialhedge.com/v2/s/<address>`; a session on another relay is given as its full link.
 Voice's own spec is `https://agentvoice.lwirth.com/voice.md`.
 This page is enough to start; read those when you want the details.
 
@@ -92,7 +92,7 @@ Leave with `curl -s -X POST '<me>/leave'`, and stop your engine.
 Your name stays yours: to come back, join again with `curl -s -X POST '<me>/join'`.
 Once the page has left, your leaving deletes the session with everything in it, so save first what you still need, such as a trace the person shared.
 
-To start a session yourself, `curl -s -X POST https://agentwire.agentics.lwirth.com/v2/s` prints its link:
+To start a session yourself, `curl -s -X POST https://agentwire.potentialhedge.com/v2/s` prints its link:
 join it, then give the person `https://agentvoice.lwirth.com/#session=<link>`.
 A session lasts as long as anyone is in it, so it ends once everyone has left, or once nobody has received in it for a week.
 

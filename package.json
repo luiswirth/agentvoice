@@ -13,7 +13,7 @@
 		"cn": "^0.5.0",
 		"lucide-react": "^1.60.0",
 		"onnxruntime-web": "1.30.0",
-		"agentwire": "github:PotentialHedge/vibetogether#9a14015e916a1d5e1ad5217827589d6b5f212b38&path:/agentwire",
+		"agentwire": "github:PotentialHedge/agentwire#3bf9350ff3859716060079cf08c88eeb35d5cd11",
 		"react": "^19.3.1",
 		"react-dom": "^19.3.1",
 		"shadcn": "^4.22.1",

@@ -12,7 +12,7 @@ import { chromium, type Page } from "playwright-core";
 import { createServer } from "vite";
 import { keyOf, sendSecret } from "./secret.ts";
 
-const RELAY = "https://agentwire.agentics.lwirth.com";
+const RELAY = "https://agentwire.potentialhedge.com";
 const ENGINE = "application/vnd.agentwire.engine.";
 const out = join(import.meta.dirname, ".cache", "onboarding-pages");
 await mkdir(out, { recursive: true });

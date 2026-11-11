@@ -4,7 +4,7 @@
 import { create, Session } from "agentwire/participant";
 import { Activity } from "../src/voice/activity.ts";
 
-const RELAY = "https://agentwire.agentics.lwirth.com";
+const RELAY = "https://agentwire.potentialhedge.com";
 const start = Date.now();
 const log = (what: string) =>
 	console.log(`${((Date.now() - start) / 1000).toFixed(2)}s ${what}`);

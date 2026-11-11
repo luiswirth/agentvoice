@@ -1,6 +1,6 @@
 # Voice
 
-Voice is an extension of chat, whose spec is `https://vibetogether.agentics.lwirth.com/specs/chat.md`:
+Voice is an extension of chat, whose spec is `https://vibetogether.potentialhedge.com/specs/chat.md`:
 a person talks and listens, instead of typing and reading.
 
 ## What the person says

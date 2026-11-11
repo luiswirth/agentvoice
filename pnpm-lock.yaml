@@ -18,8 +18,8 @@ importers:
         specifier: ^5.3.0
         version: 5.3.0
       agentwire:
-        specifier: github:PotentialHedge/vibetogether#9a14015e916a1d5e1ad5217827589d6b5f212b38&path:/agentwire
-        version: https://codeload.github.com/PotentialHedge/vibetogether/tar.gz/9a14015e916a1d5e1ad5217827589d6b5f212b38#path:/agentwire
+        specifier: github:PotentialHedge/agentwire#3bf9350ff3859716060079cf08c88eeb35d5cd11
+        version: https://codeload.github.com/PotentialHedge/agentwire/tar.gz/3bf9350ff3859716060079cf08c88eeb35d5cd11
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -849,8 +849,8 @@ packages:
       oxc-transform-react:
         optional: true
 
-  agentwire@https://codeload.github.com/PotentialHedge/vibetogether/tar.gz/9a14015e916a1d5e1ad5217827589d6b5f212b38#path:/agentwire:
-    resolution: {gitHosted: true, integrity: sha512-RH5aw2Ik2UlJpqXVU06qD7Lg7lTwfyYNY2h9ou6Vgki6b9aQ/8+lTltOPmI6A1aqWF3W2aXSBAm2aOjE9iL9vg==, path: /agentwire, tarball: https://codeload.github.com/PotentialHedge/vibetogether/tar.gz/9a14015e916a1d5e1ad5217827589d6b5f212b38}
+  agentwire@https://codeload.github.com/PotentialHedge/agentwire/tar.gz/3bf9350ff3859716060079cf08c88eeb35d5cd11:
+    resolution: {gitHosted: true, integrity: sha512-DunypZKEZ8Bmgl1MpnkeU7NmZB/UyPPUuSq25/vMps5rLLLrZA7TRUunsLM42z2fAIZ3xIMU2rOwpVSukm2gqQ==, tarball: https://codeload.github.com/PotentialHedge/agentwire/tar.gz/3bf9350ff3859716060079cf08c88eeb35d5cd11}
     version: 0.0.0
 
   ajv-formats@2.1.1:
@@ -2434,7 +2434,7 @@ snapshots:
       '@rolldown/pluginutils': 1.1.0
       vite: 8.3.7(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)
 
-  agentwire@https://codeload.github.com/PotentialHedge/vibetogether/tar.gz/9a14015e916a1d5e1ad5217827589d6b5f212b38#path:/agentwire: {}
+  agentwire@https://codeload.github.com/PotentialHedge/agentwire/tar.gz/3bf9350ff3859716060079cf08c88eeb35d5cd11: {}
 
   ajv-formats@2.1.1:
     dependencies:

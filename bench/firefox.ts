@@ -19,7 +19,7 @@ import { scenarios } from "./scenarios.ts";
 import { sendSecret } from "./secret.ts";
 import { speech } from "./speech.ts";
 
-const RELAY = "https://agentwire.agentics.lwirth.com";
+const RELAY = "https://agentwire.potentialhedge.com";
 const count = Number(process.argv[2] ?? 8);
 const every = Number(process.argv[3] ?? 12);
 const texts = [
