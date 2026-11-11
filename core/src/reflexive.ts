@@ -3,7 +3,8 @@
 // speech sounds done, and the voice fingerprint tags each stretch of speech
 // by its voice, and a segment's words by the voice of their stretch, which
 // it waits for if the model is not done. While speech goes on, the model also
-// tells which known voice is heard now, if any.
+// tells which known voice is heard now, if any. The model hears what the
+// speaker plays too, so that its voice is known, and its echo as its own.
 // The transcriber hears each chunk once turn detection has, so that a commit
 // at what turn detection marks lands where it marked it, and only from
 // shortly before speech starts until its turn ends, so that the silence
@@ -69,7 +70,16 @@ export function reflexive(
 		/** The stretches of the segments in progress, with their voices. */
 		let stretches: Stretch[] = [];
 		/** The stretches the fingerprint model is still to answer, in order. */
-		const embedding: { from: number; to: number; done: () => void }[] = [];
+		const embedding: {
+			from: number;
+			to: number;
+			sounding: boolean;
+			done: () => void;
+		}[] = [];
+		/** Where the speaker sounded, over the last minute, in seconds. */
+		let sounded: { from: number; to: number }[] = [];
+		/** Whether the speaker sounds now. */
+		let sounding = false;
 		/** Once the fingerprint model answered everything asked so far. */
 		let embedded: Promise<void> = Promise.resolve();
 		let voicing = false;
@@ -82,7 +92,10 @@ export function reflexive(
 			// A short one is heard with the sound around it.
 			const short = Math.max(0, SHORTEST - (to - from)) / 2;
 			ask({ type: "embed", from: from - short, to: to + short });
-			embedded = new Promise((done) => embedding.push({ from, to, done }));
+			const heard = sounded.some((s) => s.to > from && s.from < to);
+			embedded = new Promise((done) =>
+				embedding.push({ from, to, sounding: heard, done }),
+			);
 		};
 		speakers.receive((data) => {
 			if (data.type === "ready") voicing = true;
@@ -92,19 +105,25 @@ export function reflexive(
 				for (const { done } of embedding.splice(0)) done();
 			} else if (data.type === "probe") {
 				if (!data.embedding.some((x) => x !== 0)) return;
-				const { voice, similarity } = voices.closest(data.embedding);
+				const { voice, played, similarity } = voices.closest(
+					data.embedding,
+					sounding,
+				);
 				const number = voice === null ? null : voices.numbered(voice);
-				heard.trace("voice.now", { voice: number, similarity });
-				heard.voice(number);
+				heard.trace("voice.now", { voice: number, played, similarity });
+				heard.voice(number, played);
+			} else if (data.type === "played") {
+				if (data.embedding.some((x) => x !== 0)) voices.play(data.embedding);
 			} else {
 				const asked = embedding.shift();
 				if (!asked) return;
-				const { from, to, done } = asked;
+				const { from, to, sounding, done } = asked;
 				if (data.embedding.some((x) => x !== 0)) {
 					const { stretch, similarity } = voices.stretch(
 						from,
 						to,
 						data.embedding,
+						sounding,
 					);
 					stretches.push(stretch);
 					// `voice` is the number the message tags, as in `voice.now`,
@@ -115,6 +134,7 @@ export function reflexive(
 						voice:
 							stretch.voice === null ? null : voices.numbered(stretch.voice),
 						index: stretch.voice,
+						played: stretch.played,
 						similarity,
 					});
 				}
@@ -324,11 +344,15 @@ export function reflexive(
 			throw error;
 		}
 		const hearer: Hearer = {
-			hear: (pcm) => {
+			hear: (pcm, now) => {
 				unheard.push(pcm);
+				const from = clock;
 				const copy = pcm.slice();
 				ask({ type: "audio", pcm: copy.buffer }, [copy.buffer]);
 				clock += pcm.length / LISTEN_RATE;
+				sounding = now;
+				if (now) sounded.push({ from, to: clock });
+				sounded = sounded.filter(({ to }) => to > clock - 60);
 				if (
 					voicing &&
 					since !== null &&
@@ -344,6 +368,10 @@ export function reflexive(
 				}
 				const told = pcm.slice();
 				tell({ type: "audio", pcm: told.buffer }, [told.buffer]);
+			},
+			played: (samples) => {
+				const copy = samples.slice();
+				ask({ type: "played", samples: copy.buffer }, [copy.buffer]);
 			},
 			finish: () => {
 				tell({ type: "end" });

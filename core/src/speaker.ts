@@ -27,6 +27,10 @@ type Reading = {
 	came: number | null;
 };
 
+/** How much speech, in seconds, the speaker gives away at once, and the
+ * least it gives away of a message's end: enough for its voice to show. */
+const GIVEN = { most: 4, least: 2 };
+
 export class Speaker {
 	/** What speaks, while the tier can. */
 	private speech: Synthesizer | null = null;
@@ -42,6 +46,9 @@ export class Speaker {
 	private yielded = false;
 	/** Called as the message being read changes, with none once none is. */
 	changed: (id: string | null) => void = () => {};
+	/** Called with speech it is to play, at `SPEECH_RATE`, a few seconds at
+	 * a time. */
+	played: (samples: Float32Array) => void = () => {};
 	/** Called once it is done with a message: read to its end, or dropped. */
 	done: (heard: Heard) => void = () => {};
 	failed: (error: Error) => void = () => {};
@@ -219,6 +226,21 @@ export class Speaker {
 		// `start` is where the message's audio so far ends, `from` where the
 		// paragraph's began, which its characters are timed from.
 		let start = 0;
+		/** Speech not given away yet. */
+		let unsent: Float32Array[] = [];
+		let length = 0;
+		const give = (least: number) => {
+			if (length < least * SPEECH_RATE) return;
+			const samples = new Float32Array(length);
+			let at = 0;
+			for (const piece of unsent) {
+				samples.set(piece, at);
+				at += piece.length;
+			}
+			unsent = [];
+			length = 0;
+			this.played(samples);
+		};
 		const lines = paragraphs.map((paragraph, i) => {
 			let from: number | undefined;
 			return synthesizer.say(
@@ -236,6 +258,9 @@ export class Speaker {
 					reading.came ??= performance.now();
 					this.player.play(line, start, piece.samples);
 					start += piece.samples.length / SPEECH_RATE;
+					unsent.push(piece.samples);
+					length += piece.samples.length;
+					give(GIVEN.most);
 					return true;
 				},
 				message.voice ?? 0,
@@ -244,15 +269,10 @@ export class Speaker {
 		Promise.all(lines)
 			.catch((error: Error) => this.failed(error))
 			.finally(() => {
+				give(GIVEN.least);
 				reading.done = true;
 				this.settle();
 			});
-	}
-
-	/** What was heard so far of the message being read, if any. */
-	sounded(): string {
-		const reading = this.readings[0];
-		return reading ? this.heard(reading) : "";
 	}
 
 	/** The text of a message heard so far, to within a word. */

@@ -1,14 +1,25 @@
 // The core alone, in Node, as a host other than the page has it: a
-// scenario's speech is heard in real time, through Scribe. It prints each
-// turn the core ends, and when, against when it was said.
+// scenario's speech is heard in real time through Scribe, and speech
+// detection and the fingerprint run in this process, behind ports. It prints each turn the core
+// ends, and when, against when it was said.
 //
 //   just core [scenario]
 //
 // It uses the ElevenLabs key in ~/secrets/elevenlabs-api-key.txt.
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { Conversation } from "voice-core";
+import * as ort from "onnxruntime-web/wasm";
+import {
+	Conversation,
+	type Model,
+	memory,
+	type Port,
+	REDIMNET2,
+	SILERO,
+	serveFingerprints,
+	serveTurns,
+} from "voice-core";
 import { Scribe } from "../src/voice/elevenlabs.ts";
 import { scenarios } from "./scenarios.ts";
 import { RATE, speech } from "./speech.ts";
@@ -21,10 +32,67 @@ const key = (
 ).trim();
 const { wav, timeline, duration } = await speech(scenario, key);
 
+/** A model's bytes, fetched once into the bench's cache. */
+const cache = join(import.meta.dirname, ".cache", "models");
+async function model({ url, integrity }: Model): Promise<Uint8Array> {
+	const file = join(cache, integrity.replace(/[^\w]/g, ""));
+	try {
+		return new Uint8Array(await readFile(file));
+	} catch {}
+	const source = url.startsWith("http")
+		? new Uint8Array(await (await fetch(url, { integrity })).arrayBuffer())
+		: new Uint8Array(
+				await readFile(join(import.meta.dirname, "../public", url)),
+			);
+	await mkdir(cache, { recursive: true });
+	await writeFile(file, source);
+	return source;
+}
+
+/** Two ends of a channel in this process, each delivering as a worker
+ * would, after the current task. */
+function channel<A, B>(): [Port<A, B>, Port<B, A>] {
+	const handlers: { a?: (m: B) => void; b?: (m: A) => void } = {};
+	return [
+		{
+			post: (m) => setImmediate(() => handlers.b?.(m)),
+			receive: (message) => {
+				handlers.a = message;
+			},
+			close: () => {},
+		},
+		{
+			post: (m) => setImmediate(() => handlers.a?.(m)),
+			receive: (message) => {
+				handlers.b = message;
+			},
+			close: () => {},
+		},
+	];
+}
+
+ort.env.wasm.numThreads = 1;
+
 const start = performance.now();
 const at = () => ((performance.now() - start) / 1000).toFixed(2);
 const conversation = new Conversation({
-	listen: (perception) => Scribe.open(key, perception, []),
+	listen: (perception) =>
+		Scribe.open(key, perception, [], {
+			speech: (() => {
+				const [core, host] = channel<never, never>();
+				serveTurns(
+					host,
+					model(SILERO).then((silero) => [silero]),
+				);
+				return core;
+			})(),
+			fingerprints: (() => {
+				const [core, host] = channel<never, never>();
+				serveFingerprints(host, model(REDIMNET2));
+				return core;
+			})(),
+			store: memory(),
+		}),
 	listener: true,
 	sounds: false,
 });

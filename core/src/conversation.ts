@@ -6,14 +6,14 @@
 // person sends it.
 // Words take the floor, pausing the speaker, and a turn they end in drops
 // what was not heard of the agents' messages: any voice's words while no
-// voice is named, only a named voice's once any is. While the speaker plays,
-// words take the floor only as a few words or a word to stop, so that the
-// speaker reads on over a "mhm". Few words that only signal listening, a
-// backchannel, are no turn and are not sent; other few words are. The
-// browser's echo cancellation keeps the speaker out of what is heard; what
-// it lets through is dropped where its words are those the speaker just
-// played. Words that didn't count, as echo, too quiet or such a backchannel
-// while it played, show for a while, to send. The listener only perceives,
+// voice is named, only a named voice's once any is. The voice the speaker
+// plays is its own, heard back as echo, which never takes the floor and is
+// never sent. While the speaker plays, words take the floor only once their
+// voice is known, and only a few words or a word to stop, so that the speaker
+// reads on over a "mhm". Few words that only signal listening, a
+// backchannel, are no turn and are not sent; other few words are. Words that
+// didn't count, as its echo, too quiet or such a backchannel while it
+// played, show for a while, to send. The listener only perceives,
 // and this decides. What happens is heard as short cues, so that voice seems
 // responsive while nothing is said.
 // Ending turns only decides whether a turn goes out by itself: the listener
@@ -171,10 +171,6 @@ const BACKCHANNEL = new Set([
 	"ja",
 	"genau",
 ]);
-/** How long after a message was read its echo may still be heard, in
- * seconds, and how many of what is heard while the speaker plays must be
- * among the words it just played for it to be echo. */
-const ECHO = { after: 5, words: 0.8 };
 /** How long words that didn't count show, in seconds. */
 const MISSED = 12;
 /** How long, in seconds, a message is read with nothing of it heard before
@@ -196,8 +192,6 @@ export class Conversation {
 	private listener: Listener | null = null;
 	private speaker: Speaker | null = null;
 	private readonly cues = new Cues();
-	/** What was heard of the messages read lately, and when each was done. */
-	private read: { text: string; at: number }[] = [];
 	/** The person's audio at `LISTEN_RATE`, as 16-bit PCM, filling a chunk. */
 	private capture: {
 		rate: number;
@@ -221,6 +215,9 @@ export class Conversation {
 	/** What was heard so far of the segment in progress, shown as `hearing`
 	 * once it may be the person's. */
 	private heard = "";
+	/** Whether the voice heard now is known, and whether the speaker played it. */
+	private known = false;
+	private played = false;
 	/** While modes come back on as they were: as the core starts, or as
 	 * listening reopens. */
 	private restoring = false;
@@ -547,6 +544,8 @@ export class Conversation {
 		this.yieldFloor();
 		this.few = false;
 		this.heard = "";
+		this.known = false;
+		this.played = false;
 		// What is heard counts from listening's start.
 		this.capture = null;
 		try {
@@ -561,8 +560,13 @@ export class Conversation {
 						this.words = true;
 						this.claim();
 					},
-					voice: (voice) => {
+					voice: (number, played) => {
+						this.known = true;
+						this.played = played;
+						// The speaker's echo is no one speaking.
+						const voice = played ? undefined : number;
 						if (voice !== this.state.voice) this.update({ voice });
+						this.show();
 						this.claim();
 					},
 					partial: (heard) => {
@@ -593,6 +597,7 @@ export class Conversation {
 					input: this.input,
 					floor: () =>
 						this.speaker?.playing ? ECHO_FLOOR : Number.NEGATIVE_INFINITY,
+					sounding: () => this.speaker?.playing ?? false,
 				},
 			);
 			this.update({ listener: true, switching: null });
@@ -604,10 +609,18 @@ export class Conversation {
 		}
 	}
 
-	/** Shows what was heard of the segment in progress. */
+	/** Whether what is heard now may be the person's: not the speaker's
+	 * echo, and while the speaker plays, of a voice known not to be its. */
+	private mayBeTheirs(): boolean {
+		if (this.played) return false;
+		return this.known || !this.speaker?.playing;
+	}
+
+	/** Shows what was heard of the segment in progress, once it may be the
+	 * person's. */
 	private show(): void {
 		const hearing = this.heard;
-		if (hearing === this.state.hearing) return;
+		if (hearing === this.state.hearing || !this.mayBeTheirs()) return;
 		// Scribe's partials repeat the whole segment so far, mostly
 		// revising only its end, so a partial keeps what it adds to
 		// the start it shares with the last one, `kept` characters
@@ -632,24 +645,25 @@ export class Conversation {
 		this.update({ hearing });
 	}
 
-	/** A segment heard: its words go to the draft, but none if it never got
-	 * loud, none of the speaker's echo, and none of a backchannel, few words
-	 * while the speaker played that only signal listening, while turns end
-	 * by themselves. Those show for a while, to send if they were the
+	/** A segment heard: its words go to the draft, but for the speaker's
+	 * echo, all of them if it never got loud, and all of a backchannel, few
+	 * words while the speaker played that only signal listening, while turns
+	 * end by themselves. Those show for a while, to send if they were the
 	 * person's, or meant as a turn. */
-	private heardSegment({ words, loud, sounding }: Segment): void {
-		const said = text(words);
-		const echo = loud && sounding && this.echo(said);
-		if (echo) this.trace("echo", { text: said });
+	private heardSegment({ words, loud }: Segment): void {
+		const echo = text(words.filter((word) => word.played));
+		const theirs = words.filter((word) => !word.played);
+		const said = text(theirs);
+		if (echo) this.trace("echo", { text: echo });
 		const backchannel =
 			this.few &&
 			!this.floor &&
 			this.state.autoEnd &&
 			wordsOf(said).every((word) => BACKCHANNEL.has(word));
 		const missed: State["missed"] = !loud
-			? { text: said, why: "quiet" }
-			: echo
-				? { text: said, why: "echo" }
+			? { text: text(words), why: "quiet" }
+			: !/\w/.test(said)
+				? { text: echo, why: "echo" }
 				: backchannel
 					? { text: said, why: "backchannel" }
 					: null;
@@ -662,7 +676,7 @@ export class Conversation {
 				MISSED * 1000,
 			);
 		}
-		const sent = loud && !echo && !backchannel ? tag(words) : "";
+		const sent = loud && !backchannel ? tag(theirs) : "";
 		this.trace("segment", { text: sent });
 		if (sent) this.update({ missed: null });
 		this.segment(sent);
@@ -725,8 +739,8 @@ export class Conversation {
 					}, 1000);
 				}
 			};
+			speaker.played = (samples) => this.listener?.played(samples);
 			speaker.done = (heard) => {
-				this.read.push({ text: heard.text, at: performance.now() });
 				this.trace("heard", {
 					id: heard.id,
 					whole: heard.whole,
@@ -778,12 +792,11 @@ export class Conversation {
 
 	/** Pauses the speaker for the words in progress, once they may take the floor. */
 	private claim(): void {
-		if (!this.words || this.floor) return;
+		if (!this.words || this.floor || !this.mayBeTheirs()) return;
 		const { names, voice } = this.state;
 		if (Object.keys(names).length > 0 && !(voice != null && voice in names))
 			return;
 		if (this.speaker?.playing) {
-			if (this.echo(this.heard)) return;
 			const said = wordsOf(this.heard);
 			if (said.length < FLOOR_WORDS && !said.some((word) => STOP.has(word))) {
 				this.few = true;
@@ -793,24 +806,6 @@ export class Conversation {
 		this.floor = true;
 		this.trace("floor", { voice, reading: this.state.reading });
 		this.speaker?.pause();
-	}
-
-	/** Whether `heard` is the speaker's echo: words most of which are among
-	 * those it played of the message it reads, and of those read lately. */
-	private echo(heard: string): boolean {
-		const said = wordsOf(heard);
-		if (said.length === 0) return false;
-		const now = performance.now();
-		this.read = this.read.filter(({ at }) => now - at < ECHO.after * 1000);
-		const played = new Set(
-			wordsOf(
-				[...this.read.map(({ text }) => text), this.speaker?.sounded()].join(
-					" ",
-				),
-			),
-		);
-		const among = said.filter((word) => played.has(word)).length;
-		return among >= ECHO.words * said.length;
 	}
 
 	/** Sends the draft, with what is still being heard once it is, dropping
@@ -903,6 +898,8 @@ export class Conversation {
 		this.floor = false;
 		this.few = false;
 		this.heard = "";
+		this.known = false;
+		this.played = false;
 		this.update({
 			hearing: "",
 			draft: join(this.state.draft, text),

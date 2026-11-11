@@ -1,6 +1,7 @@
 // Where the core's reflexes run in the page: each in a worker of its own.
 import type { Port, Reflexes } from "voice-core";
 import FingerprintsWorker from "./fingerprints-worker.ts?worker";
+import SpeechWorker from "./speech-worker.ts?worker";
 import TurnsWorker from "./turns-worker.ts?worker";
 
 /** The page's end of a channel to a worker. */
@@ -17,6 +18,7 @@ function port<Out, In>(worker: Worker): Port<Out, In> {
 
 export const reflexes: Reflexes = {
 	turns: () => port(new TurnsWorker()),
+	speech: () => port(new SpeechWorker()),
 	fingerprints: () => {
 		const worker = new FingerprintsWorker();
 		worker.postMessage(document.baseURI);

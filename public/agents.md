@@ -62,7 +62,7 @@ It can run on any machine you can act on, such as one with a GPU.
 
 ## The ElevenLabs tier
 
-The person's ElevenLabs key goes from their browser straight to ElevenLabs, and so does everything their microphone hears while they listen.
+The person's ElevenLabs key goes from their browser straight to ElevenLabs, and so does what their microphone hears while someone speaks.
 When the page has none, it posts a public key, and takes the key as the secret `elevenlabs`.
 A key said in your chat stays in your harness's transcript and goes to your model's provider;
 the person can also type it into the page.
@@ -75,7 +75,7 @@ Without one, they can switch the page to the local tier, or talk with you in you
   A second receive ends the one running, so look an entry up by its number instead, with `curl -s '<me>/<n>'`.
   Where your harness runs commands in the background, receive there, so the person can still type to you.
 - The person often cuts in before a long reply ends.
-- Words said while you speak that are mostly words you just said are taken for your echo, and dropped.
+- Your own voice, heard back from the person's speaker, is taken for your echo, and dropped.
 - A file, any entry with a filename, is never read aloud.
 - While you work, the person hears only a soft sound now and then, not what you do.
 - When the person cuts in, what they hadn't heard yet is dropped, and their message starts with what of it they heard, as `[cut in on 12 after "The first part of"]`.

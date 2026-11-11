@@ -2,15 +2,16 @@
 // audio through the tier's hearing, which ends each segment where it hears
 // one end. The listener only perceives: what is done with a segment, such as
 // whether it ends the person's turn, is for whoever uses it to decide.
-// While the speaker plays, a segment counts only where its own speech got
-// louder than a floor: the browser's echo cancellation leaves some of the
-// speaker's echo, which stays below it.
+// The tier hears what the speaker plays too, so that its voice is known, and
+// its echo, which the browser's echo cancellation never removes entirely and
+// at times not at all, is known as its own. While the speaker plays, a
+// segment counts only where its own speech got louder than a floor, which
+// most echo the browser leaves stays below.
 import { type Hearer, LISTEN_RATE, type Listen, type Said } from "./tier.ts";
 
-/** A segment as heard: its words, each tagged by voice, whether it got
- * louder than the floor, and whether it was said while the speaker played,
- * where a floor was in force. */
-export type Segment = { words: Said[]; loud: boolean; sounding: boolean };
+/** A segment as heard: its words, each tagged by voice, and whether it got
+ * louder than the floor. */
+export type Segment = { words: Said[]; loud: boolean };
 
 export type Hearing = {
 	/** Speech starts, louder than the floor, or stops: a sound that may
@@ -19,8 +20,8 @@ export type Hearing = {
 	/** The person started saying words. */
 	speaking(): void;
 	/** The voice heard now, while speech goes on: its number, null for one
-	 * that has no number yet. */
-	voice(number: number | null): void;
+	 * that has no number yet, and whether the speaker played it. */
+	voice(number: number | null, played: boolean): void;
 	/** What was heard so far of the segment in progress, once it got louder
 	 * than the floor. */
 	partial(text: string): void;
@@ -51,6 +52,8 @@ export type Surroundings = {
 	/** How loud, in dBFS, a segment's speech must get in some 0.1 s for it to
 	 * be loud, asked as each 0.1 s is heard. */
 	floor: () => number;
+	/** Whether the speaker sounds, asked as each 0.1 s is heard. */
+	sounding: () => boolean;
 };
 
 /** How long the levels heard are kept, in seconds: longer than a segment. */
@@ -107,7 +110,7 @@ export class Listener {
 	static async open(
 		listen: Listen,
 		hearing: Hearing,
-		{ input, floor }: Surroundings,
+		{ input, floor, sounding }: Surroundings,
 	): Promise<Listener> {
 		let listener: Listener | null = null;
 		/** Whether a partial of the segment in progress was loud. */
@@ -124,13 +127,6 @@ export class Listener {
 			levels.some(
 				(level) =>
 					above(level) >= 0 &&
-					spans.some(([a, b]) => level.to > a && level.from < b),
-			);
-		/** Whether the speaker played during some of `spans`. */
-		const sounding = (spans: [number, number][]): boolean =>
-			levels.some(
-				(level) =>
-					level.floor !== Number.NEGATIVE_INFINITY &&
 					spans.some(([a, b]) => level.to > a && level.from < b),
 			);
 		/** Where the words were said, or the whole segment so far for words
@@ -154,7 +150,7 @@ export class Listener {
 			voiced: (voiced) => {
 				if (!voiced || loud([[clock - ONSET, clock]])) hearing.voiced(voiced);
 			},
-			voice: (number) => hearing.voice(number),
+			voice: (number, played) => hearing.voice(number, played),
 			partial: (words) => {
 				const heard = text(words);
 				if (!/\w/.test(heard)) return;
@@ -164,13 +160,12 @@ export class Listener {
 				hearing.partial(heard);
 			},
 			segment: (words) => {
-				const said = spans(words);
-				const isLoud = speaking || loud(said);
+				const isLoud = speaking || loud(spans(words));
 				if (!isLoud && /\w/.test(text(words)))
 					hearing.trace("quiet", { text: text(words) });
 				speaking = false;
 				from = clock;
-				hearing.segment({ words, loud: isLoud, sounding: sounding(said) });
+				hearing.segment({ words, loud: isLoud });
 			},
 			failed: fail,
 			trace: (event, data) => hearing.trace(event, data),
@@ -187,7 +182,7 @@ export class Listener {
 			});
 			while ((levels[0]?.to ?? clock) < clock - KEPT) levels.shift();
 			hearing.level(Math.min(1, rms * 8));
-			hearer.hear(pcm);
+			hearer.hear(pcm, sounding());
 		};
 		try {
 			await input?.open((error) => fail(error));
@@ -197,6 +192,11 @@ export class Listener {
 		}
 		listener = new Listener(input, hearer, take);
 		return listener;
+	}
+
+	/** Hears speech the speaker plays, at `SPEECH_RATE`, as its voice. */
+	played(samples: Float32Array): void {
+		this.hearer.played(samples);
 	}
 
 	/** Ends the segment in progress now, rather than once the tier hears it

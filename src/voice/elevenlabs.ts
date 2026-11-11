@@ -3,13 +3,21 @@
 // audio device, so it runs in Node as well.
 
 import {
+	Fingerprints,
+	type FromFingerprints,
+	type FromTurns,
 	type Hearer,
 	LISTEN_RATE,
+	Offsets,
 	type Perception,
 	type Piece,
+	type Port,
 	type Said,
 	SPEECH_RATE,
+	type Store,
 	type Synthesizer,
+	type ToFingerprints,
+	type ToTurns,
 } from "voice-core";
 
 const API = "https://api.elevenlabs.io/v1";
@@ -134,12 +142,42 @@ const MARKS: Record<string, string> = {
 };
 const LATIN_MARK = /(?<=[\p{Script=Latin}\p{N}])([，。？！：；])/gu;
 
+/** How long before speech starts Scribe hears it, in seconds, so that a soft
+ * start, which speech detection hears late, is kept; how much is kept for
+ * it; and how long after speech stops it hears on while no words are in
+ * progress. While words are, it hears on until their segment ends. */
+const GATE = { preroll: 0.5, kept: 1, after: 1.5 };
+
+/** Scribe closes a session that is sent no audio for about 15 s, so the
+ * gate sends 10 ms of silence after every 5 s it keeps closed. */
+const KEEPALIVE = 5 * LISTEN_RATE;
+const ALIVE = new Int16Array(LISTEN_RATE / 100);
+
+/** How long a voice's words go on, in seconds, before the fingerprint is
+ * asked whether they are the speaker's echo, how often it is asked again,
+ * and the longest it hears for it. */
+const PROBE = { first: 0.75, every: 0.5, longest: 1.5 };
+
+/** Where Scribe hears and fingerprints. */
+export type Surroundings = {
+	/** Speech detection, which gates what Scribe hears, so that silence is
+	 * not paid for. */
+	speech: Port<ToTurns, FromTurns>;
+	/** The voice fingerprint, which tells the speaker's echo. */
+	fingerprints: Port<ToFingerprints, FromFingerprints>;
+	/** Where the voices heard are kept. */
+	store: Store;
+};
+
 /**
- * Scribe v3 Live's hearing over the whole of listening, on its own turn
- * prediction and its own speaker labels: a segment ends as `END` judges it,
- * and each word takes the voice of its label. Scribe numbers the voices of
- * one session, so a new session numbers them anew: nothing maps one
- * session's voices to another's.
+ * Scribe v3 Live's hearing, on its own turn prediction and its own speaker
+ * labels: a segment ends as `END` judges it, and each word takes the voice
+ * of its label. Scribe numbers the voices of one session, so a new session
+ * numbers them anew: nothing maps one session's voices to another's. It
+ * hears only from shortly before speech, as speech detection hears it, until
+ * the segment it is in ends, so that silence is not paid for. The voice
+ * fingerprint hears each label's words, and drops those of a label that
+ * sounds like the speaker, as its echo.
  */
 export class Scribe implements Hearer {
 	/** Samples sent since the last commit: Scribe refuses a commit of under 0.3 s, and closes. */
@@ -151,22 +189,58 @@ export class Scribe implements Hearer {
 	private held: Said[] = [];
 	/** Which label each merged label became. */
 	private readonly merged = new Map<string, string>();
-	/** The voice heard last, and how sure Scribe is that the turn is done. */
-	private voice: number | null | undefined;
+	/** How sure Scribe is that the turn is done. */
 	private probability = 0;
 	/** Why the segment in progress is being ended, once a commit is sent. */
 	private asked: string | null = null;
-	/** Seconds of audio sent, and where its words last changed. */
-	private sent = 0;
+	/** Where its words last changed, in seconds of what was sent. */
 	private changed = 0;
 	/** The words of the segment in progress, as letters, to tell a change. */
 	private letters = "";
+	/** Where what Scribe was sent lies in the stream. */
+	private readonly offsets = new Offsets();
+	/** Samples kept from Scribe since the last sent. */
+	private quiet = 0;
+	/** Whether the gate is open, whether speech detection hears speech, and
+	 * since when, in seconds of the stream, it hears none. */
+	private open = false;
+	private voiced = false;
+	private silent = 0;
+	/** Whether speech detection works: without it, the gate stays open. */
+	private gating = true;
+	/** The chunks speech detection has not heard yet, in order. */
+	private readonly unheard: Int16Array[] = [];
+	/** Seconds of the stream speech detection heard. */
+	private passed = 0;
+	/** What speech detection heard last while the gate was closed, for Scribe
+	 * to hear once speech starts. */
+	private kept: { pcm: Int16Array; at: number }[] = [];
+	/** Whether each voice, by its number, is the speaker's echo, as the
+	 * fingerprint last heard it; and the voice told last. */
+	private readonly echoes = new Map<number, boolean>();
+	private told: string | null = null;
+	/** Where the fingerprint was last asked about the voice heard now. */
+	private probed: { voice: number; at: number } | null = null;
+	/** The segments being fingerprinted, told in order. */
+	private telling: Promise<void> = Promise.resolve();
 	private readonly socket: WebSocket;
 	private readonly heard: Perception;
+	private readonly speech: Port<ToTurns, FromTurns>;
+	private readonly fingerprints: Fingerprints;
 
-	private constructor(socket: WebSocket, heard: Perception) {
+	private constructor(
+		socket: WebSocket,
+		heard: Perception,
+		{ speech, fingerprints, store }: Surroundings,
+	) {
 		this.socket = socket;
 		this.heard = heard;
+		this.speech = speech;
+		this.fingerprints = new Fingerprints(fingerprints, store);
+		speech.receive(
+			(data) => this.detected(data),
+			(error) => this.ungate(error.message),
+		);
 	}
 
 	/** `languages`: what the person speaks, most likely first, as BCP 47 tags
@@ -176,6 +250,7 @@ export class Scribe implements Hearer {
 		key: string,
 		heard: Perception,
 		languages: readonly string[],
+		surroundings: Surroundings,
 	): Promise<Scribe> {
 		const query = new URLSearchParams({
 			model_id: "scribe_v3_live",
@@ -194,14 +269,19 @@ export class Scribe implements Hearer {
 		for (const code of rest) query.append("secondary_languages", code);
 		if (rest.length > 0) query.set("multilang_mode", "true");
 		const socket = new WebSocket(`${SOCKETS}/speech-to-text/realtime?${query}`);
-		const scribe = new Scribe(socket, heard);
+		const scribe = new Scribe(socket, heard, surroundings);
 		socket.addEventListener("message", ({ data }) =>
 			scribe.receive(JSON.parse(String(data))),
 		);
 		socket.addEventListener("close", (event) => {
 			if (event.code !== 1000) heard.failed(closed(event));
 		});
-		await opened(socket);
+		try {
+			await opened(socket);
+		} catch (error) {
+			scribe.close();
+			throw error;
+		}
 		return scribe;
 	}
 
@@ -210,11 +290,7 @@ export class Scribe implements Hearer {
 			case "partial_transcript": {
 				const words = this.said(message);
 				this.probability = Number(message.turn_probability ?? 0);
-				const voice = words.findLast((w) => w.voice !== null)?.voice;
-				if (voice !== undefined && voice !== this.voice) {
-					this.voice = voice;
-					this.heard.voice(voice);
-				}
+				this.probe(words);
 				this.heard.partial(this.after(words));
 				this.judge(String(message.text ?? ""));
 				return;
@@ -239,9 +315,26 @@ export class Scribe implements Hearer {
 					probability: this.probability,
 				});
 				this.held = [];
-				this.voice = undefined;
+				this.told = null;
+				this.probed = null;
 				this.probability = 0;
-				this.heard.segment(words);
+				// Without the speaker, there is no echo to wait for, and the
+				// fingerprint only learns the voices.
+				const timed = runs(words);
+				const echoes = this.echo(words);
+				const sounded = this.fingerprints.sounding(
+					timed[0]?.from ?? 0,
+					timed.at(-1)?.to ?? 0,
+				);
+				this.telling = this.telling.then(async () => {
+					const played = sounded ? await echoes : new Set<number>();
+					this.heard.segment(
+						words.map((word) => ({
+							...word,
+							played: word.voice !== null && played.has(word.voice),
+						})),
+					);
+				});
 				return;
 			}
 			case "speakers_merged": {
@@ -261,24 +354,81 @@ export class Scribe implements Hearer {
 		}
 	}
 
+	/** The voices of a segment that are the speaker's echo: each by the
+	 * longest run of its words, where the fingerprint can tell. */
+	private async echo(words: Said[]): Promise<Set<number>> {
+		const longest = new Map<number, { from: number; to: number }>();
+		for (const run of runs(words)) {
+			const best = longest.get(run.voice);
+			if (!best || run.to - run.from > best.to - best.from)
+				longest.set(run.voice, run);
+		}
+		const played = new Set<number>();
+		await Promise.all(
+			[...longest].map(async ([voice, { from, to }]) => {
+				const echo = await this.fingerprints.echo(from, to);
+				this.heard.trace("voice", { voice, from, to, played: echo });
+				if (echo === null) return;
+				this.echoes.set(voice, echo);
+				if (echo) played.add(voice);
+			}),
+		);
+		return played;
+	}
+
+	/** Tells the voice heard now, once the fingerprint can tell whether it is
+	 * the speaker's echo, asking it while that voice's words go on. */
+	private probe(words: Said[]): void {
+		const run = runs(words).at(-1);
+		if (!run) return;
+		const known = this.echoes.get(run.voice);
+		if (known !== undefined) this.tell(run.voice, known);
+		if (run.to - run.from < PROBE.first) return;
+		if (
+			this.probed?.voice === run.voice &&
+			run.to - this.probed.at < PROBE.every
+		)
+			return;
+		this.probed = { voice: run.voice, at: run.to };
+		const from = Math.max(run.from, run.to - PROBE.longest);
+		void this.fingerprints.probe(from, run.to).then((echo) => {
+			if (echo === null) return;
+			this.heard.trace("voice.now", { voice: run.voice, played: echo });
+			this.echoes.set(run.voice, echo);
+			this.tell(run.voice, echo);
+		});
+	}
+
+	private tell(voice: number, played: boolean): void {
+		const told = `${voice} ${played}`;
+		if (told === this.told) return;
+		this.told = told;
+		this.heard.voice(voice, played);
+	}
+
 	/** Words after those held, if any. */
 	private after(words: Said[]): Said[] {
 		if (this.held.length === 0) return words;
 		return [...this.held, { text: " ", voice: null }, ...words];
 	}
 
-	/** A message's words, each with the voice of its label, or its text as
-	 * one word where it has none. */
+	/** A message's words, timed in the stream, each with the voice of its
+	 * label, or its text as one word where it has none. */
 	private said(message: Record<string, unknown>): Said[] {
 		const words = (message.words ?? []) as Labeled[];
 		if (words.length === 0)
 			return [{ text: latin(String(message.text ?? "")), voice: null }];
-		return words.map((word, i) => ({
-			text: latin(word.text, words[i + 1]?.text),
-			voice: this.number(word.speaker_id ?? null),
-			start: word.start ?? undefined,
-			end: word.end ?? undefined,
-		}));
+		return words.map((word, i) => {
+			const text = latin(word.text, words[i + 1]?.text);
+			const voice = this.number(word.speaker_id ?? null);
+			if (word.start == null || word.end == null) return { text, voice };
+			const { start, end } = this.offsets.place({
+				text,
+				start: word.start,
+				end: word.end,
+			});
+			return { text, voice, start, end };
+		});
 	}
 
 	/** The number of a label, after its merges: `speaker_0` is 1. */
@@ -294,11 +444,107 @@ export class Scribe implements Hearer {
 		return Number.isNaN(n) ? null : n + 1;
 	}
 
-	/** The next 0.1 s of the person's audio: Scribe hears all of it. */
-	hear(pcm: Int16Array): void {
-		if (this.socket.readyState !== WebSocket.OPEN) return;
+	/** The next 0.1 s of the person's audio, which speech detection hears
+	 * first, and the fingerprint at once. */
+	hear(pcm: Int16Array, sounding: boolean): void {
+		this.fingerprints.hear(pcm, sounding);
+		if (!this.gating) {
+			this.take(pcm);
+			return;
+		}
+		this.unheard.push(pcm);
+		const copy = pcm.slice();
+		this.speech.post({ type: "audio", pcm: copy.buffer }, [copy.buffer]);
+	}
+
+	played(samples: Float32Array): void {
+		this.fingerprints.played(samples);
+	}
+
+	/** What speech detection tells. */
+	private detected(data: FromTurns): void {
+		switch (data.type) {
+			case "heard": {
+				const pcm = this.unheard.shift();
+				if (pcm) this.take(pcm);
+				return;
+			}
+			case "speech":
+				this.voiced = true;
+				this.heard.voiced(true);
+				if (!this.open) {
+					this.open = true;
+					this.heard.trace("gate", { open: true, at: data.at });
+					for (const { pcm, at } of this.kept.splice(0))
+						if (at + pcm.length / LISTEN_RATE > data.at - GATE.preroll)
+							this.send(pcm);
+						else this.skip(pcm.length);
+				}
+				return;
+			case "silence":
+				this.voiced = false;
+				this.silent = data.at;
+				this.heard.voiced(false);
+				return;
+			case "failed":
+				this.ungate(data.error);
+				return;
+		}
+	}
+
+	/** Lets all audio through, as speech detection failed. */
+	private ungate(error: string): void {
+		if (!this.gating) return;
+		this.heard.trace("gate.failed", { error });
+		this.gating = false;
+		this.open = true;
+		for (const { pcm } of this.kept.splice(0)) this.send(pcm);
+		for (const pcm of this.unheard.splice(0)) this.take(pcm);
+	}
+
+	/** Sends the chunk speech detection heard next, or keeps it while the
+	 * gate is closed, and closes the gate once the speech is over. */
+	private take(pcm: Int16Array): void {
+		const at = this.passed;
+		this.passed += pcm.length / LISTEN_RATE;
+		if (this.open && this.gating && !this.voiced) {
+			const after = this.passed - this.silent;
+			const over =
+				this.asked !== null ||
+				(this.letters === "" && after >= GATE.after) ||
+				after >= END.longest + GATE.after;
+			if (over) {
+				this.open = false;
+				this.heard.trace("gate", { open: false });
+			}
+		}
+		if (this.open) {
+			this.send(pcm);
+			return;
+		}
+		this.kept.push({ pcm, at });
+		while ((this.kept[0]?.at ?? this.passed) < this.passed - GATE.kept)
+			this.skip(this.kept.shift()?.pcm.length ?? 0);
+	}
+
+	private skip(samples: number): void {
+		this.offsets.skip(samples);
+		this.quiet += samples;
+		if (this.quiet < KEEPALIVE) return;
+		this.quiet = 0;
+		if (this.write(ALIVE)) this.offsets.pad(ALIVE.length);
+	}
+
+	private send(pcm: Int16Array): void {
+		this.quiet = 0;
+		if (this.write(pcm)) this.offsets.hear(pcm.length);
+		else this.offsets.skip(pcm.length);
+	}
+
+	/** Whether it was sent. */
+	private write(pcm: Int16Array): boolean {
+		if (this.socket.readyState !== WebSocket.OPEN) return false;
 		this.uncommitted += pcm.length;
-		this.sent += pcm.length / LISTEN_RATE;
 		this.socket.send(
 			JSON.stringify({
 				message_type: "input_audio_chunk",
@@ -309,6 +555,12 @@ export class Scribe implements Hearer {
 				sample_rate: LISTEN_RATE,
 			}),
 		);
+		return true;
+	}
+
+	/** Seconds of audio sent. */
+	private get sent(): number {
+		return this.offsets.sent / LISTEN_RATE;
 	}
 
 	/** Ends the segment in progress where Scribe's turn prediction and the
@@ -352,7 +604,32 @@ export class Scribe implements Hearer {
 
 	close(): void {
 		this.socket.close(1000);
+		this.speech.close();
+		this.fingerprints.close();
 	}
+}
+
+/** How far a run of words is heard beyond its first and last word, in
+ * seconds, for the fingerprint: Scribe times words tightly, and speech
+ * detection pads speech by about as much. */
+const AROUND = 0.15;
+
+/** The runs of a segment's timed words in one voice, where it has one, in
+ * seconds of the stream, with `AROUND` on either side. */
+function runs(words: Said[]): { voice: number; from: number; to: number }[] {
+	const found: { voice: number; from: number; to: number }[] = [];
+	for (const { voice, start, end, text } of words) {
+		if (voice === null || start === undefined || end === undefined) continue;
+		if (!/[\p{L}\p{N}]/u.test(text)) continue;
+		const last = found.at(-1);
+		if (last?.voice === voice) last.to = end;
+		else found.push({ voice, from: start, to: end });
+	}
+	return found.map((run) => ({
+		...run,
+		from: Math.max(0, run.from - AROUND),
+		to: run.to + AROUND,
+	}));
 }
 
 /** Text with the Chinese marks Scribe puts after Latin letters made Latin,

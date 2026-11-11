@@ -616,7 +616,9 @@ export class Voice {
 		return this.key;
 	}
 
-	/** The local tier hears on the core's reflexes, ElevenLabs on its own. */
+	/** The local tier hears on the core's reflexes; ElevenLabs on its own
+	 * turns and speakers, gated by speech detection, with the fingerprint for
+	 * the speaker's echo. */
 	private listen(heard: Perception): Promise<Hearer> {
 		if (this.own.tier === "local")
 			return reflexive(
@@ -624,7 +626,11 @@ export class Voice {
 				reflexes,
 				kept(),
 			)(heard);
-		return Scribe.open(this.elevenlabs(), heard, this.own.languages);
+		return Scribe.open(this.elevenlabs(), heard, this.own.languages, {
+			speech: reflexes.speech(),
+			fingerprints: reflexes.fingerprints(),
+			store: kept(),
+		});
 	}
 
 	private synthesizer(): Synthesizer {

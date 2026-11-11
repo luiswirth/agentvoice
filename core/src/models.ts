@@ -38,11 +38,13 @@ const STATE = 2 * 128;
 
 export async function loadModels(
 	silero: Uint8Array,
-	smartTurn: Uint8Array,
+	smartTurn?: Uint8Array,
 ): Promise<Models> {
 	const options = { executionProviders: ["wasm"] };
 	const vad = await ort.InferenceSession.create(silero, options);
-	const turn = await ort.InferenceSession.create(smartTurn, options);
+	const turn = smartTurn
+		? await ort.InferenceSession.create(smartTurn, options)
+		: null;
 	const rate = new ort.Tensor("int64", BigInt64Array.from([16_000n]), []);
 	return {
 		initial: () => new Float32Array(STATE),
@@ -55,20 +57,22 @@ export async function loadModels(
 			state.set(data(out, "stateN"));
 			return data(out, "output")[0] ?? 0;
 		},
-		async finished(audio) {
-			const samples = new Float32Array(HEARD);
-			const tail = audio.subarray(Math.max(0, audio.length - HEARD));
-			samples.set(tail, HEARD - tail.length);
-			const features = logMel(samples);
-			const out = await turn.run({
-				input_features: new ort.Tensor("float32", features, [
-					1,
-					MEL_BINS,
-					features.length / MEL_BINS,
-				]),
-			});
-			return data(out, "logits")[0] ?? 0;
-		},
+		...(turn && {
+			async finished(audio: Float32Array) {
+				const samples = new Float32Array(HEARD);
+				const tail = audio.subarray(Math.max(0, audio.length - HEARD));
+				samples.set(tail, HEARD - tail.length);
+				const features = logMel(samples);
+				const out = await turn.run({
+					input_features: new ort.Tensor("float32", features, [
+						1,
+						MEL_BINS,
+						features.length / MEL_BINS,
+					]),
+				});
+				return data(out, "logits")[0] ?? 0;
+			},
+		}),
 	};
 }
 

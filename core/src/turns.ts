@@ -40,8 +40,9 @@ export type Models = {
 	voiced(window: Float32Array, state: Float32Array): Promise<number>;
 	/** The model's state before any window. */
 	initial(): Float32Array;
-	/** How likely the last 8 s of a turn's audio sound finished. */
-	finished(turn: Float32Array): Promise<number>;
+	/** How likely the last 8 s of a turn's audio sound finished; without
+	 * it, only speech is detected, and a turn ends by its words or the wait. */
+	finished?(turn: Float32Array): Promise<number>;
 };
 
 export type TurnEvent =
@@ -190,6 +191,7 @@ export class Turns {
 	 * pause starts, so its verdict holds for the whole pause. */
 	private async judge(events: TurnEvent[]): Promise<void> {
 		if (this.start === null || this.silence === null) return;
+		if (this.models.finished === undefined) return;
 		const audio = this.recent.subarray(
 			this.start - this.offset,
 			this.silence - this.offset,

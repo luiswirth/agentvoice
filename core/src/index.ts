@@ -14,6 +14,7 @@ export {
 } from "./conversation.ts";
 export type { Cue } from "./cues.ts";
 export { Cues } from "./cues.ts";
+export { Fingerprints } from "./fingerprints.ts";
 export type { Input } from "./listener.ts";
 export { type Model, REDIMNET2, SILERO, SMART_TURN } from "./models.ts";
 export {
