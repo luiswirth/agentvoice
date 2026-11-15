@@ -1,24 +1,26 @@
-// ElevenLabs, reached straight from the browser with the user's own key:
+// The ElevenLabs tier, reached straight from the host with the user's own key:
 // Scribe v3 Live hears, Eleven v4 Turbo speaks. Nothing here touches an
-// audio device, so it runs in Node as well.
+// audio device.
 
+import { Fingerprints } from "./fingerprints.ts";
+import type {
+	FromFingerprints,
+	FromTurns,
+	Port,
+	ToFingerprints,
+	ToTurns,
+} from "./reflexes.ts";
+import type { Store } from "./store.ts";
 import {
-	Fingerprints,
-	type FromFingerprints,
-	type FromTurns,
 	type Hearer,
 	LISTEN_RATE,
 	Offsets,
 	type Perception,
 	type Piece,
-	type Port,
 	type Said,
 	SPEECH_RATE,
-	type Store,
 	type Synthesizer,
-	type ToFingerprints,
-	type ToTurns,
-} from "voice-core";
+} from "./tier.ts";
 
 const API = "https://api.elevenlabs.io/v1";
 const SOCKETS = "wss://api.elevenlabs.io/v1";

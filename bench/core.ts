@@ -9,18 +9,18 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import * as ort from "onnxruntime-web/wasm";
 import {
 	Conversation,
 	type Model,
 	memory,
 	type Port,
 	REDIMNET2,
+	Scribe,
 	SILERO,
 	serveFingerprints,
 	serveTurns,
-} from "voice-core";
-import { Scribe } from "../src/voice/elevenlabs.ts";
+} from "agentvoice";
+import * as ort from "onnxruntime-web/wasm";
 import { scenarios } from "./scenarios.ts";
 import { RATE, speech } from "./speech.ts";
 

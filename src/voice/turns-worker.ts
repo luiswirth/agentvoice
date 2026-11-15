@@ -1,5 +1,5 @@
 // Turn detection off the page's thread.
-import { SILERO, SMART_TURN, serveTurns } from "voice-core";
+import { SILERO, SMART_TURN, serveTurns } from "agentvoice";
 import { fetchModel, type Scope, setUpOnnxRuntime, within } from "./onnx.ts";
 
 setUpOnnxRuntime();

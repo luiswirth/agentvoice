@@ -1,6 +1,6 @@
 // The voice fingerprint off the page's thread. It starts once the page tells
 // it its own address, against which the model's is, since the page serves it.
-import { REDIMNET2, serveFingerprints } from "voice-core";
+import { REDIMNET2, serveFingerprints } from "agentvoice";
 import { fetchModel, type Scope, setUpOnnxRuntime, within } from "./onnx.ts";
 
 setUpOnnxRuntime();

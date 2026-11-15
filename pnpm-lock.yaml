@@ -17,6 +17,9 @@ importers:
       '@fontsource-variable/geist':
         specifier: ^5.3.0
         version: 5.3.0
+      agentvoice:
+        specifier: workspace:*
+        version: link:voice
       agentwire:
         specifier: github:PotentialHedge/agentwire#3bf9350ff3859716060079cf08c88eeb35d5cd11
         version: https://codeload.github.com/PotentialHedge/agentwire/tar.gz/3bf9350ff3859716060079cf08c88eeb35d5cd11
@@ -44,9 +47,6 @@ importers:
       tw-animate-css:
         specifier: ^1.4.0
         version: 1.4.0
-      voice-core:
-        specifier: workspace:*
-        version: link:core
     devDependencies:
       '@tailwindcss/vite':
         specifier: ^4.3.3
@@ -79,7 +79,7 @@ importers:
         specifier: ^8.3.4
         version: 8.3.7(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)
 
-  core:
+  voice:
     dependencies:
       onnxruntime-web:
         specifier: 1.30.0

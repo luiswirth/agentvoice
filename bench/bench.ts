@@ -10,6 +10,7 @@
 // the page that often, into bench/.cache/shots, at `VIEWPORT=<width>x<height>`.
 // `THROTTLE=<rate>` slows the page's CPU down that many times, as a phone's.
 // `PAGE=<url>` plays into the page served there instead, such as the deployed one.
+// `RELAY=<url>` reaches the session on that relay instead, such as a local one.
 // `ANSWER=<text>` has the agent answer with it rather than "Okay." or the
 // scenario's answer, so that a long one is read while the person speaks on.
 // A run fails where nothing reached the agent, or none of its answers was read,
@@ -25,7 +26,7 @@ import { scenarios } from "./scenarios.ts";
 import { sendSecret } from "./secret.ts";
 import { speech, type Timeline } from "./speech.ts";
 
-const RELAY = "https://agentwire.potentialhedge.com";
+const RELAY = process.env.RELAY ?? "https://agentwire.potentialhedge.com";
 const TRACE = "application/vnd.agentwire.voice.trace+json";
 
 // A scenario by name, or a recording the page shared, a WAV, to replay.

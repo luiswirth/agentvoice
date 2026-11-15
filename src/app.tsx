@@ -4,6 +4,8 @@
 // the link as `#session=<link>`. Either tier's speech comes from the agent as
 // a secret, encrypted to the page: the ElevenLabs key, which can also be typed
 // in, and stays in this browser, or the link of the pipe to the engine.
+
+import { checkKey, KeyRefused } from "agentvoice";
 import { type Entry, LEAVE, Secrets } from "agentwire/participant";
 import {
 	type ReactNode,
@@ -15,7 +17,6 @@ import { Button } from "@/components/ui/button";
 import { Frame, Named, Onboard } from "./onboard.tsx";
 import { useSession } from "./session.ts";
 import { Call, type Present, type Room } from "./voice/call.tsx";
-import { checkKey, KeyRefused } from "./voice/elevenlabs.ts";
 import type { Tier } from "./voice/protocol.ts";
 import { agent as isAgent, speakers, spoken } from "./voice/protocol.ts";
 import {

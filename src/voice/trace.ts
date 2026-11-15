@@ -9,7 +9,7 @@
  * opened. */
 export const TRACE = "application/vnd.agentwire.voice.trace+json";
 
-import { LISTEN_RATE } from "voice-core";
+import { LISTEN_RATE } from "agentvoice";
 
 export type TraceEvent = { time: string; event: string } & Record<
 	string,

@@ -3,7 +3,7 @@
 // context is resumed by a switch's click, and by any gesture anywhere on the
 // page, for the speaker that is on from the start. A touch counts only as it
 // ends, so its pointerdown alone starts nothing on a phone.
-import { LISTEN_RATE, SPEECH_RATE } from "voice-core";
+import { LISTEN_RATE, SPEECH_RATE } from "agentvoice";
 import type { FromPlayback } from "./capture.ts";
 import capture from "./capture.ts?worker&url";
 

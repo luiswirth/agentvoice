@@ -1,5 +1,5 @@
 packages:
-  - core
+  - voice
 allowBuilds:
   esbuild: true
   protobufjs: false

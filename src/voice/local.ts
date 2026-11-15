@@ -5,7 +5,6 @@
 // sends the engine a stretch or a sentence, and gets the answer as an entry
 // of its own.
 
-import { LEAVE, RelayError, Session } from "agentwire/participant";
 import {
 	LISTEN_RATE,
 	type Piece,
@@ -14,7 +13,8 @@ import {
 	type Transcriber,
 	type Transcript,
 	type Word,
-} from "voice-core";
+} from "agentvoice";
+import { LEAVE, RelayError, Session } from "agentwire/participant";
 import type { Entry } from "./protocol.ts";
 
 /** What every type of the engine extension starts with. */

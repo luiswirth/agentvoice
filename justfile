@@ -4,7 +4,7 @@ ci:
     pnpm install --frozen-lockfile
     biome check
     pnpm exec tsc -p .
-    pnpm exec tsc -p core
+    pnpm exec tsc -p voice
     pnpm build
     just engine-pinned
 

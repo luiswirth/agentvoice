@@ -9,12 +9,15 @@ import {
 	type Fact,
 	type Heard,
 	type Hearer,
+	KeyRefused,
 	type Perception,
 	reflexive,
+	Scribe,
+	Speech,
 	type State,
 	type Store,
 	type Synthesizer,
-} from "voice-core";
+} from "agentvoice";
 import { Activity, type Progress } from "./activity.ts";
 import {
 	audioBlocked,
@@ -23,7 +26,6 @@ import {
 	Output,
 	watchAudio,
 } from "./audio.ts";
-import { KeyRefused, Scribe, Speech } from "./elevenlabs.ts";
 import {
 	Engines,
 	LocalSynthesizer,

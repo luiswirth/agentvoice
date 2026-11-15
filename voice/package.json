@@ -1,5 +1,5 @@
 {
-	"name": "voice-core",
+	"name": "agentvoice",
 	"private": true,
 	"type": "module",
 	"exports": {

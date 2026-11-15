@@ -1,6 +1,7 @@
-// The core of voice: a conversation by voice and its two special cases, read
-// aloud and dictation, with no transport and no UI. Its edges are audio and
-// text, in and out; the host carries them, and plugs in the tier.
+// agentvoice, the library every audio client builds on: a conversation by
+// voice and its two special cases, read aloud and dictation, with no
+// transport and no UI. Its edges are audio and text, in and out; the host
+// carries them, and plugs in the tier, such as ElevenLabs, which comes with it.
 export {
 	Conversation,
 	type Events,
@@ -14,6 +15,7 @@ export {
 } from "./conversation.ts";
 export type { Cue } from "./cues.ts";
 export { Cues } from "./cues.ts";
+export { checkKey, KeyRefused, Scribe, Speech } from "./elevenlabs.ts";
 export { Fingerprints } from "./fingerprints.ts";
 export type { Input } from "./listener.ts";
 export { type Model, REDIMNET2, SILERO, SMART_TURN } from "./models.ts";

@@ -4,8 +4,8 @@
 //   just recording <session link> [out.wav]
 import { writeFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
+import { LISTEN_RATE as RATE } from "agentvoice";
 import { type Entry, Session } from "agentwire/participant";
-import { LISTEN_RATE as RATE } from "voice-core";
 import { type Piece, recording } from "../src/voice/trace.ts";
 
 /** The stretches the page shared into `session` as one WAV, and when its
