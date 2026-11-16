@@ -18,7 +18,7 @@ const policy = [
 	"script-src 'self' 'wasm-unsafe-eval'",
 	"style-src 'self' 'unsafe-inline'",
 	"img-src 'self' data: blob:",
-	"media-src 'self' blob:",
+	"media-src 'self' data: blob:",
 	"worker-src 'self' blob:",
 	"connect-src 'self' https://vibetogether.potentialhedge.com https://api.elevenlabs.io wss://api.elevenlabs.io https://raw.githubusercontent.com https://huggingface.co https://*.huggingface.co https://*.hf.co",
 	"object-src 'none'",

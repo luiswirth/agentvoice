@@ -40,9 +40,19 @@ const sessionInAddress = () =>
  * asking again: one in a link someone else gave them it asks about first. */
 const picked = new Set<string>();
 
+const PICKED = "agentvoice-picked";
+
+/** The session in the address, and `picked` after it where the person
+ * picked it here, as one string, which React compares. */
+const here = () => {
+	const id = sessionInAddress();
+	return picked.has(id) ? `${id} picked` : id;
+};
+
 function go(session: string) {
 	if (session) picked.add(session);
 	location.hash = session ? new URLSearchParams({ session }).toString() : "";
+	dispatchEvent(new Event(PICKED));
 }
 
 function storedKey(): string | null {
@@ -60,10 +70,16 @@ export function App() {
 	useEffect(() => {
 		void client().then((c) => setSignedIn(c !== null));
 	}, []);
-	const id = useSyncExternalStore((changed) => {
+	// The session, and whether the person picked it here: picking the one
+	// already in the address changes nothing of it.
+	const [id, chosen] = useSyncExternalStore((changed) => {
 		addEventListener("hashchange", changed);
-		return () => removeEventListener("hashchange", changed);
-	}, sessionInAddress);
+		addEventListener(PICKED, changed);
+		return () => {
+			removeEventListener("hashchange", changed);
+			removeEventListener(PICKED, changed);
+		};
+	}, here).split(" ");
 	const [key, setKey] = useState(storedKey);
 	const [notice, setNotice] = useState<string | null>(null);
 	const out = () => {
@@ -76,7 +92,7 @@ export function App() {
 		if (signedIn === null) return null;
 		if (!signedIn) return <SignIn done={() => setSignedIn(true)} />;
 		if (!id) return <Sessions signOut={out} gone={() => setSignedIn(false)} />;
-		if (!picked.has(id)) return <Confirm id={id} />;
+		if (!chosen) return <Confirm id={id} />;
 		if (key === null) return <KeyStep keep={setKey} />;
 		return (
 			<Talk

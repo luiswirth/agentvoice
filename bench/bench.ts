@@ -142,6 +142,8 @@ try {
 		console.error("page:", error.stack ?? error.message),
 	);
 	await tab.goto(`${page}#session=${session}`);
+	// A session in a link is joined once the person confirms it.
+	await tab.getByRole("button", { name: "Join and talk" }).click();
 	// The speaker is on from the start, and reads the agent's answers.
 	const speak = tab.getByRole("button", { name: "Speak", exact: true });
 	if (await speak.isVisible()) await speak.click();
@@ -177,7 +179,10 @@ try {
 	const opened = await tab.evaluate(
 		() => (window as { opened?: number }).opened,
 	);
-	if (opened === undefined) throw new Error("the microphone never opened");
+	if (opened === undefined)
+		throw new Error(
+			`the microphone never opened; the page shows: ${(await tab.innerText("body")).replace(/\s+/g, " ").slice(0, 300)}`,
+		);
 	const { echoCancellation, noiseSuppression, autoGainControl } =
 		(await tab.evaluate(
 			() => (window as { processing?: MediaTrackSettings }).processing,
@@ -192,7 +197,12 @@ try {
 	const reached = log.filter(
 		(entry) => entry.from === me && entry.type.startsWith("text/plain"),
 	).length;
-	console.log(`messages that reached the session: ${reached}`);
+	const via = new Set(
+		log.filter((entry) => entry.from === me && entry.app).map((e) => e.app),
+	);
+	console.log(
+		`messages that reached the session: ${reached}, through ${[...via].join(", ") || "no app"}`,
+	);
 	const { sends, read } = report(events, opened, timeline, said);
 	if (sends === 0 || reached === 0)
 		throw new Error("nothing the person said reached the agent");
