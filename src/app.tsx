@@ -44,7 +44,8 @@ const PROMPT =
 	"Read https://agentvoice.lwirth.com/agents.md and set me up for voice.";
 
 /** The session the page opens on its own: `voice`, in the person's own
- * group, which their agent creates. */
+ * group, which their agent creates. Vibe Together marks that group's
+ * sessions as `own`, which no one else can make, unlike a group's name. */
 const VOICE = "voice";
 
 /** The sessions the person picked on this page, which it joins without
@@ -169,7 +170,7 @@ function Confirm({ id }: { id: string }) {
 			description={
 				problem ??
 				(session
-					? `${session.group ? `In ${session.group.name}. ` : ""}What you say there goes in as your messages, and everyone in the session reads them.`
+					? `${session.own ? "In your own group. " : session.group ? `In the group ${session.group.name}. ` : ""}What you say there goes in as your messages, and everyone in the session reads them.`
 					: "Loading the session…")
 			}
 		>
@@ -327,12 +328,9 @@ function Waiting({ gone }: { gone: () => void }) {
 			while (!stopped) {
 				try {
 					const c = await signedIn();
-					const me = (await c.me()).name;
 					const voice = (await c.sessions()).find(
 						(session) =>
-							session.name === VOICE &&
-							session.group?.name === me &&
-							!session.project,
+							session.own && session.name === VOICE && !session.project,
 					);
 					if (voice && !stopped) {
 						go(voice.id);
