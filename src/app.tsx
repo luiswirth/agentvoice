@@ -1,8 +1,9 @@
 // A page to talk with agents by voice, in a session of Vibe Together. The
-// person signs in to Vibe Together, by approving the page's OTP there, picks a
-// session, and talks: their turns go into the session as their messages, and
-// the agents' messages there are read aloud. Speech runs on ElevenLabs, with
-// the person's own key, which stays in this browser.
+// person signs in to Vibe Together, by approving the page as an app there,
+// picks a session, and talks: their turns go into the session as their
+// messages, through agentvoice, and the agents' messages there are read
+// aloud. Speech runs on ElevenLabs, with the person's own key, which stays in
+// this browser.
 
 import { checkKey, KeyRefused } from "agentvoice";
 import {
@@ -20,10 +21,10 @@ import { agent as isAgent, speakers, spoken } from "./voice/protocol.ts";
 import { Voice, type VoiceState } from "./voice/voice.ts";
 import {
 	client,
-	type Overview,
 	refusedToken,
 	type Session,
-	sessionsOf,
+	sessions as sessionsOf,
+	signedIn,
 	signIn,
 	signOut,
 } from "./vt.ts";
@@ -35,7 +36,12 @@ const SERVICE = "agentvoice.lwirth.com";
 const sessionInAddress = () =>
 	new URLSearchParams(location.hash.slice(1)).get("session") ?? "";
 
+/** The sessions the person picked on this page, which it joins without
+ * asking again: one in a link someone else gave them it asks about first. */
+const picked = new Set<string>();
+
 function go(session: string) {
+	if (session) picked.add(session);
 	location.hash = session ? new URLSearchParams({ session }).toString() : "";
 }
 
@@ -59,25 +65,87 @@ export function App() {
 		return () => removeEventListener("hashchange", changed);
 	}, sessionInAddress);
 	const [key, setKey] = useState(storedKey);
+	const [notice, setNotice] = useState<string | null>(null);
 	const out = () => {
-		void signOut().then(() => setSignedIn(false));
+		signOut().then(
+			() => setSignedIn(false),
+			(error: Error) => setNotice(error.message),
+		);
 	};
-
-	if (signedIn === null) return null;
-	if (!signedIn) return <SignIn done={() => setSignedIn(true)} />;
-	if (!id) return <Sessions signOut={out} gone={() => setSignedIn(false)} />;
-	if (key === null) return <KeyStep keep={setKey} />;
+	const page = (() => {
+		if (signedIn === null) return null;
+		if (!signedIn) return <SignIn done={() => setSignedIn(true)} />;
+		if (!id) return <Sessions signOut={out} gone={() => setSignedIn(false)} />;
+		if (!picked.has(id)) return <Confirm id={id} />;
+		if (key === null) return <KeyStep keep={setKey} />;
+		return (
+			<Talk
+				key={id}
+				id={id}
+				elevenlabs={key}
+				forgetKey={() => {
+					localStorage.removeItem(KEY);
+					setKey(null);
+				}}
+				signOut={out}
+			/>
+		);
+	})();
 	return (
-		<Talk
-			key={id}
-			id={id}
-			elevenlabs={key}
-			forgetKey={() => {
-				localStorage.removeItem(KEY);
-				setKey(null);
-			}}
-			signOut={out}
-		/>
+		<>
+			{page}
+			{notice && (
+				<div
+					role="alert"
+					className="fixed inset-x-3 top-3 z-50 mx-auto max-w-md rounded-2xl border bg-card p-4 text-sm text-pretty shadow-2xl"
+				>
+					{notice}{" "}
+					<button
+						type="button"
+						className="underline underline-offset-4"
+						onClick={() => setNotice(null)}
+					>
+						OK
+					</button>
+				</div>
+			)}
+		</>
+	);
+}
+
+/** A session in the address the person didn't pick here, such as from a
+ * link someone gave them: the page names it and asks before it joins, since
+ * joining sends what the microphone hears there as the person's words. */
+function Confirm({ id }: { id: string }) {
+	const [session, setSession] = useState<Session | null>(null);
+	const [problem, setProblem] = useState<string | null>(null);
+	useEffect(() => {
+		signedIn()
+			.then((c) => c.session(id))
+			.then(setSession, (error: Error) => setProblem(error.message));
+	}, [id]);
+	return (
+		<Frame
+			name={SERVICE}
+			title={session ? `Talk in ${title(session)}?` : "Talk in this session?"}
+			description={
+				problem ??
+				(session
+					? `${session.group ? `In ${session.group.name}. ` : ""}What you say there goes in as your messages, and everyone in the session reads them.`
+					: "Loading the session…")
+			}
+		>
+			<Actions>
+				{session && (
+					<Button size="lg" onClick={() => go(id)}>
+						Join and talk
+					</Button>
+				)}
+				<Button size="lg" variant="outline" onClick={() => go("")}>
+					Pick a session
+				</Button>
+			</Actions>
+		</Frame>
 	);
 }
 
@@ -125,9 +193,9 @@ function SignIn({ done }: { done: () => void }) {
 					Sign in with Vibe Together
 				</a>
 				<p className="px-2 text-sm text-pretty text-muted-foreground">
-					Vibe Together asks you to approve this page as "agentvoice". It then
-					acts as you, in the sessions you pick here, until you sign out or
-					revoke it there.
+					Vibe Together asks you to approve this page as the app "agentvoice".
+					It then sends and reads as you in your sessions, and nothing else,
+					until you sign out or revoke it there.
 				</p>
 				{problem && <p className="px-2 text-sm text-destructive">{problem}</p>}
 			</section>
@@ -145,19 +213,25 @@ function Sessions({
 	/** The token was refused. */
 	gone: () => void;
 }) {
-	const [overview, setOverview] = useState<Overview | null>(null);
+	const [seen, setSeen] = useState<{
+		me: string;
+		sessions: Session[];
+	} | null>(null);
 	const [problem, setProblem] = useState<string | null>(null);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: once, as the list opens
 	useEffect(() => {
-		void client()
-			.then((c) => c?.overview({}))
-			.then((o) => o && setOverview(o))
+		signedIn()
+			.then(async (c) => ({
+				me: (await c.me()).name,
+				sessions: await sessionsOf(),
+			}))
+			.then(setSeen)
 			.catch((error: Error) => {
 				if (refusedToken(error)) gone();
 				else setProblem(error.message);
 			});
 	}, []);
-	const sessions = overview ? sessionsOf(overview) : [];
+	const sessions = seen?.sessions ?? [];
 	const groups = Map.groupBy(
 		sessions,
 		(session) => session.group?.name ?? "Direct messages",
@@ -167,8 +241,8 @@ function Sessions({
 			name={SERVICE}
 			title="Pick a session"
 			description={
-				overview
-					? `Signed in to Vibe Together as ${overview.account.name}. Your words go into the session as your messages, and its agents' answers are read to you.`
+				seen
+					? `Signed in to Vibe Together as ${seen.me}. Your words go into the session as your messages, and its agents' answers are read to you.`
 					: "Loading your sessions…"
 			}
 		>
@@ -198,7 +272,7 @@ function Sessions({
 					</section>
 				))}
 			</div>
-			{overview && (
+			{seen && (
 				<p className="px-2 text-sm text-muted-foreground">
 					<button
 						type="button"

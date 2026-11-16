@@ -6,9 +6,10 @@
 //   just bench [scenario]
 //
 // It signs in with the person token `just token` keeps, and uses the
-// ElevenLabs key in ~/secrets/elevenlabs-api-key.txt. The session is a new one
-// in the person's own group, deleted after the run, or `SESSION=<id>`, which
-// stays. The agent is `agentvoice-bench`, of the machine's agent token.
+// ElevenLabs key in ~/secrets/elevenlabs-api-key.txt. The session is the
+// person's own group's `agentvoice bench`, which the agent creates once, or
+// `SESSION=<id>`. The agent is `agentvoice-bench`, of the machine's agent
+// token.
 // `SHOTS=<seconds>` takes a screenshot of the page that often, into
 // bench/.cache/shots, at `VIEWPORT=<width>x<height>`. `THROTTLE=<rate>` slows
 // the page's CPU down that many times, as a phone's. `PAGE=<url>` plays into
@@ -27,7 +28,7 @@ import { preview } from "vite";
 import type { Entry } from "../src/vt/vibetogether_client.js";
 import { scenarios } from "./scenarios.ts";
 import { speech, type Timeline } from "./speech.ts";
-import { agent as bench, person } from "./vt.ts";
+import { BENCH, agent as bench, person } from "./vt.ts";
 
 // A scenario by name, or a recording the page shared, a WAV, to replay.
 const name = process.argv[2] ?? "turns";
@@ -57,22 +58,9 @@ if (!page) throw new Error("the page is not served");
 const answer = process.env.ANSWER ?? scenario?.answer ?? "Okay.";
 const { client, token } = await person();
 const me = (await client.me()).name;
-const own = (await client.groups()).find((group) => group.own);
-const session =
-	process.env.SESSION ??
-	(
-		await client.createSession({
-			group: own?.id ?? "",
-			name: `agentvoice bench ${new Date().toISOString().slice(0, 16)}`,
-		})
-	).id;
 const agent = await bench();
-await Promise.all([client.join(session), agent.join(session)]).catch(
-	async (error) => {
-		if (!process.env.SESSION) await client.deleteSession(session);
-		throw error;
-	},
-);
+const session = process.env.SESSION ?? (await agent.session(BENCH));
+await Promise.all([client.join(session), agent.join(session)]);
 const log: Entry[] = [];
 const watching = new AbortController();
 const watch = (async () => {
@@ -215,7 +203,6 @@ try {
 	watching.abort();
 	await watch;
 	await agent.leave(session).catch(() => {});
-	if (!process.env.SESSION) await client.deleteSession(session).catch(() => {});
 	await server?.close();
 }
 

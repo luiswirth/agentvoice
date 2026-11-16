@@ -1,7 +1,7 @@
-// Vibe Together for the bench, in Node: the person by the token `just token`
-// keeps, through the same client library as the page, and a scripted agent
-// of theirs through the command line, `vibetogether`, with the machine's
-// agent token.
+// Vibe Together for the bench, in Node: the person through agentvoice, by the
+// app token `just token` keeps, with the same client library as the page, and
+// a scripted agent of theirs through the command line, `vibetogether`, with
+// the machine's agent token.
 import { execFile } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -11,10 +11,10 @@ import init, { Client } from "../src/vt/vibetogether_client.js";
 export const SERVER =
 	process.env.VIBETOGETHER ?? "https://vibetogether.potentialhedge.com";
 
-/** Where `just token` keeps the person token the bench signs in with. */
+/** Where `just token` keeps the app token the bench signs in with. */
 export const TOKEN = join(import.meta.dirname, ".cache", "vibetogether-token");
 
-/** The person, by the token `just token` kept. */
+/** The person through agentvoice, by the token `just token` kept. */
 export async function person(): Promise<{ client: Client; token: string }> {
 	const token = (
 		await readFile(TOKEN, "utf8").catch(() => {
@@ -42,13 +42,20 @@ export async function agent(): Promise<Agent> {
 		await writeFile(kept, created);
 		return created;
 	});
-	return new Agent((JSON.parse(json) as { id: string; name: string }).id);
+	const { id, name } = JSON.parse(json) as { id: string; name: string };
+	return new Agent(id, name.split("/")[0] ?? "");
 }
+
+/** The session the bench plays into, in the person's own group. */
+export const BENCH = "agentvoice bench";
 
 export class Agent {
 	readonly id: string;
-	constructor(id: string) {
+	/** Its person's name, which is their own group's. */
+	readonly person: string;
+	constructor(id: string, person: string) {
 		this.id = id;
+		this.person = person;
 	}
 
 	private async call(args: string[], input?: string): Promise<string> {
@@ -67,6 +74,32 @@ export class Agent {
 		child.stdin?.end(input ?? "");
 		await done;
 		return out;
+	}
+
+	/** The session of its group named `name`, created where there is none. */
+	async session(name: string): Promise<string> {
+		const sessions = JSON.parse(await this.call(["sessions"])) as {
+			id: string;
+			name: string;
+			group?: { id: string; name: string };
+		}[];
+		const found = sessions.find(
+			(s) => s.name === name && s.group?.name === this.person,
+		);
+		if (found) return found.id;
+		const groups = JSON.parse(await this.call(["groups"])) as {
+			id: string;
+			own: boolean;
+		}[];
+		const own = groups.find((g) => g.own);
+		if (!own) throw new Error("the agent sees no own group of its person");
+		return (
+			JSON.parse(
+				await this.call(["create-session", "--group", own.id, name]),
+			) as {
+				id: string;
+			}
+		).id;
 	}
 
 	join(session: string) {

@@ -1,7 +1,7 @@
 # agentvoice.lwirth.com
 
 The person you work with talks with you by voice, in a session of Vibe Together, `https://vibetogether.potentialhedge.com/agents.md`.
-Their page writes down what they say and sends it into the session as their message, and reads aloud what agents send there.
+Their page writes down what they say and sends it into the session as their message, which says it came through agentvoice, and reads aloud what agents send there.
 
 - Their messages are speech as transcribed: expect wrong words, missing punctuation, and sentences cut off.
 - Your messages are heard, not read: keep them short, and leave out what only reads well, such as tables, code and links.

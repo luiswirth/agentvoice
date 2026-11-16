@@ -9,9 +9,10 @@ const headers = {
 	"Cross-Origin-Embedder-Policy": "require-corp",
 };
 
-/** What the page may load and reach, as lwirth-cloud serves it: its own
- * scripts and WebAssembly, ElevenLabs, and the models of voice/src/models.ts,
- * whose Hugging Face links redirect to its storage. */
+/** What the page may load and reach, as lwirth-cloud serves it, in dotcloud's
+ * serve.nix: its own scripts and WebAssembly, Vibe Together, ElevenLabs, and
+ * the models of voice/src/models.ts, whose Hugging Face links redirect to its
+ * storage. */
 const policy = [
 	"default-src 'self'",
 	"script-src 'self' 'wasm-unsafe-eval'",
@@ -19,21 +20,11 @@ const policy = [
 	"img-src 'self' data: blob:",
 	"media-src 'self' blob:",
 	"worker-src 'self' blob:",
-	"connect-src 'self' https://api.elevenlabs.io wss://api.elevenlabs.io https://raw.githubusercontent.com https://huggingface.co https://*.huggingface.co https://*.hf.co",
+	"connect-src 'self' https://vibetogether.potentialhedge.com https://api.elevenlabs.io wss://api.elevenlabs.io https://raw.githubusercontent.com https://huggingface.co https://*.huggingface.co https://*.hf.co",
 	"object-src 'none'",
 	"base-uri 'none'",
 	"frame-ancestors 'none'",
 ].join("; ");
-
-/** Vibe Together's API at the page's own origin, as lwirth-cloud serves it
- * in dotcloud's serve.nix. */
-const proxy = {
-	"/api/": {
-		target:
-			process.env.VIBETOGETHER ?? "https://vibetogether.potentialhedge.com",
-		changeOrigin: true,
-	},
-};
 
 export default defineConfig({
 	base: "./",
@@ -48,11 +39,10 @@ export default defineConfig({
 			},
 		},
 	},
-	server: { headers, proxy },
+	server: { headers },
 	// The built page runs under the policy it is served with.
 	preview: {
 		headers: { ...headers, "Content-Security-Policy": policy },
-		proxy,
 	},
 	plugins: [react(), tailwindcss()],
 	resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },

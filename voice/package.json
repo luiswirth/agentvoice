@@ -1,5 +1,6 @@
 {
 	"name": "agentvoice",
+	"license": "MIT",
 	"private": true,
 	"type": "module",
 	"exports": {
