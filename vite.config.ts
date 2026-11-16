@@ -20,7 +20,7 @@ const policy = [
 	"img-src 'self' data: blob:",
 	"media-src 'self' data: blob:",
 	"worker-src 'self' blob:",
-	"connect-src 'self' https://vibetogether.potentialhedge.com https://api.elevenlabs.io wss://api.elevenlabs.io https://raw.githubusercontent.com https://huggingface.co https://*.huggingface.co https://*.hf.co",
+	`connect-src 'self' ${process.env.VITE_VIBETOGETHER ?? "https://vibetogether.potentialhedge.com"} https://api.elevenlabs.io wss://api.elevenlabs.io https://raw.githubusercontent.com https://huggingface.co https://*.huggingface.co https://*.hf.co`,
 	"object-src 'none'",
 	"base-uri 'none'",
 	"frame-ancestors 'none'",

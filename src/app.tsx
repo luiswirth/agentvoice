@@ -1,9 +1,12 @@
-// A page to talk with agents by voice, in a session of Vibe Together. The
-// person signs in to Vibe Together, by approving the page as an app there,
-// picks a session, and talks: their turns go into the session as their
-// messages, through agentvoice, and the agents' messages there are read
-// aloud. Speech runs on ElevenLabs, with the person's own key, which stays in
-// this browser.
+// A page to talk with agents by voice, in a session of Vibe Together. One
+// path for everyone: the person connects the page to Vibe Together, by
+// approving it as an app there, which makes their account where they have
+// none, and gives their agent one line, which has it set itself up and open
+// the session `voice` in their own group, as public/agents.md has it. The
+// page opens that session on its own; any other is a switch away. Their turns
+// go into the session as their messages, through agentvoice, and the agents'
+// messages there are read aloud. Speech runs on ElevenLabs, with the person's
+// own key, which stays in this browser.
 
 import { checkKey, KeyRefused } from "agentvoice";
 import {
@@ -36,23 +39,38 @@ const SERVICE = "agentvoice.lwirth.com";
 const sessionInAddress = () =>
 	new URLSearchParams(location.hash.slice(1)).get("session") ?? "";
 
+/** The line the person gives their agent. */
+const PROMPT =
+	"Read https://agentvoice.lwirth.com/agents.md and set me up for voice.";
+
+/** The session the page opens on its own: `voice`, in the person's own
+ * group, which their agent creates. */
+const VOICE = "voice";
+
 /** The sessions the person picked on this page, which it joins without
  * asking again: one in a link someone else gave them it asks about first. */
 const picked = new Set<string>();
 
 const PICKED = "agentvoice-picked";
 
-/** The session in the address, and `picked` after it where the person
- * picked it here, as one string, which React compares. */
+/** Where the page is, as one string, which React compares: the session in
+ * the address, with `picked` after it where the person picked it here, or
+ * `sessions` for the list of them, or nothing for the start. */
 const here = () => {
+	if (location.hash === "#sessions") return "sessions";
 	const id = sessionInAddress();
 	return picked.has(id) ? `${id} picked` : id;
 };
 
 function go(session: string) {
-	if (session) picked.add(session);
-	location.hash = session ? new URLSearchParams({ session }).toString() : "";
+	picked.add(session);
+	location.hash = new URLSearchParams({ session }).toString();
 	dispatchEvent(new Event(PICKED));
+}
+
+/** To the list of sessions. */
+function list() {
+	location.hash = "sessions";
 }
 
 function storedKey(): string | null {
@@ -90,10 +108,14 @@ export function App() {
 	};
 	const page = (() => {
 		if (signedIn === null) return null;
-		if (!signedIn) return <SignIn done={() => setSignedIn(true)} />;
-		if (!id) return <Sessions signOut={out} gone={() => setSignedIn(false)} />;
-		if (!chosen) return <Confirm id={id} />;
+		if (!signedIn) return <Start done={() => setSignedIn(true)} />;
+		// The key before any session, so that voice is ready as one opens, and
+		// the agent's first words are heard.
 		if (key === null) return <KeyStep keep={setKey} />;
+		if (id === "sessions")
+			return <Sessions signOut={out} gone={() => setSignedIn(false)} />;
+		if (!id) return <Waiting gone={() => setSignedIn(false)} />;
+		if (!chosen) return <Confirm id={id} />;
 		return (
 			<Talk
 				key={id}
@@ -157,7 +179,7 @@ function Confirm({ id }: { id: string }) {
 						Join and talk
 					</Button>
 				)}
-				<Button size="lg" variant="outline" onClick={() => go("")}>
+				<Button size="lg" variant="outline" onClick={list}>
 					Pick a session
 				</Button>
 			</Actions>
@@ -165,11 +187,14 @@ function Confirm({ id }: { id: string }) {
 	);
 }
 
-/** Signing in: the page asks Vibe Together for an OTP at once, so that the
- * button is a plain link, which a phone's browser opens without a popup
- * blocker in the way, and waits until the person approves it there. An OTP
- * lasts 15 minutes: an expired one is replaced. */
-function SignIn({ done }: { done: () => void }) {
+/** The start, before the page is connected: connecting it, and the line
+ * for the person's agent, the same for someone new to Vibe Together and for
+ * someone who uses it, since the agent finds out which they are. The page
+ * asks Vibe Together for an OTP at once, so that Connect is a plain link, which
+ * a phone's browser opens without a popup blocker in the way, and waits until
+ * the person approves it there. An OTP lasts 15 minutes: an expired one is
+ * replaced. */
+function Start({ done }: { done: () => void }) {
 	const [link, setLink] = useState<string | null>(null);
 	const [problem, setProblem] = useState<string | null>(null);
 	const finished = useRef(done);
@@ -196,25 +221,161 @@ function SignIn({ done }: { done: () => void }) {
 		<Frame
 			name={SERVICE}
 			title="Talk with your agents"
-			description="Speak in a session of Vibe Together, and hear your agents' answers, here in your browser. Sign in to Vibe Together first."
+			description="Speak to the agent you already use, such as Claude Code, and hear its answers, here in your browser."
 		>
-			<section className="flex flex-col gap-3">
-				<a
-					href={link ?? undefined}
-					target="_blank"
-					rel="noreferrer"
-					aria-disabled={!link}
-					className={`flex h-12 items-center justify-center rounded-xl bg-primary px-6 text-base font-medium text-primary-foreground transition-all outline-none hover:bg-primary/85 focus-visible:ring-3 focus-visible:ring-ring/50 active:translate-y-px ${link ? "" : "pointer-events-none opacity-50"}`}
+			<ol className="flex flex-col gap-8">
+				<Step n={1} title="Connect this page">
+					<a
+						href={link ?? undefined}
+						target="_blank"
+						rel="noreferrer"
+						aria-disabled={!link}
+						className={`flex h-12 items-center justify-center rounded-xl bg-primary px-6 text-base font-medium text-primary-foreground transition-all outline-none hover:bg-primary/85 focus-visible:ring-3 focus-visible:ring-ring/50 active:translate-y-px ${link ? "" : "pointer-events-none opacity-50"}`}
+					>
+						Connect
+					</a>
+					<p className="px-2 text-sm text-pretty text-muted-foreground">
+						You sign in with GitHub and approve agentvoice, which then sends and
+						reads as you in your sessions, and nothing else.
+					</p>
+					{problem && (
+						<p className="px-2 text-sm text-destructive">{problem}</p>
+					)}
+				</Step>
+				<Step n={2} title="Give your agent this line">
+					<Prompt />
+				</Step>
+			</ol>
+			<RunsOn />
+		</Frame>
+	);
+}
+
+function Step({
+	n,
+	title,
+	children,
+}: {
+	n: number;
+	title: string;
+	children: ReactNode;
+}) {
+	return (
+		<li className="flex flex-col gap-3">
+			<h2 className="flex items-baseline gap-3 px-2 text-lg font-medium">
+				<span className="font-mono text-sm text-muted-foreground">{n}</span>
+				{title}
+			</h2>
+			{children}
+		</li>
+	);
+}
+
+/** The line for the person's agent, to copy. */
+function Prompt() {
+	const [copied, setCopied] = useState(false);
+	useEffect(() => {
+		if (!copied) return;
+		const timer = setTimeout(() => setCopied(false), 1500);
+		return () => clearTimeout(timer);
+	}, [copied]);
+	return (
+		<div className="flex flex-col gap-2 rounded-2xl border bg-card/60 p-2 shadow-2xl shadow-black/20 backdrop-blur">
+			<p className="rounded-xl bg-background/80 p-4 font-mono text-sm leading-relaxed wrap-anywhere">
+				{PROMPT}
+			</p>
+			<Button
+				size="lg"
+				variant="outline"
+				onClick={() =>
+					void navigator.clipboard.writeText(PROMPT).then(() => setCopied(true))
+				}
+			>
+				{copied ? "Copied" : "Copy"}
+			</Button>
+		</div>
+	);
+}
+
+function RunsOn() {
+	return (
+		<p className="px-2 text-xs text-muted-foreground">
+			Runs on{" "}
+			<a
+				className="underline underline-offset-4 hover:text-foreground"
+				href="https://vibetogether.potentialhedge.com/"
+				target="_blank"
+				rel="noreferrer"
+			>
+				Vibe Together
+			</a>
+			, where your agents and you talk in sessions.
+		</p>
+	);
+}
+
+/** Once connected: opens the session `voice` of the person's own group as
+ * soon as their agent made it, and until then waits, with the line for the
+ * agent and a way to any other session. */
+function Waiting({ gone }: { gone: () => void }) {
+	const [problem, setProblem] = useState<string | null>(null);
+	const finished = useRef(gone);
+	finished.current = gone;
+	useEffect(() => {
+		let stopped = false;
+		(async () => {
+			while (!stopped) {
+				try {
+					const c = await signedIn();
+					const me = (await c.me()).name;
+					const voice = (await c.sessions()).find(
+						(session) =>
+							session.name === VOICE &&
+							session.group?.name === me &&
+							!session.project,
+					);
+					if (voice && !stopped) {
+						go(voice.id);
+						return;
+					}
+					setProblem(null);
+				} catch (error) {
+					if (refusedToken(error)) {
+						finished.current();
+						return;
+					}
+					setProblem((error as Error).message);
+				}
+				await new Promise((r) => setTimeout(r, 3000));
+			}
+		})();
+		return () => {
+			stopped = true;
+		};
+	}, []);
+	return (
+		<Frame
+			name={SERVICE}
+			title="Waiting for your agent"
+			description="Connected. Once your agent has set up voice, this page opens its session, and you can talk."
+		>
+			<ol>
+				<Step n={2} title="Give your agent this line">
+					<Prompt />
+				</Step>
+			</ol>
+			{problem && <p className="px-2 text-sm text-destructive">{problem}</p>}
+			<p className="px-2 text-sm text-muted-foreground">
+				Or talk in{" "}
+				<button
+					type="button"
+					className="underline underline-offset-4 hover:text-foreground"
+					onClick={list}
 				>
-					Sign in with Vibe Together
-				</a>
-				<p className="px-2 text-sm text-pretty text-muted-foreground">
-					Vibe Together asks you to approve this page as the app "agentvoice".
-					It then sends and reads as you in your sessions, and nothing else,
-					until you sign out or revoke it there.
-				</p>
-				{problem && <p className="px-2 text-sm text-destructive">{problem}</p>}
-			</section>
+					another session
+				</button>
+				.
+			</p>
 		</Frame>
 	);
 }
@@ -429,7 +590,7 @@ function Talk({
 				description={problem}
 			>
 				<Actions>
-					<Button size="lg" onClick={() => go("")}>
+					<Button size="lg" onClick={list}>
 						Pick another session
 					</Button>
 				</Actions>
@@ -449,7 +610,7 @@ function Talk({
 			})),
 		speakers: speakers(entries),
 		link: id,
-		leave: () => go(""),
+		leave: list,
 	};
 	return (
 		<main className="mx-auto flex h-dvh max-w-6xl flex-col gap-4 px-3 pt-3 pb-6 sm:px-4 sm:pb-8">
