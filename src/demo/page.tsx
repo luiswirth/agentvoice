@@ -48,11 +48,8 @@ const voice = {
 		answer();
 	},
 	download: async () => ({ name: "trace.zip", blob: new Blob() }),
-	share: (sharing: boolean) => set({ sharing }),
 	setLanguages: async (languages: string[]) => set({ languages }),
 	setSounds: (sounds: boolean) => set({ sounds }),
-	setTier: async (tier: VoiceState["tier"]) => set({ tier }),
-	setEngineVoice: (engineVoice: string) => set({ engineVoice }),
 } as unknown as Voice;
 // The microphone's level, changed in place, as it is read every frame.
 setInterval(() => {
@@ -113,7 +110,7 @@ const room: Room = {
 					},
 				],
 	speakers: name === "off" ? [] : ["luis/claude", "ben/codex"],
-	link: "https://agentwire.potentialhedge.com/s/abc123",
+	link: "s_demo",
 	leave: () => {},
 };
 

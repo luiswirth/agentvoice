@@ -1,322 +1,381 @@
-// A page to talk with an agent by voice, on a session of the agentwire transport.
-// Whoever starts creates the session: the page, which then hands the agent
-// a prompt with its link, or the agent, which gives the person the page with
-// the link as `#session=<link>`. Either tier's speech comes from the agent as
-// a secret, encrypted to the page: the ElevenLabs key, which can also be typed
-// in, and stays in this browser, or the link of the pipe to the engine.
+// A page to talk with agents by voice, in a session of Vibe Together. The
+// person signs in to Vibe Together, by approving the page's OTP there, picks a
+// session, and talks: their turns go into the session as their messages, and
+// the agents' messages there are read aloud. Speech runs on ElevenLabs, with
+// the person's own key, which stays in this browser.
 
 import { checkKey, KeyRefused } from "agentvoice";
-import { type Entry, LEAVE, Secrets } from "agentwire/participant";
 import {
 	type ReactNode,
 	useEffect,
+	useRef,
 	useState,
 	useSyncExternalStore,
 } from "react";
 import { Button } from "@/components/ui/button";
-import { Frame, Named, Onboard } from "./onboard.tsx";
+import { Frame } from "./frame.tsx";
 import { useSession } from "./session.ts";
 import { Call, type Present, type Room } from "./voice/call.tsx";
-import type { Tier } from "./voice/protocol.ts";
 import { agent as isAgent, speakers, spoken } from "./voice/protocol.ts";
+import { Voice, type VoiceState } from "./voice/voice.ts";
 import {
-	chooseTier,
-	chosenTier,
-	Voice,
-	type VoiceState,
-} from "./voice/voice.ts";
+	client,
+	type Overview,
+	refusedToken,
+	type Session,
+	sessionsOf,
+	signIn,
+	signOut,
+} from "./vt.ts";
 
 const KEY = "elevenlabs-key";
 const SERVICE = "agentvoice.lwirth.com";
 
+/** The session in the page's address, as `#session=<id>`. */
+const sessionInAddress = () =>
+	new URLSearchParams(location.hash.slice(1)).get("session") ?? "";
+
+function go(session: string) {
+	location.hash = session ? new URLSearchParams({ session }).toString() : "";
+}
+
+function storedKey(): string | null {
+	try {
+		return localStorage.getItem(KEY);
+	} catch {
+		return null;
+	}
+}
+
 export function App() {
+	// Whether the page holds a token, as far as it knows: a refused one
+	// signs it out.
+	const [signedIn, setSignedIn] = useState<boolean | null>(null);
+	useEffect(() => {
+		void client().then((c) => setSignedIn(c !== null));
+	}, []);
+	const id = useSyncExternalStore((changed) => {
+		addEventListener("hashchange", changed);
+		return () => removeEventListener("hashchange", changed);
+	}, sessionInAddress);
+	const [key, setKey] = useState(storedKey);
+	const out = () => {
+		void signOut().then(() => setSignedIn(false));
+	};
+
+	if (signedIn === null) return null;
+	if (!signedIn) return <SignIn done={() => setSignedIn(true)} />;
+	if (!id) return <Sessions signOut={out} gone={() => setSignedIn(false)} />;
+	if (key === null) return <KeyStep keep={setKey} />;
 	return (
-		<Named service={SERVICE}>
-			{(name, rename) => <Page name={name} rename={rename} />}
-		</Named>
+		<Talk
+			key={id}
+			id={id}
+			elevenlabs={key}
+			forgetKey={() => {
+				localStorage.removeItem(KEY);
+				setKey(null);
+			}}
+			signOut={out}
+		/>
 	);
 }
 
-/** The tiers, as the person chooses between them before their agent comes. */
-const TIERS = [
-	{
-		id: "local",
-		title: "Local",
-		description:
-			"Open speech models on a machine your agent can act on. Your agent sets them up.",
-		facts: ["Free", "No account", "English", "1 GB download, once"],
-		goal: "set up voice on the local tier so we can talk",
-	},
-	{
-		id: "elevenlabs",
-		title: "ElevenLabs",
-		description:
-			"Hosted speech models, through your own ElevenLabs account. What your microphone hears while someone speaks goes to ElevenLabs. Your agent can send its key.",
-		facts: ["Higher quality", "Many languages", "Paid per use", "Needs a key"],
-		goal: "set up voice on the ElevenLabs tier so we can talk",
-	},
-];
-
-/** The page, taking part under the person's `name`. */
-function Page({ name, rename }: { name: string; rename: () => void }) {
-	const { session, entries, presence, problem, taken, leave } =
-		useSession(name);
-	const [key, setKey] = useState(() => localStorage.getItem(KEY));
-	// The entry that brought the key, if the agent sent it.
-	const [keyEntry, setKeyEntry] = useState<number | undefined>();
-	// Why ElevenLabs refused the last key, which asks for another.
-	const [refused, setRefused] = useState<string | null>(null);
-	// The tier as chosen in this browser, local until the person chooses.
-	const [tier, setTier] = useState(chosenTier);
-
-	/** Keeps `candidate` unless ElevenLabs refuses it; a check that fails
-	 * for another reason, such as the network, can't tell, so it keeps it. */
-	const offer = async (candidate: string, after?: number) => {
-		try {
-			await checkKey(candidate);
-		} catch (error) {
-			if (error instanceof KeyRefused) {
-				setRefused(error.message);
-				return;
+/** Signing in: the page asks Vibe Together for an OTP at once, so that the
+ * button is a plain link, which a phone's browser opens without a popup
+ * blocker in the way, and waits until the person approves it there. An OTP
+ * lasts 15 minutes: an expired one is replaced. */
+function SignIn({ done }: { done: () => void }) {
+	const [link, setLink] = useState<string | null>(null);
+	const [problem, setProblem] = useState<string | null>(null);
+	const finished = useRef(done);
+	finished.current = done;
+	useEffect(() => {
+		const stop = new AbortController();
+		(async () => {
+			while (!stop.signal.aborted) {
+				try {
+					await signIn(setLink, stop.signal);
+					finished.current();
+					return;
+				} catch (error) {
+					if (stop.signal.aborted) return;
+					setLink(null);
+					setProblem((error as Error).message);
+					await new Promise((r) => setTimeout(r, 3000));
+				}
 			}
-		}
-		localStorage.setItem(KEY, candidate);
-		setRefused(null);
-		setKeyEntry(after);
-		setKey(candidate);
-	};
-	const forget = (why: string) => {
-		localStorage.removeItem(KEY);
-		setRefused(why);
-		setKey(null);
-	};
+		})();
+		return () => stop.abort();
+	}, []);
+	return (
+		<Frame
+			name={SERVICE}
+			title="Talk with your agents"
+			description="Speak in a session of Vibe Together, and hear your agents' answers, here in your browser. Sign in to Vibe Together first."
+		>
+			<section className="flex flex-col gap-3">
+				<a
+					href={link ?? undefined}
+					target="_blank"
+					rel="noreferrer"
+					aria-disabled={!link}
+					className={`flex h-12 items-center justify-center rounded-xl bg-primary px-6 text-base font-medium text-primary-foreground transition-all outline-none hover:bg-primary/85 focus-visible:ring-3 focus-visible:ring-ring/50 active:translate-y-px ${link ? "" : "pointer-events-none opacity-50"}`}
+				>
+					Sign in with Vibe Together
+				</a>
+				<p className="px-2 text-sm text-pretty text-muted-foreground">
+					Vibe Together asks you to approve this page as "agentvoice". It then
+					acts as you, in the sessions you pick here, until you sign out or
+					revoke it there.
+				</p>
+				{problem && <p className="px-2 text-sm text-destructive">{problem}</p>}
+			</section>
+		</Frame>
+	);
+}
 
-	// The voice lives as long as the session, so that the agent learns the
-	// tier from its modes while it sets up; a key that comes later is given
-	// to it.
+/** The sessions the person can talk in, by group, the ones that pinged them
+ * marked. */
+function Sessions({
+	signOut,
+	gone,
+}: {
+	signOut: () => void;
+	/** The token was refused. */
+	gone: () => void;
+}) {
+	const [overview, setOverview] = useState<Overview | null>(null);
+	const [problem, setProblem] = useState<string | null>(null);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: once, as the list opens
+	useEffect(() => {
+		void client()
+			.then((c) => c?.overview({}))
+			.then((o) => o && setOverview(o))
+			.catch((error: Error) => {
+				if (refusedToken(error)) gone();
+				else setProblem(error.message);
+			});
+	}, []);
+	const sessions = overview ? sessionsOf(overview) : [];
+	const groups = Map.groupBy(
+		sessions,
+		(session) => session.group?.name ?? "Direct messages",
+	);
+	return (
+		<Frame
+			name={SERVICE}
+			title="Pick a session"
+			description={
+				overview
+					? `Signed in to Vibe Together as ${overview.account.name}. Your words go into the session as your messages, and its agents' answers are read to you.`
+					: "Loading your sessions…"
+			}
+		>
+			{problem && <p className="text-sm text-destructive">{problem}</p>}
+			<div className="flex flex-col gap-8">
+				{[...groups].map(([group, sessions]) => (
+					<section key={group} className="flex flex-col gap-2">
+						<h2 className="px-2 text-xs tracking-widest text-muted-foreground uppercase">
+							{group}
+						</h2>
+						<ul className="flex flex-col gap-1.5">
+							{sessions.map((session) => (
+								<li key={session.id}>
+									<button
+										type="button"
+										onClick={() => go(session.id)}
+										className="flex w-full items-baseline gap-3 rounded-2xl border bg-card/40 px-4 py-3 text-left transition hover:border-foreground/30 hover:bg-card/70 focus-visible:ring-3 focus-visible:ring-ring/50 outline-none active:translate-y-px"
+									>
+										<span className="text-base">{title(session)}</span>
+										{session.pinged && (
+											<span className="text-sm text-primary">pinged you</span>
+										)}
+									</button>
+								</li>
+							))}
+						</ul>
+					</section>
+				))}
+			</div>
+			{overview && (
+				<p className="px-2 text-sm text-muted-foreground">
+					<button
+						type="button"
+						className="underline underline-offset-4 hover:text-foreground"
+						onClick={signOut}
+					>
+						Sign out
+					</button>
+				</p>
+			)}
+		</Frame>
+	);
+}
+
+function title(session: Session): string {
+	if (session.friend) return session.friend;
+	return session.project
+		? `${session.project.name} / ${session.name}`
+		: session.name;
+}
+
+/** The ElevenLabs key, which ElevenLabs checks before it is kept. */
+function KeyStep({ keep }: { keep: (key: string) => void }) {
+	const [draft, setDraft] = useState("");
+	const [checking, setChecking] = useState(false);
+	const [refused, setRefused] = useState<string | null>(null);
+	const key = draft.trim();
+	return (
+		<Frame
+			name={SERVICE}
+			title="Your ElevenLabs key"
+			description="Voice runs on ElevenLabs, with your own key: what your microphone hears while someone speaks, and your agents' answers, go to ElevenLabs. The key stays in this browser, and goes only to ElevenLabs."
+		>
+			<section className="flex flex-col gap-3">
+				<form
+					className="flex flex-col gap-2 rounded-2xl border bg-card/60 p-2 shadow-2xl shadow-black/20 backdrop-blur sm:flex-row"
+					onSubmit={async (event) => {
+						event.preventDefault();
+						if (!key) return;
+						setChecking(true);
+						try {
+							await checkKey(key);
+						} catch (error) {
+							// Another failure, such as the network's, can't tell, so
+							// the key is kept.
+							if (error instanceof KeyRefused) {
+								setRefused(error.message);
+								setChecking(false);
+								return;
+							}
+						}
+						localStorage.setItem(KEY, key);
+						keep(key);
+					}}
+				>
+					<input
+						type="password"
+						autoComplete="off"
+						aria-label="ElevenLabs API key"
+						className="h-11 flex-1 rounded-xl bg-background/80 px-4 font-mono text-base outline-none placeholder:font-sans placeholder:text-muted-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
+						placeholder="ElevenLabs key, sk_…"
+						value={draft}
+						onChange={(event) => setDraft(event.target.value)}
+					/>
+					<button
+						type="submit"
+						disabled={!key || checking}
+						className="h-11 rounded-xl bg-primary px-6 font-medium text-primary-foreground transition-all outline-none hover:bg-primary/85 focus-visible:ring-3 focus-visible:ring-ring/50 active:translate-y-px disabled:opacity-50"
+					>
+						{checking ? "Checking…" : "Use this key"}
+					</button>
+				</form>
+				{refused && <p className="px-2 text-sm text-destructive">{refused}</p>}
+				<p className="px-2 text-sm text-pretty text-muted-foreground">
+					No key yet? Create one in{" "}
+					<a
+						className="text-foreground underline underline-offset-4"
+						href="https://elevenlabs.io/app/developers/api-keys"
+						target="_blank"
+						rel="noreferrer"
+					>
+						ElevenLabs, under Developers, API Keys
+					</a>
+					, with Speech to Text and Text to Speech allowed.
+				</p>
+			</section>
+		</Frame>
+	);
+}
+
+/** The call in the session `id`. */
+function Talk({
+	id,
+	elevenlabs,
+	forgetKey,
+	signOut,
+}: {
+	id: string;
+	elevenlabs: string;
+	forgetKey: () => void;
+	signOut: () => void;
+}) {
+	const { seat, entries, participants, problem } = useSession(id);
 	const [voice, setVoice] = useState<Voice | null>(null);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the key at its start
 	useEffect(() => {
-		if (!session) return;
-		const voice = new Voice(session, session.name, key);
+		if (!seat) return;
+		const voice = new Voice(seat, seat.name, elevenlabs);
 		setVoice(voice);
 		return () => voice.close();
-	}, [session]);
-	// The voice gets the key from here, the one place it is kept, so that a
-	// key that came before the voice did, or through a callback made before
-	// it, still reaches it.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: the entry comes with the key
+	}, [seat]);
 	useEffect(() => {
-		void voice?.setKey(key, keyEntry);
-	}, [voice, key]);
+		void voice?.setKey(elevenlabs);
+	}, [voice, elevenlabs]);
 	const state = useVoiceState(voice);
-	const choose = (chosen: Tier) => {
-		setRefused(null);
-		setTier(chosen);
-		if (voice) void voice.setTier(chosen);
-		else chooseTier(chosen);
-	};
-
-	// The secrets the agent sends: the key, or the pipe to the engine.
-	const [secrets, setSecrets] = useState<Secrets | null>(null);
-	// biome-ignore lint/correctness/useExhaustiveDependencies: offer only sets state
+	const name = seat?.name ?? "";
+	const people: Present[] = Object.entries(participants)
+		.filter(([other]) => other !== name)
+		.map(([other, { presence, since }]) => ({
+			name: other,
+			receiving: presence === "awake" || presence === "asleep",
+			since,
+			// Vibe Together vouches for every name: an agent's is under its
+			// person's account.
+			account: other.split("/")[0],
+		}));
+	// Listening runs only while an agent is in the session to hear it.
+	const talking = Boolean(state?.ready && people.some((p) => isAgent(p.name)));
 	useEffect(() => {
-		if (!session || !voice) return;
-		const secrets = new Secrets(session);
-		setSecrets(secrets);
-		return session.subscribe({
-			entry: (entry) =>
-				void secrets.open(entry).then((secret) => {
-					if (secret?.name === "elevenlabs")
-						void offer(secret.value.trim(), entry.n);
-					if (secret?.name === "engine") voice.connect(secret.value.trim());
-				}),
-		});
-	}, [session, voice]);
-	// A public key of its own, once, for the agent to send the tier's secret
-	// to, while the tier lacks it.
-	const lacking =
-		state !== null &&
-		(state.tier === "elevenlabs" ? key === null : !state.piped);
-	useEffect(() => {
-		if (secrets && lacking) void secrets.publish();
-	}, [secrets, lacking]);
-	const hangUp = () => {
-		void voice?.hangUp();
-		void leave();
-	};
-
-	// Three states, which the presence decides, on one page that changes in
-	// place until talking: onboarding until an agent came, waiting for it
-	// while it joins and sets voice up, or after it left, and talking once an
-	// agent is here and voice is ready. Copying the prompt only copies it.
-	// The tier is chosen while onboarding, and is a setting while talking.
-	const current = state?.tier ?? tier;
-	const room = session ? roomOf(name, entries, presence) : undefined;
-	const agent = (room?.people.length ?? 0) > 0;
-	const talking = Boolean(session && voice && state?.ready && agent);
-	// Listening runs only while talking.
-	useEffect(() => {
-		voice?.standby(!talking);
+		void voice?.standby(!talking);
 	}, [voice, talking]);
-	if (problem) {
-		return taken ? (
-			<Frame
-				name={SERVICE}
-				title="That name is taken here"
-				description={`Someone joined this session as ${name} already, maybe you on another device. Join under another name, such as ${name}-phone.`}
-			>
-				<Actions>
-					<Button size="lg" onClick={rename}>
-						Choose another name
-					</Button>
-				</Actions>
-			</Frame>
-		) : (
+
+	if (problem)
+		return (
 			<Frame
 				name={SERVICE}
 				title="This session can't be joined"
 				description={problem}
 			>
 				<Actions>
-					<Button size="lg" onClick={hangUp}>
-						Start a new session
+					<Button size="lg" onClick={() => go("")}>
+						Pick another session
 					</Button>
 				</Actions>
 			</Frame>
 		);
-	}
-	// Until the page is in the presence, it can't tell who is here.
-	if (session && !room) return null;
-	if (session && room && !talking) {
-		const here = room.people[0]?.name ?? null;
-		// Onboarding until an agent came into this session, as before a reload.
-		const came = here !== null || room.left !== null;
-		return (
-			<Onboard
-				name={SERVICE}
-				title={
-					here
-						? "Setting up"
-						: room.left
-							? "Your agent left"
-							: "Talk with your agent"
-				}
-				description={
-					here
-						? current === "local"
-							? "Your agent is starting the speech models on a machine it can act on. Its steps show here."
-							: "Voice runs on ElevenLabs, with your own key. Your agent's steps show here."
-						: room.left
-							? `${label(room.left)} left the session. To talk again, give your agent the prompt.`
-							: "Speak to the agent you already use, and hear its answers, here in your browser. First choose where the speech models run."
-				}
-				link={session.link}
-				choice={{
-					// The key can be entered as ElevenLabs is chosen, before the
-					// agent comes, and stays in place once the choice folds.
-					options: TIERS.map((option) =>
-						option.id === "elevenlabs"
-							? {
-									...option,
-									detail: key ? (
-										<p className="px-2 text-sm text-muted-foreground">
-											Your ElevenLabs key is kept in this browser.
-										</p>
-									) : (
-										<KeyStep refused={refused} offer={offer} />
-									),
-								}
-							: option,
-					),
-					chosen: current,
-					choose: (id) => choose(id as Tier),
-					folded: came,
-				}}
-				person={name}
-			>
-				<Waiting
-					name={name}
-					entries={entries}
-					status={state?.engineStatus ?? null}
-					agent={here}
-					switchTier={
-						came
-							? () => choose(current === "local" ? "elevenlabs" : "local")
-							: undefined
-					}
-					local={current === "local"}
-				/>
-			</Onboard>
-		);
-	}
+	if (!seat || !voice) return null;
+	const room: Room = {
+		people,
+		turns: entries
+			.filter(spoken)
+			.filter((entry) => entry.from === name || isAgent(entry.from))
+			.map((entry) => ({
+				n: entry.n,
+				from: entry.from,
+				mine: entry.from === name,
+				text: entry.text,
+			})),
+		speakers: speakers(entries),
+		link: id,
+		leave: () => go(""),
+	};
 	return (
 		<main className="mx-auto flex h-dvh max-w-6xl flex-col gap-4 px-3 pt-3 pb-6 sm:px-4 sm:pb-8">
-			{voice && (
-				<Refusable
-					voice={voice}
-					forget={forget}
-					keyed={key !== null}
-					room={
-						session && room
-							? {
-									people: room.people,
-									turns: entries
-										.filter(spoken)
-										.filter(
-											(entry) => entry.from === name || isAgent(entry.from),
-										)
-										.map((entry) => ({
-											n: entry.n,
-											from: entry.from,
-											mine: entry.from === name,
-											text: entry.text,
-										})),
-									speakers: speakers(entries),
-									link: session.link,
-									leave: hangUp,
-								}
-							: undefined
-					}
-				/>
+			<p className="text-center text-sm text-muted-foreground">
+				{seat.info ? title(seat.info) : ""}
+			</p>
+			<Call voice={voice} room={room} changeKey={forgetKey} signOut={signOut} />
+			{state?.refused && state.error && (
+				<div className="flex justify-center">
+					<Button variant="outline" onClick={forgetKey}>
+						Use another ElevenLabs key
+					</Button>
+				</div>
 			)}
 		</main>
 	);
-}
-
-/** The session as the voice page shows it: the others in it now, and,
- * once everyone left, who left last. */
-function roomOf(
-	name: string,
-	entries: Entry[],
-	presence: Record<
-		string,
-		{ receiving: boolean; since?: string; account?: string }
-	>,
-): { people: Present[]; left: string | null } | undefined {
-	// Until the page itself is in the presence, it holds no one yet.
-	if (!(name in presence)) return undefined;
-	const people = Object.entries(presence)
-		.filter(([other]) => other !== name)
-		.map(([other, { receiving, since, account }]) => ({
-			name: other,
-			receiving,
-			since,
-			// Verified only as the account's own name, as the MCP server
-			// counts it, whatever else an access service may vouch for.
-			account: account === other.split("/")[0] ? account : undefined,
-		}));
-	const gone =
-		people.length === 0
-			? entries.findLast((e) => e.type.startsWith(LEAVE) && e.from !== name)
-			: undefined;
-	return { people, left: gone?.from ?? null };
-}
-
-/** A name in the session as the person reads it: without the person's own
- * prefix, which every agent they invite carries. */
-function label(name: string): string {
-	return name.slice(name.indexOf("/") + 1);
 }
 
 function useVoiceState(voice: Voice | null): VoiceState | null {
@@ -328,187 +387,4 @@ function useVoiceState(voice: Voice | null): VoiceState | null {
 
 function Actions({ children }: { children: ReactNode }) {
 	return <div className="flex flex-wrap gap-2">{children}</div>;
-}
-
-/** The call, and a way to another key once ElevenLabs refuses this
- * one, or to a key where there is none. */
-function Refusable({
-	voice,
-	forget,
-	keyed,
-	room,
-}: {
-	voice: Voice;
-	forget: (why: string) => void;
-	keyed: boolean;
-	room?: Room | undefined;
-}) {
-	const state = useSyncExternalStore(voice.watch, () => voice.state);
-	return (
-		<>
-			<Call
-				voice={voice}
-				room={room}
-				changeKey={keyed ? () => forget("") : undefined}
-			/>
-			{state.refused && state.error && (
-				<div className="flex justify-center">
-					<Button variant="outline" onClick={() => forget(state.error ?? "")}>
-						{keyed ? "Use another ElevenLabs key" : "Enter an ElevenLabs key"}
-					</Button>
-				</div>
-			)}
-		</>
-	);
-}
-
-/** Under the prompt, what the agent does: joining, then while it sets
- * voice up, what it narrates, as text until there is a voice, with the
- * engine's latest status in its place. Once the choice of tier is settled, a
- * way to the other one. */
-function Waiting({
-	name,
-	entries,
-	status,
-	agent,
-	local,
-	switchTier,
-}: {
-	name: string;
-	entries: Entry[];
-	/** What the engine is doing, before it offers. */
-	status: string | null;
-	/** The agent here now, by its name. */
-	agent: string | null;
-	local: boolean;
-	/** To the other tier, which the agent then sets up. */
-	switchTier?: (() => void) | undefined;
-}) {
-	// What happened since the agent last joined, not before an earlier one left.
-	const since =
-		entries.findLast(
-			(entry) => entry.type.startsWith(LEAVE) && entry.from !== name,
-		)?.n ?? -1;
-	const said = entries.filter(
-		(entry): entry is Entry & { text: string } =>
-			entry.n > since && entry.from !== name && spoken(entry),
-	);
-	// The engine's latest status comes last, as what is going on now.
-	const steps = [
-		...said.map((entry) => ({ key: String(entry.n), text: entry.text })),
-		...(status && local ? [{ key: "engine", text: status }] : []),
-	];
-	return (
-		<>
-			<ol className="flex flex-col gap-3 rounded-2xl border bg-card/40 p-5">
-				{agent ? (
-					<>
-						<Step done>{label(agent)} joined.</Step>
-						{steps.map((step, i) => (
-							<Step key={step.key} done={i < steps.length - 1}>
-								{step.text}
-							</Step>
-						))}
-						{steps.length === 0 && <Step>Waiting for its first step…</Step>}
-					</>
-				) : (
-					<Step>Waiting for your agent to join…</Step>
-				)}
-			</ol>
-			{switchTier && (
-				<p className="-mt-6 px-2 text-sm text-muted-foreground">
-					<button
-						type="button"
-						className="underline underline-offset-4 hover:text-foreground"
-						onClick={switchTier}
-					>
-						{local ? "Use ElevenLabs instead" : "Use local models instead"}
-					</button>
-					, and your agent sets that up.
-				</p>
-			)}
-		</>
-	);
-}
-
-function Step({
-	done = false,
-	children,
-}: {
-	done?: boolean;
-	children: ReactNode;
-}) {
-	return (
-		<li className="flex items-baseline gap-3">
-			<span
-				aria-hidden
-				className={`size-2 shrink-0 translate-y-[-1px] rounded-full ${done ? "bg-muted-foreground/50" : "animate-pulse bg-primary shadow-[0_0_12px_var(--primary)]"}`}
-			/>
-			<span className={done ? "text-muted-foreground" : "text-foreground"}>
-				{children}
-			</span>
-		</li>
-	);
-}
-
-/** The ElevenLabs key, unless the agent sends it first. */
-function KeyStep({
-	refused,
-	offer,
-}: {
-	refused: string | null;
-	offer: (key: string) => Promise<void>;
-}) {
-	const [draft, setDraft] = useState("");
-	const [checking, setChecking] = useState(false);
-	const key = draft.trim();
-	return (
-		<section className="flex flex-col gap-3">
-			<p className="px-2 text-sm text-pretty text-muted-foreground">
-				Your agent can send your ElevenLabs key, encrypted so that only this
-				page can read it. Or enter it here. It stays in this browser, and goes
-				only to ElevenLabs.
-			</p>
-			<form
-				className="flex flex-col gap-2 rounded-2xl border bg-card/60 p-2 shadow-2xl shadow-black/20 backdrop-blur sm:flex-row"
-				onSubmit={async (event) => {
-					event.preventDefault();
-					if (!key) return;
-					setChecking(true);
-					await offer(key);
-					setChecking(false);
-				}}
-			>
-				<input
-					type="password"
-					autoComplete="off"
-					aria-label="ElevenLabs API key"
-					className="h-11 flex-1 rounded-xl bg-background/80 px-4 font-mono text-base outline-none placeholder:font-sans placeholder:text-muted-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
-					placeholder="ElevenLabs key, sk_…"
-					value={draft}
-					onChange={(event) => setDraft(event.target.value)}
-				/>
-				<button
-					type="submit"
-					disabled={!key || checking}
-					className="h-11 rounded-xl bg-primary px-6 font-medium text-primary-foreground transition-all outline-none hover:bg-primary/85 focus-visible:ring-3 focus-visible:ring-ring/50 active:translate-y-px disabled:opacity-50"
-				>
-					{checking ? "Checking…" : "Use this key"}
-				</button>
-			</form>
-			{refused && <p className="px-2 text-sm text-destructive">{refused}</p>}
-			<p className="px-2 text-sm text-pretty text-muted-foreground">
-				No key yet? Create one in{" "}
-				<a
-					className="text-foreground underline underline-offset-4"
-					href="https://elevenlabs.io/app/developers/api-keys"
-					target="_blank"
-					rel="noreferrer"
-				>
-					ElevenLabs, under Developers, API Keys
-				</a>
-				, with Speech to Text and Text to Speech allowed.
-			</p>
-		</section>
-	);
 }

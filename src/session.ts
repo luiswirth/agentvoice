@@ -1,127 +1,144 @@
-/** The session the page takes part in, as a React hook. */
+/** The Vibe Together session the page talks in, as a React hook: the person
+ * joins it, and the page observes its log while the call lasts. */
 
+import { useEffect, useState } from "react";
+import type { Session as Voiced } from "./voice/protocol.ts";
 import {
-	create,
 	type Entry,
-	type Presence,
-	RelayError,
-	Session,
-} from "agentwire/participant";
-import { useEffect, useState, useSyncExternalStore } from "react";
-import { defaultRelay } from "./onboard.tsx";
+	type Participant,
+	refused,
+	refusedToken,
+	type Session,
+	signedIn,
+} from "./vt.ts";
 
-export type PageSession = {
-	/** The session's link, from the page's address, as `#session=<link>`. */
-	link: string;
-	/** The session, once joined and the log so far is in. */
-	session: Session | null;
-	/** Every entry so far, the page's own included. */
-	entries: Entry[];
-	presence: Presence;
-	/** Whether nobody else has joined yet. */
-	alone: boolean;
-	problem: string | null;
-	/** Whether the problem is that the page's name is taken in the session,
-	 * by someone else or by this person on another device. */
-	taken: boolean;
-	/** Leaves, and starts a new session. */
-	leave(): Promise<void>;
+export type Participants = Record<string, Participant>;
+
+type Subscriber = {
+	entry?: (entry: Entry) => void;
+	participants?: (participants: Participants) => void;
 };
 
-/** The relay: the one in the page's address as `?relay=<url>`, or else the
- * local one while developing, and the default relay once deployed. */
-export const relay =
-	new URLSearchParams(location.search).get("relay") ??
-	(location.hostname === "localhost" ? "http://localhost:8790" : defaultRelay);
+const backoff = (failures: number) =>
+	new Promise((r) => setTimeout(r, Math.min(30_000, 1000 * 2 ** failures)));
 
-const linkOf = () =>
-	new URLSearchParams(location.hash.slice(1)).get("session") ?? "";
+/** The person in a session: its log so far, and who is in it, kept current
+ * while the page observes it. */
+export class Seat implements Voiced {
+	readonly id: string;
+	/** The person's name in it, once joined. */
+	name = "";
+	info: Session | null = null;
+	log: Entry[] = [];
+	participants: Participants = {};
+	private readonly subscribers = new Set<Subscriber>();
+	private readonly stop = new AbortController();
 
-/** Where the page keeps its own link for a session and a name, so that a
- * reload, or the link opened again, joins as the same participant. Kept after
- * leaving too, since the name stays taken and only this link joins again.
- * Not in the address, which the person shares. */
-const kept = (link: string, name: string) => `agentvoice ${link} ${name}`;
+	constructor(id: string) {
+		this.id = id;
+	}
 
-/** The join on its way for each kept link, which a page mounted again waits
- * for, as under React's StrictMode: a second join without the link the first
- * brings would find the name taken. */
-const joining = new Map<string, Promise<void>>();
+	/** Joins, or does nothing where the person is in already. */
+	async join(): Promise<void> {
+		const joined = await (await signedIn()).join(this.id);
+		this.name = joined.name;
+		this.info = joined.session;
+	}
 
-/** Takes part as `name` in the session in the page's address, or, without
- * one, in a new session on the relay, which then goes into the address. */
-export function useSession(name: string): PageSession {
-	const link = useSyncExternalStore((changed) => {
-		addEventListener("hashchange", changed);
-		return () => removeEventListener("hashchange", changed);
-	}, linkOf);
-	const [session, setSession] = useState<Session | null>(null);
+	async send(text: string): Promise<void> {
+		await (await signedIn()).send(
+			this.id,
+			"text/plain",
+			new TextEncoder().encode(text),
+		);
+	}
+
+	subscribe(subscriber: Subscriber): () => void {
+		this.subscribers.add(subscriber);
+		return () => this.subscribers.delete(subscriber);
+	}
+
+	/** Observes the session: reads the log so far, then waits for each change
+	 * of it or of who is in it, until closed or refused, which `end` tells. */
+	async observe(end: (why: string) => void): Promise<void> {
+		let revision: string | undefined;
+		let failures = 0;
+		const { signal } = this.stop;
+		while (!signal.aborted) {
+			const after = this.log.at(-1)?.n ?? 0;
+			try {
+				const log = await (await signedIn()).log(
+					this.id,
+					revision === undefined ? { after } : { after, revision },
+					signal,
+				);
+				failures = 0;
+				revision = log.revision;
+				const fresh = log.entries.filter((entry) => entry.n > after);
+				this.log = [...this.log, ...fresh];
+				this.participants = log.participants;
+				for (const entry of fresh)
+					for (const s of this.subscribers) s.entry?.(entry);
+				for (const s of this.subscribers) s.participants?.(log.participants);
+			} catch (error) {
+				if (signal.aborted) return;
+				if (refusedToken(error) || refused(error)) {
+					end((error as Error).message);
+					return;
+				}
+				failures += 1;
+				await backoff(failures);
+			}
+		}
+	}
+
+	close(): void {
+		this.stop.abort();
+		this.subscribers.clear();
+	}
+}
+
+export type PageSession = {
+	/** The session, once joined and the log so far is in. */
+	seat: Seat | null;
+	entries: Entry[];
+	participants: Participants;
+	problem: string | null;
+};
+
+/** Takes part in the session `id` while mounted. */
+export function useSession(id: string): PageSession {
+	const [seat, setSeat] = useState<Seat | null>(null);
 	const [entries, setEntries] = useState<Entry[]>([]);
-	const [presence, setPresence] = useState<Presence>({});
+	const [participants, setParticipants] = useState<Participants>({});
 	const [problem, setProblem] = useState<string | null>(null);
-	const [taken, setTaken] = useState(false);
 
 	useEffect(() => {
-		setSession(null);
+		setSeat(null);
 		setEntries([]);
-		setPresence({});
+		setParticipants({});
 		setProblem(null);
-		setTaken(false);
-		if (!link) {
-			create(relay)
-				.then((link) => {
-					location.hash = new URLSearchParams({ session: link }).toString();
-				})
-				.catch((error: Error) => setProblem(error.message));
-			return;
-		}
-		const key = kept(link, name);
-		let session: Session | null = null;
-		let stop = () => {};
-		let gone = false;
-		const join = (joining.get(key) ?? Promise.resolve()).then(async () => {
-			if (gone) return;
-			const joined = new Session(link, name, localStorage.getItem(key));
-			session = joined;
-			stop = joined.subscribe({
-				entry: () => setEntries([...joined.log]),
-				presence: (presence) => {
-					setPresence(presence);
-					if (name in presence) setSession(joined);
-				},
-				end: setProblem,
-			});
-			try {
-				await joined.join();
-				if (joined.me) localStorage.setItem(key, joined.me);
-			} catch (error) {
-				if (gone || !(error instanceof Error)) return;
+		const seat = new Seat(id);
+		let first = true;
+		seat.subscribe({
+			entry: () => setEntries(seat.log),
+			participants: (participants) => {
+				setEntries(seat.log);
+				setParticipants(participants);
+				// The log so far is in with the first answer.
+				if (first) setSeat(seat);
+				first = false;
+			},
+		});
+		seat
+			.join()
+			.then(() => seat.observe(setProblem))
+			.catch((error: Error) => {
+				refusedToken(error);
 				setProblem(error.message);
-				setTaken(error instanceof RelayError && error.status === 409);
-			}
-		});
-		joining.set(key, join);
-		void join.then(() => {
-			if (joining.get(key) === join) joining.delete(key);
-		});
-		return () => {
-			gone = true;
-			stop();
-			session?.close();
-		};
-	}, [link, name]);
+			});
+		return () => seat.close();
+	}, [id]);
 
-	return {
-		link,
-		session,
-		entries,
-		presence,
-		alone: !entries.some((entry) => entry.from !== name),
-		problem,
-		taken,
-		leave: async () => {
-			await session?.leave();
-			location.hash = "";
-		},
-	};
+	return { seat, entries, participants, problem };
 }

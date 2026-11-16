@@ -1,100 +1,12 @@
 # agentvoice.lwirth.com
 
-The person you work with pasted you this page's prompt because they want to talk with you by voice.
-They have agentvoice.lwirth.com open in their browser: it writes down what they say and sends it to you as text, and reads what you send aloud to them.
-Voice needs you to run in a harness with access to a machine, where a command keeps running in the background between your turns; in a plain chat you can't hear the person, so say so there.
-If you'd rather not take part, say so in your chat, and nothing happens.
+The person you work with talks with you by voice, in a session of Vibe Together, `https://vibetogether.potentialhedge.com/agents.md`.
+Their page writes down what they say and sends it into the session as their message, and reads aloud what agents send there.
 
-All of it is plain `curl` to the relay that the session's link names, as the transport's spec has it, `https://agentwire.potentialhedge.com/agentwire.md`.
-A session given as its address alone is on the default relay, and its link, `<link>` below, is `https://agentwire.potentialhedge.com/v2/s/<address>`; a session on another relay is given as its full link.
-Voice's own spec is `https://agentvoice.lwirth.com/voice.md`.
-This page is enough to start; read those when you want the details.
+- Their messages are speech as transcribed: expect wrong words, missing punctuation, and sentences cut off.
+- Your messages are heard, not read: keep them short, and leave out what only reads well, such as tables, code and links.
+  A message that starts with `@silent` is not read aloud.
+- When the person cuts in, what they hadn't heard yet is dropped, and their message starts with what of it they heard, as `[cut in on 12 after "The first part of"]`, where 12 is your message's entry.
+- Speech runs on ElevenLabs, with the person's own key, which stays in their browser.
 
-## Setting up
-
-The person waits while you set up, and sees only what you send.
-So you could tell them each step in a few words as you take it, such as "Joined.", "Reading the engine.", "Starting it.":
-until there is a voice, the page shows your messages as text.
-
-1. Join with the session's link under your name, under the person's, such as `luis/claude`:
-   `curl -s -X POST '<link>/join?as=<name>'`.
-   Its answer is JSON, whose `link` is your own link, `<me>` below. Keep it to yourself: whoever holds it acts under your name.
-   Then say that you are there, with `curl -s --data-binary "I'm here." '<me>'`.
-2. Receive, with `curl -s '<me>?wait=540&only=text/&only=application/vnd.agentwire.voice.modes&only=application/vnd.agentwire.key&only=application/vnd.agentwire.join&only=application/vnd.agentwire.leave'`:
-   messages, the page's modes and key, and who joins and leaves, without the rest the page sends.
-   Among the page's first entries is its modes, as `{"listener":true,"speaker":true,"tier":"local"}`, the latest holding.
-   The tier says what turns the person's speech into text and yours into speech:
-   `local`, an engine on a machine you can act on, or `elevenlabs`, with the person's ElevenLabs key.
-   Either way, you give the page what it needs as a secret, encrypted to the public key it posts, so that only their page can read it.
-   Each page posts its own, so where the person joined on several, send it to each of them.
-   To send it, fetch the public key, encrypt and send, as the transport's spec shows under Secrets.
-   Each tier has a section below.
-
-## The local tier
-
-An engine transcribes what the person says and speaks what you send.
-It is no one in the session: it talks only with the page, over a pipe, a session of their own on the same relay that no one else is in.
-You create the pipe, send its link to the page as the secret `engine`, and start the engine with it;
-the page waits for one, and any that speaks `https://agentvoice.lwirth.com/engine.md` will do.
-Voice's own is one file of about 450 lines, to read in full before you run it.
-It needs Python 3.12 or newer with the dependencies its header names, as PEP 723 has it, and runs however you give it those, such as in a venv with them installed, or with uv, which also fetches a matching Python where the machine's is older, as macOS's is:
-
-```sh
-curl -so engine.py https://raw.githubusercontent.com/luiswirth/agentvoice/536a5c8/engine/engine.py
-curl -s -X POST '<relay>/v2/s' > pipe   # the pipe; send it to the page as the secret engine
-uv run engine.py "$(cat pipe)"
-```
-
-`<relay>` is the start of `<link>`, before `/v2/`.
-
-Reading it shows that it uses sherpa-onnx and numpy, pinned, from PyPI;
-fetches two models in k2-fsa's conversions from Hugging Face, at pinned revisions, Parakeet v2 to transcribe and Kokoro to speak,
-and uses them only if they match the hashes in the file;
-keeps nothing but those models, in `~/.cache/agentvoice-engine`, for its next start;
-reaches only the pipe and Hugging Face; and runs no commands.
-What it can't show is what sherpa-onnx does, which is compiled code from PyPI.
-
-On NixOS, if the import fails for want of `libstdc++.so.6`, run it with `LD_LIBRARY_PATH=$(nix build --no-link --print-out-paths nixpkgs#stdenv.cc.cc.lib)/lib`.
-If you'd rather not run it, say so: the person can switch to ElevenLabs on the page.
-The models are about 1 GB, fetched once, so the first start takes a minute or two, and later ones seconds; the page shows the person how far it is.
-Run it in the background: it logs `offered` once it is ready, and converts until the page leaves the pipe, as it hangs up, or until it gets SIGTERM, which reaches it through `uv run`; then it leaves, and logs `left`.
-It can run on any machine you can act on, such as one with a GPU.
-
-## The ElevenLabs tier
-
-The person's ElevenLabs key goes from their browser straight to ElevenLabs, and so does what their microphone hears while someone speaks.
-When the page has none, it posts a public key, and takes the key as the secret `elevenlabs`.
-A key said in your chat stays in your harness's transcript and goes to your model's provider;
-the person can also type it into the page.
-The person can type a key into the page at any time, and then talks to you: you hear them while a receive runs.
-Without one, they can switch the page to the local tier, or talk with you in your chat.
-
-## Talking
-
-- You hear the person only while a receive runs: keep one running, and start the next as soon as one returns.
-  A second receive ends the one running, so look an entry up by its number instead, with `curl -s '<me>/<n>'`.
-  Where your harness runs commands in the background, receive there, so the person can still type to you.
-- The person often cuts in before a long reply ends.
-- Your own voice, heard back from the person's speaker, is taken for your echo, and dropped.
-- A file, any entry with a filename, is never read aloud.
-- While you work, the person hears only a soft sound now and then, not what you do.
-- When the person cuts in, what they hadn't heard yet is dropped, and their message starts with what of it they heard, as `[cut in on 12 after "The first part of"]`.
-
-## Naming the voices
-
-The person's messages tag each voice by number, and anything near their microphone, your own echo too, can cut you off until you name a voice.
-So once you can tell who talks to you, name them:
-`curl -s -H 'Content-Type: application/vnd.agentwire.voice.names+json' --data-binary '{"1":"Luis"}' '<me>'`.
-
-## Ending
-
-Leave with `curl -s -X POST '<me>/leave'`, and stop your engine.
-Your name stays yours: to come back, join again with `curl -s -X POST '<me>/join'`.
-Once the page has left, your leaving deletes the session with everything in it, so save first what you still need, such as a trace the person shared.
-
-To start a session yourself, `curl -s -X POST https://agentwire.potentialhedge.com/v2/s` prints its link:
-join it, then give the person `https://agentvoice.lwirth.com/#session=<link>`.
-A session lasts as long as anyone is in it, so it ends once everyone has left, or once nobody has received in it for a week.
-
-If talking worked well, consider offering once to make voice permanent:
-a small skill in the Agent Skills format, a `SKILL.md` that points at this page and keeps only what is the person's own, such as their tier, where their key is, and how they like to talk.
+To have the person open a session in the page, give them `https://agentvoice.lwirth.com/#session=<id>`.

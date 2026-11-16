@@ -1,9 +1,9 @@
 // Voice as a phone call, since everyone knows how one works: who you talk
 // with at the top, large, with what is happening under it, and the buttons of
 // a call at the bottom: mute or push to talk, speaker, hands-free, more, and
-// the red one that hangs up, which leaves. No text shows: the conversation
-// belongs to the agent's harness, as a call shows none. What is set once, such
-// as the tier, waits behind more. The system's media controls work it too, as
+// the red one that hangs up. No text shows: the conversation is the session's,
+// on Vibe Together, as a call shows none. What is set once, such as the
+// languages, waits behind more. The system's media controls work it too, as
 // headphones do on a call: a tap mutes, or sends.
 import {
 	AudioLines,
@@ -40,7 +40,7 @@ export type Present = {
 	receiving: boolean;
 	/** If not receiving, since when. */
 	since?: string | undefined;
-	/** The account the relay vouches for them by: only then is their name
+	/** The account Vibe Together vouches for them by: only then is their name
 	 * verified, else it says only who joined with it. */
 	account?: string | undefined;
 };
@@ -64,7 +64,9 @@ export type Room = {
 	/** The agents in the order they first spoke, which picks each one's
 	 * shade. */
 	speakers: string[];
+	/** The session's id on Vibe Together, which the page's link names. */
 	link: string;
+	/** Hangs up: the person stays in the session, and voice stops. */
 	leave: () => void;
 };
 
@@ -72,11 +74,14 @@ export function Call({
 	voice,
 	room,
 	changeKey,
+	signOut,
 }: {
 	voice: Voice;
 	room?: Room | undefined;
 	/** Asks for another ElevenLabs key, from the settings. */
 	changeKey?: (() => void) | undefined;
+	/** Signs out of Vibe Together, from the settings. */
+	signOut?: (() => void) | undefined;
 }) {
 	const state = useSyncExternalStore(voice.watch, () => voice.state);
 	const root = useRef<HTMLDivElement>(null);
@@ -147,6 +152,7 @@ export function Call({
 				state={state}
 				link={room?.link}
 				changeKey={changeKey}
+				signOut={signOut}
 			/>
 		</div>
 	);
@@ -514,8 +520,8 @@ function Round(props: {
 	);
 }
 
-/** Hanging up, which leaves the session. The agent can't follow into the
- * next one, so a second tap within a few seconds confirms it. */
+/** Hanging up, which stops voice and goes back to the sessions: a second
+ * tap within a few seconds confirms it, so that a slip doesn't end the call. */
 function HangUp({ leave }: { leave: () => void }) {
 	const [sure, setSure] = useState(false);
 	useEffect(() => {
@@ -526,7 +532,7 @@ function HangUp({ leave }: { leave: () => void }) {
 	return (
 		<button
 			type="button"
-			title="Hang up: you leave the call"
+			title="Hang up: voice stops, and you stay in the session"
 			aria-label={sure ? "Tap again to hang up" : "Hang up"}
 			onClick={() => (sure ? leave() : setSure(true))}
 			className="flex flex-col items-center gap-2 text-xs text-foreground/80"
@@ -541,8 +547,8 @@ function HangUp({ leave }: { leave: () => void }) {
 	);
 }
 
-/** What is set once and then left: where speech runs, its voice and
- * languages, the sounds, the session's link, and debugging. */
+/** What is set once and then left: the languages, the key, the sounds, the
+ * call's link, signing out, and debugging. */
 function Settings(props: {
 	open: boolean;
 	close: () => void;
@@ -550,6 +556,7 @@ function Settings(props: {
 	state: VoiceState;
 	link?: string | undefined;
 	changeKey?: (() => void) | undefined;
+	signOut?: (() => void) | undefined;
 }) {
 	const { voice, state } = props;
 	const dialog = useRef<HTMLDialogElement>(null);
@@ -559,7 +566,6 @@ function Settings(props: {
 		if (props.open && !element.open) element.showModal();
 		if (!props.open && element.open) element.close();
 	}, [props.open]);
-	const local = state.tier === "local";
 	return (
 		// biome-ignore lint/a11y/useKeyWithClickEvents: Escape closes it, natively
 		<dialog
@@ -583,42 +589,12 @@ function Settings(props: {
 					</button>
 				</div>
 				<Row
-					title="Speech models"
-					detail={
-						local
-							? state.engine
-								? "On your agent's machine, through its engine."
-								: "On your agent's machine. Waiting for its engine."
-							: "On ElevenLabs, with your key."
-					}
+					title="Languages"
+					detail="The ones you speak, the most likely first. Empty is automatic."
 				>
-					<Segmented
-						label="Where speech models run"
-						options={[
-							["local", "Local"],
-							["elevenlabs", "ElevenLabs"],
-						]}
-						value={state.tier}
-						choose={(tier) => void voice.setTier(tier as VoiceState["tier"])}
-					/>
+					<Languages voice={voice} state={state} />
 				</Row>
-				{local && state.engineVoices.length > 1 && (
-					<Row
-						title="Voice"
-						detail="The voice of the first agent to speak. Each other agent gets a different one."
-					>
-						<EngineVoice voice={voice} state={state} />
-					</Row>
-				)}
-				{!local && (
-					<Row
-						title="Languages"
-						detail="The ones you speak, the most likely first. Empty is automatic."
-					>
-						<Languages voice={voice} state={state} />
-					</Row>
-				)}
-				{!local && props.changeKey && (
+				{props.changeKey && (
 					<Row title="ElevenLabs key" detail="Kept in this browser.">
 						<button
 							type="button"
@@ -644,10 +620,24 @@ function Settings(props: {
 				</Row>
 				{props.link && (
 					<Row
-						title="Session link"
-						detail="It is like a password: share it only with people you trust."
+						title="Link to this call"
+						detail="Opens this session here, for whoever is signed in to Vibe Together and in it."
 					>
 						<CopyLink link={props.link} />
+					</Row>
+				)}
+				{props.signOut && (
+					<Row
+						title="Vibe Together"
+						detail="This browser's sign-in, which you can also revoke on Vibe Together."
+					>
+						<button
+							type="button"
+							className="h-8 rounded-full bg-white/10 px-3 text-sm transition hover:bg-white/15"
+							onClick={props.signOut}
+						>
+							Sign out
+						</button>
 					</Row>
 				)}
 				<p className="mt-2 border-t border-white/10 px-4 pt-4 text-xs tracking-widest text-muted-foreground uppercase">
@@ -658,16 +648,6 @@ function Settings(props: {
 					detail="What voice did and the audio it heard, the last 5 minutes, as one file for whoever develops voice."
 				>
 					<DownloadTrace voice={voice} />
-				</Row>
-				<Row
-					title="Share trace"
-					detail="Sends the same into the session with each message, for your agent to improve voice."
-				>
-					<Toggle
-						label="Share trace"
-						on={state.sharing}
-						flip={() => voice.share(!state.sharing)}
-					/>
 				</Row>
 			</div>
 		</dialog>
@@ -772,74 +752,6 @@ function Toggle({
 				style={{ transform: on ? "translateX(16px)" : "none" }}
 			/>
 		</button>
-	);
-}
-
-function Segmented({
-	label,
-	options,
-	value,
-	choose,
-}: {
-	label: string;
-	options: [string, string][];
-	value: string;
-	choose: (value: string) => void;
-}) {
-	return (
-		<fieldset
-			aria-label={label}
-			className="m-0 flex min-w-0 rounded-full border-0 bg-black/40 p-0.5 text-xs"
-		>
-			{options.map(([id, name]) => (
-				<button
-					key={id}
-					type="button"
-					aria-pressed={value === id}
-					className={`h-7 rounded-full px-3 transition-colors ${value === id ? "bg-white/15 text-foreground" : "text-muted-foreground hover:text-foreground"}`}
-					onClick={() => choose(id)}
-				>
-					{name}
-				</button>
-			))}
-		</fieldset>
-	);
-}
-
-/** Kokoro's kinds of voice, by the first two letters of a voice's name. */
-const KINDS: Record<string, string> = {
-	af: "American, female",
-	am: "American, male",
-	bf: "British, female",
-	bm: "British, male",
-};
-
-/** The engine's voice the agent speaks with, chosen from those it offers,
- * grouped by their kind where the name shows one, as Kokoro's do. */
-function EngineVoice({ voice, state }: { voice: Voice; state: VoiceState }) {
-	const name = (v: string) => (KINDS[v.slice(0, 2)] ? v.slice(3) : v);
-	const groups = new Map<string, string[]>();
-	for (const v of [...state.engineVoices].sort()) {
-		const kind = KINDS[v.slice(0, 2)] ?? "Other";
-		groups.set(kind, [...(groups.get(kind) ?? []), v]);
-	}
-	return (
-		<select
-			aria-label="The voice your agent speaks with"
-			className="h-8 cursor-pointer rounded-full bg-white/10 px-3 text-sm capitalize outline-none transition hover:bg-white/15"
-			value={state.engineVoice ?? ""}
-			onChange={(event) => voice.setEngineVoice(event.target.value)}
-		>
-			{[...groups].map(([kind, voices]) => (
-				<optgroup key={kind} label={kind}>
-					{voices.map((v) => (
-						<option key={v} value={v}>
-							{name(v)}
-						</option>
-					))}
-				</optgroup>
-			))}
-		</select>
 	);
 }
 

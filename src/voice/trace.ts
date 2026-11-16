@@ -1,13 +1,7 @@
-// The page's trace of what voice does, for the person's own agent to read and
-// fix voice from, with the audio the listener heard. Kept on the page from
-// when it opens, the events across reloads of its tab too, and sent into the
-// session only while the person shares it, which is off until they turn it
-// on: at once as they turn it on, and then with each message they send. The
-// person can also download what is kept, as a file to hand on themselves.
-
-/** A trace of what voice did since the last one was sent, or since the page
- * opened. */
-export const TRACE = "application/vnd.agentwire.voice.trace+json";
+// The page's trace of what voice does, with the audio the listener heard, for
+// whoever develops voice. Kept on the page from when it opens, the events
+// across reloads of its tab too, for the person to download as a file and
+// hand on themselves.
 
 import { LISTEN_RATE } from "agentvoice";
 
@@ -15,8 +9,6 @@ export type TraceEvent = { time: string; event: string } & Record<
 	string,
 	unknown
 >;
-
-const SHARING = "voice-sharing-trace";
 
 /** The most events kept, the oldest dropped first. */
 const KEPT = 5_000;
@@ -26,9 +18,6 @@ const KEPT_AUDIO = 5 * 60 * LISTEN_RATE;
 
 /** Audio the listener heard without a gap, at `LISTEN_RATE`, from `start`. */
 type Stretch = { start: number; chunks: Int16Array[]; length: number };
-
-/** A stretch of what the listener heard, as a WAV, and when it starts. */
-export type Heard = { start: string; wav: Blob };
 
 /** A stretch of what the listener heard, at `LISTEN_RATE`, from `start`, in
  * ms since the epoch. */
@@ -41,15 +30,9 @@ export class Trace {
 	private events: TraceEvent[] = JSON.parse(
 		sessionStorage.getItem(this.key) ?? "[]",
 	);
-	sharing = localStorage.getItem(SHARING) === "true";
 	private audio: Stretch[] = [];
 	/** When the last chunk of audio came, in ms. */
 	private last = 0;
-
-	share(on: boolean): void {
-		this.sharing = on;
-		localStorage.setItem(SHARING, String(on));
-	}
 
 	event(event: string, data: Record<string, unknown> = {}): void {
 		this.events.push({ time: new Date().toISOString(), event, ...data });
@@ -82,23 +65,8 @@ export class Trace {
 		}
 	}
 
-	/** The events and the audio since the last take, while shared, and none
-	 * otherwise. */
-	take(): { events: TraceEvent[]; audio: Heard[] } {
-		if (!this.sharing) return { events: [], audio: [] };
-		const events = this.events;
-		const audio = this.audio.map((stretch) => ({
-			start: new Date(stretch.start).toISOString(),
-			wav: wave(stretch.chunks, stretch.length),
-		}));
-		this.events = [];
-		this.audio = [];
-		this.keep();
-		return { events, audio };
-	}
-
-	/** Everything kept so far, shared or not, which stays kept: for the
-	 * person to download. */
+	/** Everything kept so far, which stays kept: for the person to
+	 * download. */
 	snapshot(): { events: TraceEvent[]; audio: Piece[] } {
 		const audio = this.audio.map(({ start, chunks, length }) => {
 			const pcm = new Int16Array(length);

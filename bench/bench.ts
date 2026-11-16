@@ -1,33 +1,33 @@
 // The test bench: plays a scenario's speech into the real page, built from
-// this checkout, through Chromium's fake microphone, with a fake agent in the
-// session, and measures from the page's trace how the turns reached the agent.
+// this checkout, through Chromium's fake microphone, in a session of Vibe
+// Together with a scripted agent, and measures from the page's trace how the
+// turns reached the agent.
 //
 //   just bench [scenario]
 //
-// It uses the ElevenLabs key in ~/secrets/elevenlabs-api-key.txt and the
-// public relay. `TIER=local` has the page hear and speak through voice's engine,
-// which the bench starts on a pipe, whose link it sends the page as an agent does. `SHOTS=<seconds>` takes a screenshot of
-// the page that often, into bench/.cache/shots, at `VIEWPORT=<width>x<height>`.
-// `THROTTLE=<rate>` slows the page's CPU down that many times, as a phone's.
-// `PAGE=<url>` plays into the page served there instead, such as the deployed one.
-// `RELAY=<url>` reaches the session on that relay instead, such as a local one.
-// `ANSWER=<text>` has the agent answer with it rather than "Okay." or the
-// scenario's answer, so that a long one is read while the person speaks on.
+// It signs in with the person token `just token` keeps, and uses the
+// ElevenLabs key in ~/secrets/elevenlabs-api-key.txt. The session is a new one
+// in the person's own group, deleted after the run, or `SESSION=<id>`, which
+// stays. The agent is `agentvoice-bench`, of the machine's agent token.
+// `SHOTS=<seconds>` takes a screenshot of the page that often, into
+// bench/.cache/shots, at `VIEWPORT=<width>x<height>`. `THROTTLE=<rate>` slows
+// the page's CPU down that many times, as a phone's. `PAGE=<url>` plays into
+// the page served there instead, such as the deployed one. `ANSWER=<text>` has
+// the agent answer with it rather than "Okay." or the scenario's answer, so
+// that a long one is read while the person speaks on; `ANSWER=` leaves
+// answering to another agent in the session, such as a real one, and
+// `HOLD=<seconds>` keeps the page open that long after the speech, for it.
 // A run fails where nothing reached the agent, or none of its answers was read,
 // or a turn said over an answer doesn't start with what of it was heard.
-import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { create, type Entry, KEY, Session } from "agentwire/participant";
 import { chromium } from "playwright-core";
 import { preview } from "vite";
+import type { Entry } from "../src/vt/vibetogether_client.js";
 import { scenarios } from "./scenarios.ts";
-import { sendSecret } from "./secret.ts";
 import { speech, type Timeline } from "./speech.ts";
-
-const RELAY = process.env.RELAY ?? "https://agentwire.potentialhedge.com";
-const TRACE = "application/vnd.agentwire.voice.trace+json";
+import { agent as bench, person } from "./vt.ts";
 
 // A scenario by name, or a recording the page shared, a WAV, to replay.
 const name = process.argv[2] ?? "turns";
@@ -52,38 +52,45 @@ const server = process.env.PAGE
 const page = process.env.PAGE ?? server?.resolvedUrls?.local[0];
 if (!page) throw new Error("the page is not served");
 
-// The agent answers each message at once, so the person's turns are measured
-// on their own. It joins under the person's name, as an agent does, so that
-// the page counts it as one and shows its answers on the stage.
+// The session, and the agent in it, which answers each message of the
+// person's at once, so that the person's turns are measured on their own.
 const answer = process.env.ANSWER ?? scenario?.answer ?? "Okay.";
-const agent = new Session(await create(RELAY), "person/agent");
-await agent.join();
-agent.subscribe({
-	entry: (entry) => {
-		if (entry.from === "person" && entry.type.startsWith("text/plain"))
-			void agent.send(answer, { type: "text/plain" });
+const { client, token } = await person();
+const me = (await client.me()).name;
+const own = (await client.groups()).find((group) => group.own);
+const session =
+	process.env.SESSION ??
+	(
+		await client.createSession({
+			group: own?.id ?? "",
+			name: `agentvoice bench ${new Date().toISOString().slice(0, 16)}`,
+		})
+	).id;
+const agent = await bench();
+await Promise.all([client.join(session), agent.join(session)]).catch(
+	async (error) => {
+		if (!process.env.SESSION) await client.deleteSession(session);
+		throw error;
 	},
-});
-
-// The local tier's engine, voice's own, as an agent would start it: on a pipe
-// of its own, whose link goes to the page encrypted to its key.
-const pipe = process.env.TIER === "local" ? await create(RELAY) : null;
-const engine = pipe
-	? spawn(
-			"uv",
-			["run", join(import.meta.dirname, "../engine/engine.py"), pipe],
-			{
-				stdio: ["ignore", "ignore", "inherit"],
-			},
-		)
-	: null;
-if (pipe)
-	agent.subscribe({
-		entry: (entry) => {
-			if (entry.from === "person" && entry.type.startsWith(KEY))
-				void sendSecret(agent, entry.n, "engine", pipe);
-		},
-	});
+);
+const log: Entry[] = [];
+const watching = new AbortController();
+const watch = (async () => {
+	let revision: string | undefined;
+	while (!watching.signal.aborted) {
+		const after = log.at(-1)?.n ?? 0;
+		const answered = await client
+			.log(session, revision ? { after, revision } : { after }, watching.signal)
+			.catch(() => null);
+		if (!answered) continue;
+		revision = answered.revision;
+		for (const entry of answered.entries.filter((e) => e.n > after)) {
+			log.push(entry);
+			if (answer && entry.from === me && entry.type.startsWith("text/plain"))
+				void agent.send(session, answer);
+		}
+	}
+})();
 
 const browser = await chromium.launch({
 	executablePath: process.env.CHROMIUM ?? "",
@@ -102,11 +109,9 @@ try {
 		viewport: { width: width ?? 1280, height: height ?? 800 },
 	});
 	await context.addInitScript(
-		([key, engine, recorded]) => {
-			localStorage.setItem("agentvoice-name", "person");
+		([key, token, recorded]) => {
+			localStorage.setItem("vibetogether-token", token as string);
 			localStorage.setItem("elevenlabs-key", key as string);
-			localStorage.setItem("voice-tier", engine as string);
-			localStorage.setItem("voice-sharing-trace", "true");
 			// The fake microphone plays its file from when it is opened.
 			const open = navigator.mediaDevices.getUserMedia.bind(
 				navigator.mediaDevices,
@@ -136,7 +141,7 @@ try {
 				return stream;
 			};
 		},
-		[key, process.env.TIER ?? "elevenlabs", scenario === null] as const,
+		[key, token, scenario === null] as const,
 	);
 	const tab = await context.newPage();
 	const throttle = Number(process.env.THROTTLE ?? 1);
@@ -148,9 +153,7 @@ try {
 	tab.on("pageerror", (error) =>
 		console.error("page:", error.stack ?? error.message),
 	);
-	await tab.goto(
-		`${page}?relay=${encodeURIComponent(RELAY)}#session=${agent.link}`,
-	);
+	await tab.goto(`${page}#session=${session}`);
 	// The speaker is on from the start, and reads the agent's answers.
 	const speak = tab.getByRole("button", { name: "Speak", exact: true });
 	if (await speak.isVisible()) await speak.click();
@@ -179,7 +182,10 @@ try {
 			await tab.waitForTimeout(Math.max(0, next - Date.now()));
 		}
 		console.log(`shots: ${shots}`);
-	} else await tab.waitForTimeout((duration + 3) * 1000);
+	} else
+		await tab.waitForTimeout(
+			(duration + 3 + Number(process.env.HOLD ?? 0)) * 1000,
+		);
 	const opened = await tab.evaluate(
 		() => (window as { opened?: number }).opened,
 	);
@@ -191,14 +197,25 @@ try {
 	console.log(
 		`the microphone's processing: echo cancellation ${echoCancellation}, noise suppression ${noiseSuppression}, gain control ${autoGainControl}`,
 	);
-	const { sends, read } = report(agent.log, opened, timeline, said);
-	if (sends === 0) throw new Error("nothing the person said reached the agent");
+	// The page keeps its trace for the tab, as it offers it for download.
+	const events: Event[] = await tab.evaluate(() =>
+		JSON.parse(sessionStorage.getItem(`voice-trace ${location.href}`) ?? "[]"),
+	);
+	const reached = log.filter(
+		(entry) => entry.from === me && entry.type.startsWith("text/plain"),
+	).length;
+	console.log(`messages that reached the session: ${reached}`);
+	const { sends, read } = report(events, opened, timeline, said);
+	if (sends === 0 || reached === 0)
+		throw new Error("nothing the person said reached the agent");
 	if (read === 0) throw new Error("none of the agent's answers was read");
-	cutIns(agent.log);
+	cutIns(events, log);
 } finally {
 	await browser.close();
-	engine?.kill();
-	await agent.leave().catch(() => {});
+	watching.abort();
+	await watch;
+	await agent.leave(session).catch(() => {});
+	if (!process.env.SESSION) await client.deleteSession(session).catch(() => {});
 	await server?.close();
 }
 
@@ -208,20 +225,17 @@ type Event = { time: string; event: string } & Record<string, unknown>;
  * of the answer was heard: a start of it, cut before its end, and no more than
  * could be read from when its reading began to when the person took the
  * floor. */
-function cutIns(log: Entry[]): void {
+function cutIns(events: Event[], log: Entry[]): void {
 	/** A fast speaker's rate, in characters a second: more of an answer
 	 * can't have been heard in the time it was read. */
 	const FAST = 20;
-	const events: Event[] = log
-		.filter((entry) => entry.from === "person" && entry.type === TRACE)
-		.flatMap((entry) => JSON.parse(entry.text ?? "[]"));
 	const at = (event: string, id: string) =>
 		Date.parse(
 			events.find((e) => e.event === event && String(e.id ?? e.reading) === id)
 				?.time ?? "",
 		) / 1000;
 	const answers = new Set(
-		log.filter((e) => e.from === "person/agent").map((e) => e.n),
+		log.filter((e) => e.from.includes("/")).map((e) => e.n),
 	);
 	const letters = (s: string) =>
 		s
@@ -231,7 +245,7 @@ function cutIns(log: Entry[]): void {
 			.trim();
 	const flat = (s: string) => s.replace(/\s+/g, " ").trim();
 	const messages = log
-		.filter((e) => e.from === "person" && e.type.startsWith("text/plain"))
+		.filter((e) => e.from === me && e.type.startsWith("text/plain"))
 		.map((e) => e.text ?? "");
 	for (const [i, turn] of (scenario?.turns ?? []).entries()) {
 		if (!turn.cutIn) continue;
@@ -263,14 +277,11 @@ function cutIns(log: Entry[]): void {
 }
 
 function report(
-	log: Entry[],
+	events: Event[],
 	t0: number,
 	timeline: Timeline,
 	said: string[],
 ): { sends: number; read: number } {
-	const events: Event[] = log
-		.filter((entry) => entry.from === "person" && entry.type === TRACE)
-		.flatMap((entry) => JSON.parse(entry.text ?? "[]"));
 	const kept = join(
 		import.meta.dirname,
 		".cache",
@@ -327,13 +338,6 @@ function report(
 		console.log(
 			`${onset.event} first at ${((Date.parse(onset.time) - t0) / 1000).toFixed(2)} s, said at ${timeline[0]?.start.toFixed(2)} s`,
 		);
-	const shared = log.filter(
-		(entry) => entry.from === "person" && entry.type.startsWith("audio/wav"),
-	);
-	const seconds = shared.reduce((sum, e) => sum + (e.size - 44) / 32_000, 0);
-	console.log(
-		`audio shared: ${shared.length} stretch(es), ${seconds.toFixed(1)} s`,
-	);
 	console.log(`${name}: ${said.length} turns, ${sends.length} sends`);
 	if (said.length === 0)
 		for (const s of sends)
@@ -374,7 +378,8 @@ function report(
 	return { sends: sends.length, read };
 }
 
-/** A recording to replay, with its turns where `just label` labeled it,
+/** A recording to replay, such as the audio of a trace the page let the
+ * person download, with its turns where a labels.json beside it has them,
  * else with its sends told only. */
 async function recording(wav: string): Promise<{
 	wav: string;

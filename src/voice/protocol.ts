@@ -1,55 +1,25 @@
-// Voice's protocol, on chat's, on the agentwire transport: entries of its own,
-// and nothing changed below.
+// What voice reads of a Vibe Together session: chat's messages, as
+// https://vibetogether.potentialhedge.com/specs/chat.md has them, and nothing
+// of its own.
 
-import type { Session as Client, Entry } from "agentwire/participant";
+import type { Entry, Participant } from "../vt.ts";
 
-export type { Entry };
+export type { Entry, Participant };
 
-/** What voice needs of a session: the transport's client, or anything
- * else that sends, subscribes and keeps the log the same way. */
-export type Session = Pick<Client, "send" | "subscribe" | "log" | "fetch">;
-
-/** Which of the person's listener and speaker are on, and the tier they
- * chose: sent as any of them changes. */
-export const MODES = "application/vnd.agentwire.voice.modes+json";
-export type Modes = {
-	listener: boolean;
-	speaker: boolean;
-	tier: Tier;
+/** What voice needs of a session: its log so far, each entry as it comes
+ * with who is in it then, and sending the person's turns. */
+export type Session = {
+	readonly log: Entry[];
+	subscribe(subscriber: {
+		entry?: (entry: Entry) => void;
+		participants?: (participants: Record<string, Participant>) => void;
+	}): () => void;
+	send(text: string): Promise<void>;
 };
 
-/** Where transcription and speech synthesis run. */
-export type Tier = "elevenlabs" | "local";
-
-/** Who the voices are, by the number of their tag, as the agent names them:
- * the latest one holds. A named voice can cut in, and once any is named, an
- * unnamed one can't. */
-export const NAMES = "application/vnd.agentwire.voice.names+json";
-export type Names = Record<string, string>;
-
-/** The names an entry holds: none where it is no object of names. */
-export function names(text: string | undefined): Names {
-	try {
-		const parsed: unknown = JSON.parse(text ?? "{}");
-		if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
-			return {};
-		return Object.fromEntries(
-			Object.entries(parsed).filter(
-				(entry): entry is [string, string] =>
-					/^\d+$/.test(entry[0]) &&
-					typeof entry[1] === "string" &&
-					entry[1].trim() !== "",
-			),
-		);
-	} catch {
-		return {};
-	}
-}
-
-/** Whether a participant is an agent, which joins under its person's name,
- * as `luis/claude`, as public/agents.md has it: the page is the person's ears
- * and mouth toward the agents, so it reads out only theirs, never another
- * person's. */
+/** Whether a participant is an agent, named under its person, as
+ * `luiswirth/claude`: the page is the person's ears and mouth toward the
+ * agents, so it reads out only theirs, never another person's. */
 export function agent(name: string): boolean {
 	return name.includes("/");
 }
@@ -65,13 +35,15 @@ export function speakers(log: Entry[]): string[] {
 	return order;
 }
 
-/** Whether an entry is a chat message the speaker reads: never a file, which
- * speech makes of any entry with a filename. */
+/** Whether an entry is a chat message the speaker reads: never a file, any
+ * entry with a filename, and never one that starts with `@silent`, which
+ * its sender meant to wake no one. */
 export function spoken(entry: Entry): entry is Entry & { text: string } {
 	return (
 		entry.text !== undefined &&
 		entry.filename === undefined &&
 		(entry.type.startsWith("text/plain") ||
-			entry.type.startsWith("text/markdown"))
+			entry.type.startsWith("text/markdown")) &&
+		!/^\s*@silent\b/.test(entry.text)
 	);
 }

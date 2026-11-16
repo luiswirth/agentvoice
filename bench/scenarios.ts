@@ -24,6 +24,11 @@ export type Scenario = {
 
 export const scenarios: Scenario[] = [
 	{
+		// One question for a real agent to answer, with HOLD and ANSWER=.
+		name: "question",
+		turns: [{ parts: ["What is two plus three? Answer in one sentence."] }],
+	},
+	{
 		name: "turns",
 		turns: [
 			{ parts: ["Can you tell me what the weather is like in Zurich today?"] },

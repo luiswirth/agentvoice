@@ -1,9 +1,8 @@
-// Voice in the page: the core's conversation, carried over an agentwire
+// Voice in the page: the core's conversation, carried over a Vibe Together
 // session, with the browser's microphone and speaker. The page reads the
-// agents' messages from the log into it, and sends the person's turns and
-// modes into the log, as voice's protocol has them. Transcription and speech
-// synthesis run on ElevenLabs or on an engine on the agent's machine, over a
-// pipe of the page's and the engine's own, the tier the person chooses.
+// agents' messages from the log into it, and sends the person's turns into
+// the log as chat messages. Transcription and speech synthesis run on
+// ElevenLabs, with the person's own key.
 import {
 	Conversation,
 	type Fact,
@@ -11,7 +10,6 @@ import {
 	type Hearer,
 	KeyRefused,
 	type Perception,
-	reflexive,
 	Scribe,
 	Speech,
 	type State,
@@ -26,28 +24,16 @@ import {
 	Output,
 	watchAudio,
 } from "./audio.ts";
-import {
-	Engines,
-	LocalSynthesizer,
-	LocalTranscriber,
-	voiceOrder,
-} from "./local.ts";
 import { holdMedia } from "./media.ts";
 import {
 	agent,
 	type Entry,
-	MODES,
-	type Modes,
-	NAMES,
-	type Names,
-	names,
 	type Session,
 	speakers,
 	spoken,
-	type Tier,
 } from "./protocol.ts";
 import { reflexes } from "./reflexes.ts";
-import { recording, TRACE, Trace } from "./trace.ts";
+import { recording, Trace } from "./trace.ts";
 import { zip } from "./zip.ts";
 
 export type VoiceState = Omit<State, "reading"> & {
@@ -56,29 +42,14 @@ export type VoiceState = Omit<State, "reading"> & {
 	/** The languages the person speaks, most likely first, as ISO 639-1
 	 * codes: none to have Scribe detect it. Kept in this browser. */
 	languages: string[];
-	/** Whether the page sends its trace into the session. */
-	sharing: boolean;
 	/** Where the person's last message is: sent, or read by the agent, who
 	 * works on it until it answers. */
 	progress: Progress;
-	/** The modes, and the tier the person chose. */
-	tier: Tier;
 	error: string | null;
 	/** Whether the error is ElevenLabs refusing the key, which another key
 	 * fixes. */
 	refused: boolean;
-	/** Whether the page holds a pipe to an engine, as the agent sent it. */
-	piped: boolean;
-	/** Whether an engine is in the pipe, which the local tier needs. */
-	engine: boolean;
-	/** What the engine is doing before it offers, as its latest status says. */
-	engineStatus: string | null;
-	/** The voices the engine speaks with, as it offered them. */
-	engineVoices: string[];
-	/** The engine's voice the agent speaks with: the one last chosen in this
-	 * browser, if the engine has it, else the engine's first. */
-	engineVoice: string | null;
-	/** Whether the tier can speak now: an engine is in, or there is a key. */
+	/** Whether voice can speak now: there is a key. */
 	ready: boolean;
 	/** Whether the browser holds the page's audio until a gesture on it, as
 	 * after a reload: until then the speaker is not heard, and the
@@ -86,30 +57,6 @@ export type VoiceState = Omit<State, "reading"> & {
 	blocked: boolean;
 };
 
-const TIER = "voice-tier";
-
-/** Where transcription and speech synthesis run, as last chosen in this
- * browser; else, in a browser that never chose, as a page in the session `log`
- * last had it, so that the person's second device starts where the first is;
- * else local. */
-export function chosenTier(log: readonly Entry[] = []): Tier {
-	const chosen = localStorage.getItem(TIER);
-	if (chosen !== null) return chosen === "elevenlabs" ? "elevenlabs" : "local";
-	for (const entry of log.toReversed()) {
-		if (!entry.type.startsWith(MODES)) continue;
-		try {
-			const { tier } = JSON.parse(entry.text ?? "") as Partial<Modes>;
-			if (tier === "elevenlabs" || tier === "local") return tier;
-		} catch {}
-	}
-	return "local";
-}
-
-export function chooseTier(tier: Tier): void {
-	localStorage.setItem(TIER, tier);
-}
-
-const ENGINE_VOICE = "voice-engine-voice";
 const LANGUAGES = "voice-languages";
 const AUTO_END = "voice-auto-end";
 const SOUNDS = "voice-sounds";
@@ -128,16 +75,14 @@ function kept(): Store {
 	};
 }
 
-/** Voice as the page has it from joining the session: it sends its modes at
- * once, and its speaker, on by default, reads what the others send once the
- * tier can speak. It opens no microphone until the listener is turned on, or
+/** Voice as the page has it from joining the session: its speaker, on by
+ * default, reads what the agents send once there is a key. It opens no microphone until the listener is turned on, or
  * a reload of a tab where it was on turns it back on, and plays nothing
  * before the first gesture on the page. */
 export class Voice {
 	private readonly session: Session;
 	private readonly name: string;
 	private key: string | null;
-	private readonly engines: Engines;
 	private readonly core: Conversation;
 	private output: Output | null = null;
 	private microphone: Microphone | null = null;
@@ -150,14 +95,12 @@ export class Voice {
 	private wanted = false;
 	/** Whether the person holds push to talk. */
 	private pushed = false;
-	/** Whether the core has the tier to speak with, for the speaker on now. */
+	/** Whether the core has the key to speak with, for the speaker on now. */
 	private armed = false;
 	/** The last entry before the speaker came on. */
 	private started = 0;
 	/** The log's order is the order things were said, so sends go one after another. */
 	private sent: Promise<unknown> = Promise.resolve();
-	/** The modes the others were told last. */
-	private told: string | null = null;
 	private readonly watchers = new Set<() => void>();
 	private readonly trace = new Trace();
 	/** Where the tab keeps the modes, so that a reload keeps them. */
@@ -178,7 +121,7 @@ export class Voice {
 	});
 
 	/** `name` is the person's in the session, `key` their ElevenLabs key,
-	 * which only what runs on ElevenLabs needs, and `setKey` gives later. */
+	 * which `setKey` gives later. */
 	constructor(session: Session, name: string, key: string | null) {
 		this.session = session;
 		this.name = name;
@@ -187,23 +130,16 @@ export class Voice {
 			languages: JSON.parse(
 				localStorage.getItem(LANGUAGES) ?? "[]",
 			) as string[],
-			sharing: this.trace.sharing,
 			progress: null,
-			tier: chosenTier(session.log),
 			error: null,
 			refused: false,
-			piped: false,
-			engine: false,
-			engineStatus: null,
-			engineVoices: [],
-			engineVoice: null,
 			ready: false,
 			blocked: audioBlocked(),
 		};
 		// Both are on from the start, unless the tab had them otherwise
 		// before a reload: listening waits for someone to talk with, and its
 		// audio, as the speaker's, starts at the first gesture on the page.
-		const modes: Partial<Modes> = JSON.parse(
+		const modes: { listener?: boolean; speaker?: boolean } = JSON.parse(
 			sessionStorage.getItem(this.modesKey) ?? "{}",
 		);
 		const autoEnd = localStorage.getItem(AUTO_END) !== "false";
@@ -228,7 +164,6 @@ export class Voice {
 			speaker,
 			autoEnd,
 			sounds: localStorage.getItem(SOUNDS) !== "off",
-			names: this.names(),
 		});
 		this.state = this.merged();
 		if (speaker) this.sound();
@@ -242,31 +177,13 @@ export class Voice {
 					: { error: error.message, refused: error instanceof KeyRefused },
 			),
 		);
-		this.core.on("modes", () => void this.modes());
+		this.core.on("modes", () => this.modes());
 		this.core.on("heard", ({ id }) => this.done(Number(id)));
 		this.core.on("turn", ({ text, cut }) => this.turn(text, cut));
-		const pipe = `voice-pipe ${location.href}`;
-		this.engines = new Engines(name, pipe, (engines) => {
-			const chosen = localStorage.getItem(ENGINE_VOICE);
-			const engineVoices = engines.voices;
-			this.set({
-				piped: engines.piped,
-				engine: engines.present,
-				engineStatus: engines.status,
-				engineVoices,
-				engineVoice:
-					chosen !== null && engineVoices.includes(chosen)
-						? chosen
-						: (engineVoices[0] ?? null),
-			});
-			this.arm();
-		});
 		if (speaker) this.started = session.log.at(-1)?.n ?? 0;
 		this.arm();
 		this.unsubscribe = session.subscribe({
 			entry: (entry) => {
-				if (entry.type.startsWith(NAMES))
-					void this.core.set({ names: this.names() });
 				if (entry.n > this.started && this.armed && this.wantedEntry(entry))
 					this.read(entry);
 			},
@@ -284,7 +201,7 @@ export class Voice {
 				if (progress === "sent") this.core.notice("sent");
 			},
 		});
-		void this.modes();
+		this.modes();
 	}
 
 	/** The core's state with the page's own. */
@@ -317,11 +234,6 @@ export class Voice {
 		});
 		this.output = output;
 		this.core.on("flush", () => output.flush());
-	}
-
-	private names(): Names {
-		const entry = this.session.log.findLast((e) => e.type.startsWith(NAMES));
-		return names(entry?.text);
 	}
 
 	/** Whether an entry is one the speaker reads: an agent's message. */
@@ -401,31 +313,7 @@ export class Voice {
 		this.core.notice("press");
 		localStorage.setItem(LANGUAGES, JSON.stringify(languages));
 		this.set({ languages });
-		if (this.own.tier === "elevenlabs") await this.reopen();
-	}
-
-	/** Chooses where transcription and speech synthesis run. Listening
-	 * switches at its next start, at once while nothing is being heard; reading
-	 * aloud at once. */
-	async setTier(tier: Tier): Promise<void> {
-		if (this.own.tier === tier) return;
-		this.trace.event("tier", { tier });
-		this.core.notice("press");
-		chooseTier(tier);
-		this.set({ tier, error: null, refused: false });
-		await this.modes();
-		this.rearm();
 		await this.reopen();
-	}
-
-	/** Chooses the engine's voice the agent speaks with, from its next
-	 * sentence on. */
-	setEngineVoice(engineVoice: string): void {
-		if (engineVoice === this.own.engineVoice) return;
-		this.trace.event("engineVoice", { voice: engineVoice });
-		this.core.notice("press");
-		localStorage.setItem(ENGINE_VOICE, engineVoice);
-		this.set({ engineVoice });
 	}
 
 	/** Gives the ElevenLabs key, or takes it away, with the entry that
@@ -434,50 +322,33 @@ export class Voice {
 	async setKey(key: string | null, after?: number): Promise<void> {
 		if (key === this.key) return;
 		this.key = key;
-		if (this.own.tier !== "elevenlabs") return;
 		this.set({ error: null, refused: false });
 		this.rearm(after ?? this.session.log.at(-1)?.n ?? 0);
 		await this.reopen();
 	}
 
-	/** Has the core speak with the tier anew. */
+	/** Has the core speak with the key anew. */
 	private rearm(after?: number): void {
 		if (this.armed) void this.core.set({ synthesize: null });
 		this.armed = false;
 		this.arm(after);
 	}
 
-	/** Has the core, while the speaker is on, speak with the tier once it
-	 * can, and read what the others sent from then on: after the latest
-	 * engine's offer, or after entry `after` for a key. */
+	/** Has the core, while the speaker is on, speak once there is a key, and
+	 * read what the agents sent after entry `after` from then on. */
 	private arm(after = 0): void {
-		const local = this.own.tier === "local";
-		// The engine's presence as its state, which the engines set as they
-		// are made, before `this.engines` is.
-		const ready = local ? this.own.engine : this.key !== null;
+		const ready = this.key !== null;
 		if (ready !== this.own.ready) this.set({ ready });
-		// The engines tell their first state as they are made: the speaker
-		// is armed once they are.
-		if (this.engines === undefined || ready === this.armed) return;
+		if (ready === this.armed) return;
 		this.armed = ready;
 		void this.core.set({
 			synthesize: ready ? () => this.synthesizer() : null,
 		});
-		if (ready && this.core.state.speaker)
-			this.backlog(local ? this.offered() : after);
-	}
-
-	/** The last entry of the session from before the engine's latest offer
-	 * in the pipe, as the relay timed both. */
-	private offered(): number {
-		const at = this.engines.offered;
-		return (
-			this.session.log.findLast((entry) => Date.parse(entry.time) <= at)?.n ?? 0
-		);
+		if (ready && this.core.state.speaker) this.backlog(after);
 	}
 
 	/**
-	 * Reads at once the messages after entry `after`, from which on the tier
+	 * Reads at once the messages after entry `after`, from which on voice
 	 * could speak, except those this tab already read, heard or dropped; of
 	 * those from before the speaker came on, only the ones that arrived just
 	 * before, as during a reload. None from further back: the person may have
@@ -508,8 +379,7 @@ export class Voice {
 			this.started = this.session.log.at(-1)?.n ?? 0;
 		}
 		await this.core.set({ speaker: on });
-		if (on && this.armed)
-			this.backlog(this.own.tier === "local" ? this.offered() : 0);
+		if (on && this.armed) this.backlog(0);
 	}
 
 	/** Hands-free, where turns end by themselves as the person pauses and
@@ -548,36 +418,23 @@ export class Voice {
 	 * on goes ahead of what they said, so that the agent has the turn as one
 	 * entry. */
 	private turn(text: string, cut: Heard[]): void {
-		const trace = this.trace.take();
 		const marks = cut.map(({ id, text }) =>
 			text
 				? `[cut in on ${id} after "${text.replace(/\s+/g, " ")}"]`
 				: `[cut in before ${id}]`,
 		);
-		// The message goes first, so that the trace's audio, which takes a
-		// while to upload, holds it back from the agent no longer.
-		this.queue(async () => {
-			await this.session.send([...marks, text].join(" "), {
-				type: "text/plain",
-			});
-			await this.shareTrace(trace);
-		});
+		this.queue(() => this.session.send([...marks, text].join(" ")));
 	}
 
 	/** What the page kept of its trace and of the audio it heard, as a
 	 * recording such as `just record` keeps, for the person to download and
 	 * hand on themselves: `audio.wav` and `session.json` in a folder, zipped.
-	 * The session's link, keys and secrets stay out. */
+	 * The ElevenLabs key stays out. */
 	async download(): Promise<{ name: string; blob: Blob }> {
 		this.trace.event("download");
 		const { events, audio } = this.trace.snapshot();
 		const heard = audio.length > 0 ? recording(audio) : null;
-		const messages = this.session.log.filter(
-			({ type }) =>
-				!/^application\/vnd\.agentwire\.(key|secret)/.test(type) &&
-				!type.startsWith(TRACE) &&
-				!type.startsWith("audio/"),
-		);
+		const messages = this.session.log.filter(spoken);
 		const session = {
 			audioStart: heard && new Date(heard.start).toISOString(),
 			messages,
@@ -593,41 +450,15 @@ export class Voice {
 		return { name: `${name}.zip`, blob };
 	}
 
-	/** Shares the page's trace with the session, at once what it kept so far,
-	 * or stops. */
-	share(on: boolean): void {
-		this.trace.share(on);
-		this.core.notice("press");
-		this.set({ sharing: on });
-		const trace = this.trace.take();
-		this.queue(() => this.shareTrace(trace));
-	}
-
-	/** Sends a trace taken, with the audio heard, each stretch named by its
-	 * start. */
-	private async shareTrace({ events, audio }: ReturnType<Trace["take"]>) {
-		if (events.length > 0)
-			await this.session.send(JSON.stringify(events), { type: TRACE });
-		for (const { start, wav } of audio)
-			await this.session.send(wav, { filename: `heard ${start}.wav` });
-	}
-
 	/** The ElevenLabs key, which a missing one refuses. */
 	private elevenlabs(): string {
 		if (this.key === null) throw new KeyRefused("ElevenLabs needs your key.");
 		return this.key;
 	}
 
-	/** The local tier hears on the core's reflexes; ElevenLabs on its own
-	 * turns and speakers, gated by speech detection, with the fingerprint for
-	 * the speaker's echo. */
+	/** ElevenLabs hears on its own turns and speakers, gated by speech
+	 * detection, with the fingerprint for the speaker's echo. */
 	private listen(heard: Perception): Promise<Hearer> {
-		if (this.own.tier === "local")
-			return reflexive(
-				async (transcript) => new LocalTranscriber(this.engines, transcript),
-				reflexes,
-				kept(),
-			)(heard);
 		return Scribe.open(this.elevenlabs(), heard, this.own.languages, {
 			speech: reflexes.speech(),
 			fingerprints: reflexes.fingerprints(),
@@ -636,31 +467,13 @@ export class Voice {
 	}
 
 	private synthesizer(): Synthesizer {
-		if (this.own.tier === "local")
-			return new LocalSynthesizer(this.engines, () =>
-				voiceOrder(this.own.engineVoice, this.own.engineVoices),
-			);
 		return new Speech(this.elevenlabs());
 	}
 
-	/** Joins the engine's pipe at `link`, as the agent sent it. */
-	connect(link: string): void {
-		this.engines.connect(link);
-	}
-
-	/** Hangs up: leaves the engine's pipe, which has the engine leave it, and
-	 * closes. */
-	async hangUp(): Promise<void> {
-		const left = this.engines.leave();
-		this.close();
-		await left;
-	}
-
-	/** Stops, without leaving, as when the page closes. */
+	/** Stops, as when the person hangs up or the page closes. */
 	close(): void {
 		this.unsubscribe();
 		this.unwatchAudio();
-		this.engines.close();
 		this.activity.close();
 		this.core.close();
 		this.output?.close();
@@ -679,19 +492,13 @@ export class Voice {
 		else void this.setListener(!(listener || this.wanted));
 	};
 
-	/** Holds the system's audio and media controls while voice is in use,
-	 * and tells the others the modes, where they changed. */
-	private modes(): Promise<void> {
+	/** Holds the system's audio and media controls while voice is in use. */
+	private modes(): void {
 		const { listener, speaker } = this.core.state;
 		holdAudioSession(listener || speaker);
 		holdMedia(listener || speaker, { toggle: this.mediaToggle });
 		this.keepModes();
-		const modes: Modes = { listener, speaker, tier: this.own.tier };
-		const told = JSON.stringify(modes);
-		if (told === this.told) return Promise.resolve();
-		this.told = told;
-		this.trace.event("modes", modes);
-		return this.queue(() => this.session.send(told, { type: MODES }));
+		this.trace.event("modes", { listener, speaker });
 	}
 
 	/** Keeps the modes for the tab, listening as the person wants it, so
