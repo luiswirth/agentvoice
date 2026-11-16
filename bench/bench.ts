@@ -61,12 +61,15 @@ const me = (await client.me()).name;
 const agent = await bench();
 const session = process.env.SESSION ?? (await agent.session(BENCH));
 await Promise.all([client.join(session), agent.join(session)]);
+// What is said in the session from the run's start on: the session may hold
+// earlier runs.
 const log: Entry[] = [];
+let last = (await client.log(session, {})).entries.at(-1)?.n ?? 0;
 const watching = new AbortController();
 const watch = (async () => {
 	let revision: string | undefined;
 	while (!watching.signal.aborted) {
-		const after = log.at(-1)?.n ?? 0;
+		const after = last;
 		const answered = await client
 			.log(session, revision ? { after, revision } : { after }, watching.signal)
 			.catch(() => null);
@@ -74,6 +77,7 @@ const watch = (async () => {
 		revision = answered.revision;
 		for (const entry of answered.entries.filter((e) => e.n > after)) {
 			log.push(entry);
+			last = entry.n;
 			if (answer && entry.from === me && entry.type.startsWith("text/plain"))
 				void agent.send(session, answer);
 		}
