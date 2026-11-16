@@ -257,12 +257,15 @@ function cutIns(events: Event[], log: Entry[]): void {
 			`turn ${i + 1}, said over an answer: "${message ?? "never sent"}"`,
 		);
 		const mark = message?.match(/^\[cut in on (\d+) after "([^"]*)"\]/);
-		const heard = flat(mark?.[2] ?? "");
+		// The mark quotes the last words heard; what was heard runs up to them.
+		const spot = flat((mark?.[2] ?? "").replace(/^…/, ""));
+		const at_spot = spot === "" ? -1 : flat(answer).indexOf(spot);
+		const heard =
+			at_spot < 0 ? "" : flat(answer).slice(0, at_spot + spot.length);
 		if (
 			!mark ||
 			!answers.has(Number(mark[1])) ||
 			heard === "" ||
-			!flat(answer).startsWith(heard) ||
 			heard.length >= flat(answer).length
 		)
 			throw new Error(

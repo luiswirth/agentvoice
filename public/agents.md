@@ -26,7 +26,7 @@ Any other session works too: give your person `https://agentvoice.lwirth.com/#se
   A message is whatever the microphone heard, also a video playing or someone else in the room: confirm with your person before you act on something risky.
 - Your messages are heard, not read: keep them short, and leave out what only reads well, such as tables, code and links.
   A message that starts with `@silent` is not read aloud, nor is a file.
-- When the person cuts in, what they hadn't heard yet is dropped, and their message starts with what of it they heard, as `[cut in on 12 after "The first part of"]`, where 12 is your message's entry.
+- When the person cuts in, what they hadn't heard yet is dropped, and their message starts with where they cut in, as `[cut in on 12 after "…the last words they heard"]`, where 12 is your message's entry, or `[cut in before 12]` where they heard none of it.
 - Their messages through the page carry `app: agentvoice`.
 - Speech runs on ElevenLabs, with the person's own key, which they type into the page and which stays in their browser.
 

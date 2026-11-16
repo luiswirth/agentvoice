@@ -65,6 +65,9 @@ const SOUNDS = "voice-sounds";
  * still be read, in seconds: one that came during a reload. */
 const RECENT = 10;
 
+/** How many of the last words heard mark where the person cut in. */
+const CUT_WORDS = 5;
+
 /** What the core keeps, in this browser, for the page's link, so that a
  * reload keeps it and another session never gets it. */
 function kept(): Store {
@@ -414,15 +417,18 @@ export class Voice {
 		this.core.send(interrupt);
 	}
 
-	/** A turn the person ended: what they heard of the messages they cut in
-	 * on goes ahead of what they said, so that the agent has the turn as one
-	 * entry. */
+	/** A turn the person ended: where they cut in on the agent's messages
+	 * goes ahead of what they said, so that the agent has the turn as one
+	 * entry. The spot is the last few words they heard, enough to find it in
+	 * the message without repeating it. */
 	private turn(text: string, cut: Heard[]): void {
-		const marks = cut.map(({ id, text }) =>
-			text
-				? `[cut in on ${id} after "${text.replace(/\s+/g, " ")}"]`
-				: `[cut in before ${id}]`,
-		);
+		const marks = cut.map(({ id, text }) => {
+			const words = text.trim().split(/\s+/).filter(Boolean);
+			if (words.length === 0) return `[cut in before ${id}]`;
+			const tail = words.slice(-CUT_WORDS).join(" ");
+			const spot = words.length > CUT_WORDS ? `…${tail}` : tail;
+			return `[cut in on ${id} after "${spot}"]`;
+		});
 		this.queue(() => this.session.send([...marks, text].join(" ")));
 	}
 
