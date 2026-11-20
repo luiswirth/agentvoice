@@ -1,6 +1,8 @@
-# agentvoice
+---
+description: "A person talks with their agents by voice, at agentvoice.lwirth.com, in a session of Vibe Together. Use when working on agentvoice."
+---
 
-A person talks with their agents by voice, at agentvoice.lwirth.com, in a session of Vibe Together.
+# agentvoice
 
 - `voice/`: the library `agentvoice`, which every audio client builds on.
   It is the pipeline: the person's audio to their turns, and the agents' messages to speech, with turn-taking and echo handling, and the ElevenLabs tier.
