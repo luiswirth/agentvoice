@@ -4,6 +4,9 @@
 		"clientKind": "git",
 		"useIgnoreFile": true
 	},
+	"files": {
+		"includes": ["**", "!**/*.md"]
+	},
 	"css": {
 		"parser": {
 			"tailwindDirectives": true
