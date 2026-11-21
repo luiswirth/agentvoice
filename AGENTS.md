@@ -4,6 +4,10 @@ description: "A person talks with their agents by voice, at agentvoice.lwirth.co
 
 # agentvoice
 
+- agentvoice becomes independent of Vibe Together, with its own transport, Luis's decision (2026-11-21), which replaces "built on" below:
+  It is Luis's own tool, built for his needs, not a product: "focus on what my own needs".
+  The transport runs locally for now, on localhost; a hosted relay on the internet may come later, and then extends it naturally.
+  What the transport is stays an implementation detail.
 - `voice/`: the library `agentvoice`, which every audio client builds on.
   It is the pipeline: the person's audio to their turns, and the agents' messages to speech, with turn-taking and echo handling, and the ElevenLabs tier.
   It has no transport, no UI and no audio device, so it runs in a browser, Node or Bun.
