@@ -2,29 +2,7 @@ import { fileURLToPath } from "node:url";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
-
-/** As lwirth-cloud serves the page, in dotcloud's serve.nix. */
-const headers = {
-	"Cross-Origin-Opener-Policy": "same-origin",
-	"Cross-Origin-Embedder-Policy": "require-corp",
-};
-
-/** What the page may load and reach, as lwirth-cloud serves it, in dotcloud's
- * serve.nix: its own scripts and WebAssembly, Vibe Together, ElevenLabs, and
- * the models of voice/src/models.ts, whose Hugging Face links redirect to its
- * storage. */
-const policy = [
-	"default-src 'self'",
-	"script-src 'self' 'wasm-unsafe-eval'",
-	"style-src 'self' 'unsafe-inline'",
-	"img-src 'self' data: blob:",
-	"media-src 'self' data: blob:",
-	"worker-src 'self' blob:",
-	`connect-src 'self' ${process.env.VITE_VIBETOGETHER ?? "https://vibetogether.potentialhedge.com"} https://api.elevenlabs.io wss://api.elevenlabs.io https://raw.githubusercontent.com https://huggingface.co https://*.huggingface.co https://*.hf.co`,
-	"object-src 'none'",
-	"base-uri 'none'",
-	"frame-ancestors 'none'",
-].join("; ");
+import { headers, isolation } from "./server/policy.ts";
 
 export default defineConfig({
 	base: "./",
@@ -39,11 +17,15 @@ export default defineConfig({
 			},
 		},
 	},
-	server: { headers },
-	// The built page runs under the policy it is served with.
-	preview: {
-		headers: { ...headers, "Content-Security-Policy": policy },
+	// `just dev` talks to the agents through the server running beside it.
+	server: {
+		headers: isolation,
+		proxy: {
+			"/api": `http://localhost:${process.env.AGENTVOICE_PORT ?? 8790}`,
+		},
 	},
+	// The built page runs under the policy its server serves it with.
+	preview: { headers },
 	plugins: [react(), tailwindcss()],
 	resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
 });

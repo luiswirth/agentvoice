@@ -38,6 +38,59 @@
         programs.just.enable = true;
       });
 
+    # agentvoice: the page, built, and its server, which serves it on the
+    # agents' machine, as server/main.ts says. It needs `agentinbox` on its
+    # PATH, the inbox's command line, which delivers the person's turns.
+    packages = forEachSystem (pkgs: {
+      default = pkgs.stdenvNoCC.mkDerivation (finalAttrs: {
+        pname = "agentvoice";
+        version = "0";
+        src = nixpkgs.lib.fileset.toSource {
+          root = ./.;
+          fileset = nixpkgs.lib.fileset.unions [
+            ./package.json
+            ./pnpm-lock.yaml
+            ./pnpm-workspace.yaml
+            ./patches
+            ./index.html
+            ./demo/index.html
+            ./vite.config.ts
+            ./tsconfig.json
+            ./components.json
+            ./src
+            ./public
+            ./server
+            ./voice/package.json
+            ./voice/src
+          ];
+        };
+        nativeBuildInputs = [pkgs.nodejs pkgs.pnpm pkgs.pnpmConfigHook pkgs.makeWrapper];
+        pnpmDeps = pkgs.fetchPnpmDeps {
+          inherit (finalAttrs) pname version src;
+          hash = "sha256-cTQvk/aQshiUvkl1RgFbjkDgcPA9pa6Ql+09TpligUY=";
+          fetcherVersion = 4;
+          # pnpm leaves an empty `links` in its store on Darwin only, which
+          # fetchPnpmDeps keeps, so the hash would differ between platforms.
+          preFixup = "rm -rf $storePath/v11/links";
+        };
+        buildPhase = ''
+          runHook preBuild
+          pnpm build
+          runHook postBuild
+        '';
+        installPhase = ''
+          runHook preInstall
+          mkdir -p $out/lib/agentvoice $out/bin
+          cp -r dist $out/lib/agentvoice/dist
+          cp -r server $out/lib/agentvoice/server
+          makeWrapper ${pkgs.lib.getExe pkgs.nodejs} $out/bin/agentvoice \
+            --add-flags $out/lib/agentvoice/server/main.ts
+          runHook postInstall
+        '';
+        meta.mainProgram = "agentvoice";
+      });
+    });
+
     devShells = forEachSystem (pkgs: {
       default = pkgs.mkShell {packages = tools pkgs;};
     });

@@ -20,5 +20,5 @@
 			"@/*": ["./src/*"]
 		}
 	},
-	"include": ["src", "bench", "vite.config.ts"]
+	"include": ["src", "bench", "server", "vite.config.ts"]
 }

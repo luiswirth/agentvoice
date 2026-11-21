@@ -1,15 +1,11 @@
 // Voice as a phone call, since everyone knows how one works: who you talk
 // with at the top, large, with what is happening under it, and the buttons of
 // a call at the bottom: mute or push to talk, speaker, hands-free, more, and
-// the red one that hangs up. No text shows: the conversation is the session's,
-// on Vibe Together, as a call shows none. What is set once, such as the
-// languages, waits behind more. The system's media controls work it too, as
+// the red one that hangs up. No text shows, as a call shows none. What is
+// set once, such as the languages, waits behind more. The system's media controls work it too, as
 // headphones do on a call: a tap mutes, or sends.
 import {
 	AudioLines,
-	BadgeCheck,
-	Check,
-	Copy,
 	Download,
 	Ellipsis,
 	Mic,
@@ -33,20 +29,12 @@ import { showMedia } from "./media.ts";
 import { agent } from "./protocol.ts";
 import type { Voice, VoiceState } from "./voice.ts";
 
-/** Someone else in the session, as its presence has them. */
+/** Someone else in the call: an agent. */
 export type Present = {
 	name: string;
-	/** Whether a receive of theirs waits: an agent between turns, listening. */
-	receiving: boolean;
-	/** If not receiving, since when. */
-	since?: string | undefined;
-	/** The account Vibe Together vouches for them by: only then is their name
-	 * verified, else it says only who joined with it. */
-	account?: string | undefined;
 };
 
-/** A message said in the session, by the person or an agent: another
- * person's words never show, as the page never reads them out. */
+/** A message said in the call, by the person or an agent. */
 export type Turn = {
 	n: number;
 	from: string;
@@ -55,7 +43,7 @@ export type Turn = {
 	text: string;
 };
 
-/** The session as the page sees it. */
+/** The call as the page sees it. */
 export type Room = {
 	/** The others in it now. */
 	people: Present[];
@@ -64,9 +52,7 @@ export type Room = {
 	/** The agents in the order they first spoke, which picks each one's
 	 * shade. */
 	speakers: string[];
-	/** The session's id on Vibe Together, which the page's link names. */
-	link: string;
-	/** Hangs up: the person stays in the session, and voice stops. */
+	/** Hangs up: voice stops, and the agent's inbox stays as it is. */
 	leave: () => void;
 };
 
@@ -74,14 +60,11 @@ export function Call({
 	voice,
 	room,
 	changeKey,
-	signOut,
 }: {
 	voice: Voice;
 	room?: Room | undefined;
 	/** Asks for another ElevenLabs key, from the settings. */
 	changeKey?: (() => void) | undefined;
-	/** Signs out of Vibe Together, from the settings. */
-	signOut?: (() => void) | undefined;
 }) {
 	const state = useSyncExternalStore(voice.watch, () => voice.state);
 	const root = useRef<HTMLDivElement>(null);
@@ -92,8 +75,8 @@ export function Call({
 	const agents = people.filter((person) => agent(person.name));
 	const speakers = room?.speakers ?? [];
 	const reader = room?.turns.find((turn) => turn.n === state.reading)?.from;
-	const now = status(state, reader ? label(reader) : null, agents);
-	const title = together(people.map((person) => label(person.name)));
+	const now = status(state, reader ?? null, agents);
+	const title = together(people.map((person) => person.name));
 	useEffect(() => {
 		showMedia(said(state) || now, title || "voice");
 	}, [state, now, title]);
@@ -150,9 +133,7 @@ export function Call({
 				close={() => setSettings(false)}
 				voice={voice}
 				state={state}
-				link={room?.link}
 				changeKey={changeKey}
-				signOut={signOut}
 			/>
 		</div>
 	);
@@ -330,12 +311,12 @@ function Faces({
 			{people.map((person) => {
 				const isAgent = agent(person.name);
 				const speaking = person.name === reader;
-				const working = isAgent && progress === "working" && !person.receiving;
-				const name = label(person.name);
+				const working = isAgent && progress === "working";
+				const name = person.name;
 				return (
 					<li
 						key={person.name}
-						title={`${person.name}, ${person.account ? `verified as ${person.account}` : "not verified"}: ${person.receiving ? "here, listening" : "busy"}`}
+						title={person.name}
 						className="flex animate-[arrive_0.4s_ease-out] flex-col items-center gap-2"
 						style={
 							isAgent
@@ -355,12 +336,6 @@ function Faces({
 							}}
 						>
 							{name.charAt(0).toUpperCase()}
-							{person.account && (
-								<BadgeCheck
-									aria-label={`verified as ${person.account}`}
-									className={`absolute right-0 bottom-0 rounded-full bg-background fill-[var(--agent)] text-background ${group ? "size-6" : "size-8"}`}
-								/>
-							)}
 						</div>
 						{group && <span className="text-lg font-light">{name}</span>}
 					</li>
@@ -377,13 +352,6 @@ function shade(speakers: string[], from: string): CSSProperties {
 	const n = speakers.indexOf(from);
 	const place = (n < 0 ? speakers.length : n) % 4;
 	return { "--agent": `var(--agent-${place})` } as CSSProperties;
-}
-
-/** A name in the session as the person reads it: without the person's own
- * prefix, which every agent they invite carries. */
-function label(name: string): string {
-	const slash = name.indexOf("/");
-	return slash < 0 ? name : name.slice(slash + 1);
 }
 
 /** The buttons of a call: on top mute, speaker and hands-free; under them
@@ -547,16 +515,14 @@ function HangUp({ leave }: { leave: () => void }) {
 	);
 }
 
-/** What is set once and then left: the languages, the key, the sounds, the
- * call's link, signing out, and debugging. */
+/** What is set once and then left: the languages, the key, the sounds, and
+ * debugging. */
 function Settings(props: {
 	open: boolean;
 	close: () => void;
 	voice: Voice;
 	state: VoiceState;
-	link?: string | undefined;
 	changeKey?: (() => void) | undefined;
-	signOut?: (() => void) | undefined;
 }) {
 	const { voice, state } = props;
 	const dialog = useRef<HTMLDialogElement>(null);
@@ -618,28 +584,6 @@ function Settings(props: {
 						flip={() => voice.setSounds(!state.sounds)}
 					/>
 				</Row>
-				{props.link && (
-					<Row
-						title="Link to this call"
-						detail="Opens this session here, for whoever is signed in to Vibe Together and in it."
-					>
-						<CopyLink link={props.link} />
-					</Row>
-				)}
-				{props.signOut && (
-					<Row
-						title="Vibe Together"
-						detail="This browser's sign-in, which you can also revoke on Vibe Together."
-					>
-						<button
-							type="button"
-							className="h-8 rounded-full bg-white/10 px-3 text-sm transition hover:bg-white/15"
-							onClick={props.signOut}
-						>
-							Sign out
-						</button>
-					</Row>
-				)}
 				<p className="mt-2 border-t border-white/10 px-4 pt-4 text-xs tracking-widest text-muted-foreground uppercase">
 					Debugging
 				</p>
@@ -651,33 +595,6 @@ function Settings(props: {
 				</Row>
 			</div>
 		</dialog>
-	);
-}
-
-/** Copies the page's link, which joins this session as the person. */
-function CopyLink({ link }: { link: string }) {
-	const [copied, setCopied] = useState(false);
-	useEffect(() => {
-		if (!copied) return;
-		const timer = setTimeout(() => setCopied(false), 1500);
-		return () => clearTimeout(timer);
-	}, [copied]);
-	return (
-		<button
-			type="button"
-			className="flex h-8 items-center gap-1.5 rounded-full bg-white/10 px-3 text-sm transition hover:bg-white/15"
-			onClick={() =>
-				void navigator.clipboard
-					.writeText(
-						new URL(`#${new URLSearchParams({ session: link })}`, location.href)
-							.href,
-					)
-					.then(() => setCopied(true))
-			}
-		>
-			{copied ? <Check className="size-4" /> : <Copy className="size-4" />}
-			{copied ? "Copied" : "Copy"}
-		</button>
 	);
 }
 

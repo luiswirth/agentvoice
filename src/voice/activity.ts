@@ -1,7 +1,7 @@
-// What the others in the session do, as far as the page can tell from the
-// log and who is in it: who joins and leaves, whether they have read the
-// person's last message, and whether they answered it. From reading it until
-// answering, an agent is taken to be working on it.
+// What the others in the call do, as far as the page can tell from the log
+// and who is in it: who joins and leaves, whether they have taken in the
+// person's last message, and whether they answered it. From taking it in
+// until answering, an agent is taken to be working on it.
 import type { Participant, Session } from "./protocol.ts";
 import { spoken } from "./protocol.ts";
 
@@ -21,15 +21,14 @@ export type ActivityEvents = {
 	progress(progress: Progress): void;
 };
 
-const JOIN = "application/vnd.vibetogether.join";
-const LEAVE = "application/vnd.vibetogether.leave";
-
 export class Activity {
 	private readonly name: string;
 	private readonly events: ActivityEvents;
 	/** The person's last message, by its entry, while no one answered it. */
 	private waiting: number | null = null;
 	private progress: Progress = null;
+	/** Who else is in the call, as last seen. */
+	private present: Set<string> | null = null;
 	readonly close: () => void;
 
 	/** Starts with the session as it is: only what comes after is news. */
@@ -42,19 +41,28 @@ export class Activity {
 					if (!spoken(entry)) return;
 					this.waiting = entry.n;
 					this.set("sent");
-				} else if (entry.type.startsWith(JOIN)) this.events.joined(entry.from);
-				else if (entry.type.startsWith(LEAVE)) this.events.left(entry.from);
-				else if (spoken(entry)) {
+				} else if (spoken(entry)) {
 					this.waiting = null;
 					this.set(null);
 					this.events.message();
-				} else if (!entry.type.includes("vnd.")) this.events.other();
+				} else this.events.other();
 			},
 			participants: (participants) => this.participants(participants),
 		});
 	}
 
 	private participants(participants: Record<string, Participant>): void {
+		const present = new Set(
+			Object.keys(participants).filter((name) => name !== this.name),
+		);
+		// Who was there as the page came is no news.
+		if (this.present !== null) {
+			for (const name of present)
+				if (!this.present.has(name)) this.events.joined(name);
+			for (const name of this.present)
+				if (!present.has(name)) this.events.left(name);
+		}
+		this.present = present;
 		if (this.waiting === null || this.progress !== "sent") return;
 		const waiting = this.waiting;
 		const read = Object.entries(participants).some(

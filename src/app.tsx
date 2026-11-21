@@ -1,77 +1,48 @@
-// A page to talk with agents by voice, in a session of Vibe Together. One
-// path for everyone: the person connects the page to Vibe Together, by
-// approving it as an app there, which makes their account where they have
-// none, and gives their agent one line, which has it set itself up and open
-// the session `voice` in their own group, as public/agents.md has it. The
-// page opens that session on its own; any other is a switch away. Their turns
-// go into the session as their messages, through agentvoice, and the agents'
-// messages there are read aloud. Speech runs on ElevenLabs, with the person's
-// own key, which stays in this browser.
+// A page to talk with an agent by voice, served by agentvoice's server on the
+// agent's machine (server/main.ts). The person gives their agent one line,
+// which has it read public/agents.md and go into voice mode; the page opens
+// the call once it is the only agent in voice mode, and lists them where
+// there are several. Their turns go into the agent's inbox, and what the
+// agent sends them is read aloud. Speech runs on ElevenLabs, with the
+// person's own key, which stays in this browser.
 
 import { checkKey, KeyRefused } from "agentvoice";
 import {
 	type ReactNode,
 	useEffect,
-	useRef,
 	useState,
 	useSyncExternalStore,
 } from "react";
 import { Button } from "@/components/ui/button";
+import { type Agent, useCall, watchAgents } from "./agents.ts";
 import { Frame } from "./frame.tsx";
-import { useSession } from "./session.ts";
 import { Call, type Present, type Room } from "./voice/call.tsx";
 import { agent as isAgent, speakers, spoken } from "./voice/protocol.ts";
 import { Voice, type VoiceState } from "./voice/voice.ts";
-import {
-	client,
-	refusedToken,
-	type Session,
-	sessions as sessionsOf,
-	signedIn,
-	signIn,
-	signOut,
-} from "./vt.ts";
 
 const KEY = "elevenlabs-key";
-const SERVICE = "agentvoice.lwirth.com";
+const SERVICE = "agentvoice";
 
-/** The session in the page's address, as `#session=<id>`. */
-const sessionInAddress = () =>
-	new URLSearchParams(location.hash.slice(1)).get("session") ?? "";
+/** The line the person gives their agent, which reads it on its machine,
+ * where this page is served. */
+const prompt = () =>
+	`Read ${new URL("agents.md", location.href).href} and talk with me by voice.`;
 
-/** The line the person gives their agent. */
-const PROMPT =
-	"Read https://agentvoice.lwirth.com/agents.md and set me up for voice.";
-
-/** The session the page opens on its own: `voice`, in the person's own
- * group, which their agent creates. Vibe Together marks that group's
- * sessions as `own`, which no one else can make, unlike a group's name. */
-const VOICE = "voice";
-
-/** The sessions the person picked on this page, which it joins without
- * asking again: one in a link someone else gave them it asks about first. */
-const picked = new Set<string>();
-
-const PICKED = "agentvoice-picked";
-
-/** Where the page is, as one string, which React compares: the session in
- * the address, with `picked` after it where the person picked it here, or
- * `sessions` for the list of them, or nothing for the start. */
+/** Where the page is: the agent in the address, as `#agent=<id>`, or
+ * `agents` for the list of them, or nothing for the start, which opens the
+ * only agent in voice mode by itself. */
 const here = () => {
-	if (location.hash === "#sessions") return "sessions";
-	const id = sessionInAddress();
-	return picked.has(id) ? `${id} picked` : id;
+	if (location.hash === "#agents") return "agents";
+	return new URLSearchParams(location.hash.slice(1)).get("agent") ?? "";
 };
 
-function go(session: string) {
-	picked.add(session);
-	location.hash = new URLSearchParams({ session }).toString();
-	dispatchEvent(new Event(PICKED));
+function go(agent: string) {
+	location.hash = new URLSearchParams({ agent }).toString();
 }
 
-/** To the list of sessions. */
+/** To the list of agents, which opens none by itself. */
 function list() {
-	location.hash = "sessions";
+	location.hash = "agents";
 }
 
 function storedKey(): string | null {
@@ -83,192 +54,74 @@ function storedKey(): string | null {
 }
 
 export function App() {
-	// Whether the page holds a token, as far as it knows: a refused one
-	// signs it out.
-	const [signedIn, setSignedIn] = useState<boolean | null>(null);
-	useEffect(() => {
-		void client().then((c) => setSignedIn(c !== null));
-	}, []);
-	// The session, and whether the person picked it here: picking the one
-	// already in the address changes nothing of it.
-	const [id, chosen] = useSyncExternalStore((changed) => {
+	const id = useSyncExternalStore((changed) => {
 		addEventListener("hashchange", changed);
-		addEventListener(PICKED, changed);
-		return () => {
-			removeEventListener("hashchange", changed);
-			removeEventListener(PICKED, changed);
-		};
-	}, here).split(" ");
+		return () => removeEventListener("hashchange", changed);
+	}, here);
 	const [key, setKey] = useState(storedKey);
-	const [notice, setNotice] = useState<string | null>(null);
-	const out = () => {
-		signOut().then(
-			() => setSignedIn(false),
-			(error: Error) => setNotice(error.message),
-		);
-	};
-	const page = (() => {
-		if (signedIn === null) return null;
-		if (!signedIn) return <Start done={() => setSignedIn(true)} />;
-		// The key before any session, so that voice is ready as one opens, and
-		// the agent's first words are heard.
-		if (key === null) return <KeyStep keep={setKey} />;
-		if (id === "sessions")
-			return <Sessions signOut={out} gone={() => setSignedIn(false)} />;
-		if (!id) return <Waiting gone={() => setSignedIn(false)} />;
-		if (!chosen) return <Confirm id={id} />;
-		return (
-			<Talk
-				key={id}
-				id={id}
-				elevenlabs={key}
-				forgetKey={() => {
-					localStorage.removeItem(KEY);
-					setKey(null);
-				}}
-				signOut={out}
-			/>
-		);
-	})();
+	// The key before any call, so that voice is ready as one opens, and the
+	// agent's first words are heard.
+	if (key === null) return <KeyStep keep={setKey} />;
+	if (id === "" || id === "agents") return <Agents open={id === ""} />;
 	return (
-		<>
-			{page}
-			{notice && (
-				<div
-					role="alert"
-					className="fixed inset-x-3 top-3 z-50 mx-auto max-w-md rounded-2xl border bg-card p-4 text-sm text-pretty shadow-2xl"
-				>
-					{notice}{" "}
-					<button
-						type="button"
-						className="underline underline-offset-4"
-						onClick={() => setNotice(null)}
-					>
-						OK
-					</button>
-				</div>
-			)}
-		</>
+		<Talk
+			key={id}
+			id={id}
+			elevenlabs={key}
+			forgetKey={() => {
+				localStorage.removeItem(KEY);
+				setKey(null);
+			}}
+		/>
 	);
 }
 
-/** A session in the address the person didn't pick here, such as from a
- * link someone gave them: the page names it and asks before it joins, since
- * joining sends what the microphone hears there as the person's words. */
-function Confirm({ id }: { id: string }) {
-	const [session, setSession] = useState<Session | null>(null);
-	const [problem, setProblem] = useState<string | null>(null);
-	useEffect(() => {
-		signedIn()
-			.then((c) => c.session(id))
-			.then(setSession, (error: Error) => setProblem(error.message));
-	}, [id]);
-	return (
-		<Frame
-			name={SERVICE}
-			title={session ? `Talk in ${title(session)}?` : "Talk in this session?"}
-			description={
-				problem ??
-				(session
-					? `${session.own ? "In your own group. " : session.group ? `In the group ${session.group.name}. ` : ""}What you say there goes in as your messages, and everyone in the session reads them.`
-					: "Loading the session…")
-			}
-		>
-			<Actions>
-				{session && (
-					<Button size="lg" onClick={() => go(id)}>
-						Join and talk
-					</Button>
-				)}
-				<Button size="lg" variant="outline" onClick={list}>
-					Pick a session
-				</Button>
-			</Actions>
-		</Frame>
-	);
-}
-
-/** The start, before the page is connected: connecting it, and the line
- * for the person's agent, the same for someone new to Vibe Together and for
- * someone who uses it, since the agent finds out which they are. The page
- * asks Vibe Together for an OTP at once, so that Connect is a plain link, which
- * a phone's browser opens without a popup blocker in the way, and waits until
- * the person approves it there. An OTP lasts 15 minutes: an expired one is
- * replaced. */
-function Start({ done }: { done: () => void }) {
-	const [link, setLink] = useState<string | null>(null);
-	const [problem, setProblem] = useState<string | null>(null);
-	const finished = useRef(done);
-	finished.current = done;
+/** The agents in voice mode on this machine, with the line that puts one
+ * in it: at the start, the only one opens by itself. */
+function Agents({ open }: { open: boolean }) {
+	const [agents, setAgents] = useState<Agent[] | null>(null);
 	useEffect(() => {
 		const stop = new AbortController();
-		(async () => {
-			while (!stop.signal.aborted) {
-				try {
-					await signIn(setLink, stop.signal);
-					finished.current();
-					return;
-				} catch (error) {
-					if (stop.signal.aborted) return;
-					setLink(null);
-					setProblem((error as Error).message);
-					await new Promise((r) => setTimeout(r, 3000));
-				}
-			}
-		})();
+		void watchAgents(setAgents, stop.signal);
 		return () => stop.abort();
 	}, []);
+	const only = agents?.length === 1 ? agents[0] : undefined;
+	useEffect(() => {
+		if (open && only) go(only.id);
+	}, [open, only]);
+	if (agents === null) return null;
 	return (
 		<Frame
 			name={SERVICE}
-			title="Talk with your agents"
-			description="Speak to the agent you already use, such as Claude Code, and hear its answers, here in your browser."
+			title={agents.length === 0 ? "Waiting for your agent" : "Talk with"}
+			description={
+				agents.length === 0
+					? "Give your agent this line. Once it is in voice mode, the call opens here, and you can talk."
+					: "The agents in voice mode on this machine. Your words go into the agent's inbox, and its answers are read to you."
+			}
 		>
-			<ol className="flex flex-col gap-8">
-				<Step n={1} title="Connect this page">
-					<a
-						href={link ?? undefined}
-						target="_blank"
-						rel="noreferrer"
-						aria-disabled={!link}
-						className={`flex h-12 items-center justify-center rounded-xl bg-primary px-6 text-base font-medium text-primary-foreground transition-all outline-none hover:bg-primary/85 focus-visible:ring-3 focus-visible:ring-ring/50 active:translate-y-px ${link ? "" : "pointer-events-none opacity-50"}`}
-					>
-						Connect
-					</a>
-					<p className="px-2 text-sm text-pretty text-muted-foreground">
-						You sign in with GitHub and approve agentvoice, which then sends and
-						reads as you in your sessions, and nothing else.
-					</p>
-					{problem && (
-						<p className="px-2 text-sm text-destructive">{problem}</p>
-					)}
-				</Step>
-				<Step n={2} title="Give your agent this line">
-					<Prompt />
-				</Step>
-			</ol>
-			<RunsOn />
+			{agents.length > 0 && (
+				<ul className="flex flex-col gap-1.5">
+					{agents.map((agent) => (
+						<li key={agent.id}>
+							<button
+								type="button"
+								onClick={() => go(agent.id)}
+								className="flex w-full items-baseline gap-3 rounded-2xl border bg-card/40 px-4 py-3 text-left transition hover:border-foreground/30 hover:bg-card/70 focus-visible:ring-3 focus-visible:ring-ring/50 outline-none active:translate-y-px"
+							>
+								<span className="text-base">{agent.name}</span>
+								{agent.name !== agent.id && (
+									<span className="truncate font-mono text-xs text-muted-foreground">
+										{agent.id}
+									</span>
+								)}
+							</button>
+						</li>
+					))}
+				</ul>
+			)}
+			<Prompt />
 		</Frame>
-	);
-}
-
-function Step({
-	n,
-	title,
-	children,
-}: {
-	n: number;
-	title: string;
-	children: ReactNode;
-}) {
-	return (
-		<li className="flex flex-col gap-3">
-			<h2 className="flex items-baseline gap-3 px-2 text-lg font-medium">
-				<span className="font-mono text-sm text-muted-foreground">{n}</span>
-				{title}
-			</h2>
-			{children}
-		</li>
 	);
 }
 
@@ -283,190 +136,21 @@ function Prompt() {
 	return (
 		<div className="flex flex-col gap-2 rounded-2xl border bg-card/60 p-2 shadow-2xl shadow-black/20 backdrop-blur">
 			<p className="rounded-xl bg-background/80 p-4 font-mono text-sm leading-relaxed wrap-anywhere">
-				{PROMPT}
+				{prompt()}
 			</p>
 			<Button
 				size="lg"
 				variant="outline"
 				onClick={() =>
-					void navigator.clipboard.writeText(PROMPT).then(() => setCopied(true))
+					void navigator.clipboard
+						.writeText(prompt())
+						.then(() => setCopied(true))
 				}
 			>
 				{copied ? "Copied" : "Copy"}
 			</Button>
 		</div>
 	);
-}
-
-function RunsOn() {
-	return (
-		<p className="px-2 text-xs text-muted-foreground">
-			Runs on{" "}
-			<a
-				className="underline underline-offset-4 hover:text-foreground"
-				href="https://vibetogether.potentialhedge.com/"
-				target="_blank"
-				rel="noreferrer"
-			>
-				Vibe Together
-			</a>
-			, where your agents and you talk in sessions.
-		</p>
-	);
-}
-
-/** Once connected: opens the session `voice` of the person's own group as
- * soon as their agent made it, and until then waits, with the line for the
- * agent and a way to any other session. */
-function Waiting({ gone }: { gone: () => void }) {
-	const [problem, setProblem] = useState<string | null>(null);
-	const finished = useRef(gone);
-	finished.current = gone;
-	useEffect(() => {
-		let stopped = false;
-		(async () => {
-			while (!stopped) {
-				try {
-					const c = await signedIn();
-					const voice = (await c.sessions()).find(
-						(session) =>
-							session.own && session.name === VOICE && !session.project,
-					);
-					if (voice && !stopped) {
-						go(voice.id);
-						return;
-					}
-					setProblem(null);
-				} catch (error) {
-					if (refusedToken(error)) {
-						finished.current();
-						return;
-					}
-					setProblem((error as Error).message);
-				}
-				await new Promise((r) => setTimeout(r, 3000));
-			}
-		})();
-		return () => {
-			stopped = true;
-		};
-	}, []);
-	return (
-		<Frame
-			name={SERVICE}
-			title="Waiting for your agent"
-			description="Connected. Once your agent has set up voice, this page opens its session, and you can talk."
-		>
-			<ol>
-				<Step n={2} title="Give your agent this line">
-					<Prompt />
-				</Step>
-			</ol>
-			{problem && <p className="px-2 text-sm text-destructive">{problem}</p>}
-			<p className="px-2 text-sm text-muted-foreground">
-				Or talk in{" "}
-				<button
-					type="button"
-					className="underline underline-offset-4 hover:text-foreground"
-					onClick={list}
-				>
-					another session
-				</button>
-				.
-			</p>
-		</Frame>
-	);
-}
-
-/** The sessions the person can talk in, by group, the ones that pinged them
- * marked. */
-function Sessions({
-	signOut,
-	gone,
-}: {
-	signOut: () => void;
-	/** The token was refused. */
-	gone: () => void;
-}) {
-	const [seen, setSeen] = useState<{
-		me: string;
-		sessions: Session[];
-	} | null>(null);
-	const [problem, setProblem] = useState<string | null>(null);
-	// biome-ignore lint/correctness/useExhaustiveDependencies: once, as the list opens
-	useEffect(() => {
-		signedIn()
-			.then(async (c) => ({
-				me: (await c.me()).name,
-				sessions: await sessionsOf(),
-			}))
-			.then(setSeen)
-			.catch((error: Error) => {
-				if (refusedToken(error)) gone();
-				else setProblem(error.message);
-			});
-	}, []);
-	const sessions = seen?.sessions ?? [];
-	const groups = Map.groupBy(
-		sessions,
-		(session) => session.group?.name ?? "Direct messages",
-	);
-	return (
-		<Frame
-			name={SERVICE}
-			title="Pick a session"
-			description={
-				seen
-					? `Signed in to Vibe Together as ${seen.me}. Your words go into the session as your messages, and its agents' answers are read to you.`
-					: "Loading your sessions…"
-			}
-		>
-			{problem && <p className="text-sm text-destructive">{problem}</p>}
-			<div className="flex flex-col gap-8">
-				{[...groups].map(([group, sessions]) => (
-					<section key={group} className="flex flex-col gap-2">
-						<h2 className="px-2 text-xs tracking-widest text-muted-foreground uppercase">
-							{group}
-						</h2>
-						<ul className="flex flex-col gap-1.5">
-							{sessions.map((session) => (
-								<li key={session.id}>
-									<button
-										type="button"
-										onClick={() => go(session.id)}
-										className="flex w-full items-baseline gap-3 rounded-2xl border bg-card/40 px-4 py-3 text-left transition hover:border-foreground/30 hover:bg-card/70 focus-visible:ring-3 focus-visible:ring-ring/50 outline-none active:translate-y-px"
-									>
-										<span className="text-base">{title(session)}</span>
-										{session.pinged && (
-											<span className="text-sm text-primary">pinged you</span>
-										)}
-									</button>
-								</li>
-							))}
-						</ul>
-					</section>
-				))}
-			</div>
-			{seen && (
-				<p className="px-2 text-sm text-muted-foreground">
-					<button
-						type="button"
-						className="underline underline-offset-4 hover:text-foreground"
-						onClick={signOut}
-					>
-						Sign out
-					</button>
-				</p>
-			)}
-		</Frame>
-	);
-}
-
-function title(session: Session): string {
-	if (session.friend) return session.friend;
-	return session.project
-		? `${session.project.name} / ${session.name}`
-		: session.name;
 }
 
 /** The ElevenLabs key, which ElevenLabs checks before it is kept. */
@@ -538,19 +222,17 @@ function KeyStep({ keep }: { keep: (key: string) => void }) {
 	);
 }
 
-/** The call in the session `id`. */
+/** The call with the agent `id`. */
 function Talk({
 	id,
 	elevenlabs,
 	forgetKey,
-	signOut,
 }: {
 	id: string;
 	elevenlabs: string;
 	forgetKey: () => void;
-	signOut: () => void;
 }) {
-	const { seat, entries, participants, problem } = useSession(id);
+	const { seat, entries, participants, problem } = useCall(id);
 	const [voice, setVoice] = useState<Voice | null>(null);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the key at its start
 	useEffect(() => {
@@ -564,17 +246,10 @@ function Talk({
 	}, [voice, elevenlabs]);
 	const state = useVoiceState(voice);
 	const name = seat?.name ?? "";
-	const people: Present[] = Object.entries(participants)
-		.filter(([other]) => other !== name)
-		.map(([other, { presence, since }]) => ({
-			name: other,
-			receiving: presence === "awake" || presence === "asleep",
-			since,
-			// Vibe Together vouches for every name: an agent's is under its
-			// person's account.
-			account: other.split("/")[0],
-		}));
-	// Listening runs only while an agent is in the session to hear it.
+	const people: Present[] = Object.keys(participants)
+		.filter((other) => other !== name)
+		.map((other) => ({ name: other }));
+	// Listening runs only while the agent is in voice mode to hear it.
 	const talking = Boolean(state?.ready && people.some((p) => isAgent(p.name)));
 	useEffect(() => {
 		void voice?.standby(!talking);
@@ -582,14 +257,10 @@ function Talk({
 
 	if (problem)
 		return (
-			<Frame
-				name={SERVICE}
-				title="This session can't be joined"
-				description={problem}
-			>
+			<Frame name={SERVICE} title="This call can't start" description={problem}>
 				<Actions>
 					<Button size="lg" onClick={list}>
-						Pick another session
+						Pick another agent
 					</Button>
 				</Actions>
 			</Frame>
@@ -607,15 +278,16 @@ function Talk({
 				text: entry.text,
 			})),
 		speakers: speakers(entries),
-		link: id,
 		leave: list,
 	};
 	return (
 		<main className="mx-auto flex h-dvh max-w-6xl flex-col gap-4 px-3 pt-3 pb-6 sm:px-4 sm:pb-8">
 			<p className="text-center text-sm text-muted-foreground">
-				{seat.info ? title(seat.info) : ""}
+				{people.length === 0
+					? `${seat.agent?.name ?? id} is not in voice mode`
+					: ""}
 			</p>
-			<Call voice={voice} room={room} changeKey={forgetKey} signOut={signOut} />
+			<Call voice={voice} room={room} changeKey={forgetKey} />
 			{state?.refused && state.error && (
 				<div className="flex justify-center">
 					<Button variant="outline" onClick={forgetKey}>

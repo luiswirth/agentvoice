@@ -56,22 +56,11 @@ setInterval(() => {
 	state.level = state.listener ? speech(0) : 0.01;
 }, 30);
 
-// The agent, receiving unless it works, and verified as the person's own.
+// The agent, and in the group states a second one, in a shade of its own.
 const room: Room = {
 	people: [
-		{
-			name: "luis/claude",
-			receiving: state.progress !== "working",
-			account: "luis",
-		},
-		// In the group states, a second agent, in a shade of its own, and
-		// another person, who joined by the link alone.
-		...(name?.startsWith("group")
-			? [
-					{ name: "ben/codex", receiving: true, account: "ben" },
-					{ name: "tristan", receiving: true },
-				]
-			: []),
+		{ name: "claude" },
+		...(name?.startsWith("group") ? [{ name: "codex" }] : []),
 	],
 	// A conversation so far, but in the state named off, before anything was said.
 	turns:
@@ -80,37 +69,36 @@ const room: Room = {
 			: [
 					{
 						n: 1,
-						from: "luis",
+						from: "voice:luis",
 						mine: true,
 						text: "[voice 1] Can you check why the turn ends too early?",
 					},
 					{
 						n: 2,
-						from: "luis/claude",
+						from: "claude",
 						mine: false,
 						text: "Yes. The pause it waits for is 0.6 seconds, and Smart Turn ends most turns before that.",
 					},
 					{
 						n: 3,
-						from: "luis",
+						from: "voice:luis",
 						mine: true,
 						text: "[voice 1] Okay, and what would you change?",
 					},
 					{
 						n: 4,
-						from: "luis/claude",
+						from: "claude",
 						mine: false,
 						text: "I'd wait longer after an unfinished sentence, and keep the rest as it is. Should I measure it first?",
 					},
 					{
 						n: 5,
-						from: "ben/codex",
+						from: "codex",
 						mine: false,
 						text: "I have the numbers from yesterday, if that helps.",
 					},
 				],
-	speakers: name === "off" ? [] : ["luis/claude", "ben/codex"],
-	link: "s_demo",
+	speakers: name === "off" ? [] : ["claude", "codex"],
 	leave: () => {},
 };
 

@@ -1,7 +1,7 @@
-// Voice in the page: the core's conversation, carried over a Vibe Together
-// session, with the browser's microphone and speaker. The page reads the
+// Voice in the page: the core's conversation, carried over a call with an
+// agent, with the browser's microphone and speaker. The page reads the
 // agents' messages from the log into it, and sends the person's turns into
-// the log as chat messages. Transcription and speech synthesis run on
+// the log as their messages. Transcription and speech synthesis run on
 // ElevenLabs, with the person's own key.
 import {
 	Conversation,
@@ -420,14 +420,20 @@ export class Voice {
 	/** A turn the person ended: where they cut in on the agent's messages
 	 * goes ahead of what they said, so that the agent has the turn as one
 	 * entry. The spot is the last few words they heard, enough to find it in
-	 * the message without repeating it. */
+	 * the message without repeating it, and a message they heard none of is
+	 * named by its first few words. */
 	private turn(text: string, cut: Heard[]): void {
 		const marks = cut.map(({ id, text }) => {
 			const words = text.trim().split(/\s+/).filter(Boolean);
-			if (words.length === 0) return `[cut in before ${id}]`;
+			if (words.length === 0) {
+				const message = this.session.log.find((e) => String(e.n) === id);
+				const start = (message?.text ?? "").trim().split(/\s+/);
+				const head = start.slice(0, CUT_WORDS).join(" ");
+				return `[cut in before "${start.length > CUT_WORDS ? `${head}…` : head}"]`;
+			}
 			const tail = words.slice(-CUT_WORDS).join(" ");
 			const spot = words.length > CUT_WORDS ? `…${tail}` : tail;
-			return `[cut in on ${id} after "${spot}"]`;
+			return `[cut in after "${spot}"]`;
 		});
 		this.queue(() => this.session.send([...marks, text].join(" ")));
 	}
