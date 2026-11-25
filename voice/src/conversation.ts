@@ -56,6 +56,8 @@ export type Options = Partial<Settings> &
 	Pick<Settings, "listen"> & {
 		/** The person's audio, which listening opens and closes. */
 		input?: Input;
+		/** The draft to start with, as one kept from before a reload. */
+		draft?: string;
 	};
 
 export type State = Omit<Settings, "listen" | "synthesize"> & {
@@ -270,7 +272,7 @@ export class Conversation {
 			dropped: null,
 			switching: null,
 			hearing: "",
-			draft: "",
+			draft: options.draft ?? "",
 			level: 0,
 			reading: null,
 			held: false,
@@ -523,7 +525,11 @@ export class Conversation {
 			// Words in progress still go to the draft, unsent: the person's
 			// audio is heard no more, and the listener closes once they are in.
 			if (this.finishing("keep")) this.stopping = true;
-			else this.closeListener();
+			else {
+				const { hearing } = this.state;
+				this.closeListener();
+				this.update({ draft: join(this.state.draft, hearing) });
+			}
 			this.update({ listener: false, level: 0 });
 			this.cue("unlisten");
 			this.modes();
@@ -580,6 +586,9 @@ export class Conversation {
 					trace: (event, data) => this.trace(event, data),
 					failed: (error) => {
 						this.trace("failed", { error: error.message });
+						// What was heard of the segment in progress is kept, as a
+						// segment of its own.
+						const { hearing } = this.state;
 						this.listener = null;
 						this.stopping = false;
 						this.yieldFloor();
@@ -591,6 +600,7 @@ export class Conversation {
 						});
 						this.failure(error);
 						this.modes();
+						if (hearing) this.segment(hearing);
 					},
 				},
 				{

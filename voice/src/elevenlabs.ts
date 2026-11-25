@@ -104,6 +104,18 @@ function base64(bytes: Uint8Array): string {
 	return btoa(binary);
 }
 
+/** A chunk of audio, as Scribe takes it. */
+function chunk(pcm: Int16Array): string {
+	return JSON.stringify({
+		message_type: "input_audio_chunk",
+		audio_base_64: base64(
+			new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength),
+		),
+		commit: false,
+		sample_rate: LISTEN_RATE,
+	});
+}
+
 function unbase64(text: string): Uint8Array {
 	return Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
 }
@@ -126,10 +138,29 @@ type Labeled = {
  * person pauses in to think. */
 const END = { sure: 0.8, likely: 0.5, wait: 3, longest: 6 };
 
-/** How long a segment gets, in seconds, before Scribe ends it on its own,
- * at about 36 s, whether or not the person paused: such an end is no turn's,
- * and its words go on into the next segment. */
-const LONGEST = 30;
+/** How long a segment gets, in seconds. Scribe ends one on its own at
+ * about 35 s, and the end of one longer than about 28 s, its own or asked
+ * for, keeps only the words of its last few seconds, as measured 2026-11-25.
+ * So a long segment is ended at a pause once it is `LONG` long, and at
+ * `LONGEST` anyway, and its words go on into the next segment: such an end
+ * is no turn's. */
+const LONG = 15;
+const LONGEST = 25;
+
+/** How fast audio kept from a lost connection is sent again, against real
+ * time: Scribe hears faster, but a commit ends only what it heard by then. */
+const CATCH_UP = 2;
+
+/** How long Scribe may stay silent while it is sent audio, in seconds,
+ * before the connection counts as lost: it answers at least every second. */
+const DEAF = 8;
+
+/** The pauses between attempts to connect again, in seconds, the last repeating. */
+const RECONNECT = [0.5, 1, 2, 4, 8];
+
+/** How long the fingerprint may take to tell an echo, in seconds, before a
+ * segment goes on without it. */
+const ECHO_WAIT = 5;
 
 /** Scribe v3 Live, left to detect the language, writes English with the
  * punctuation of Chinese, as "today？": each such mark after a Latin
@@ -171,6 +202,10 @@ export type Surroundings = {
 	store: Store;
 };
 
+/** What goes to Scribe, in order: a chunk of the stream, from sample `at`,
+ * or the end of a segment, asked for `why`. */
+type Out = { pcm: Int16Array; at: number } | { commit: string };
+
 /**
  * Scribe v3 Live's hearing, on its own turn prediction and its own speaker
  * labels: a segment ends as `END` judges it, and each word takes the voice
@@ -180,27 +215,49 @@ export type Surroundings = {
  * the segment it is in ends, so that silence is not paid for. The voice
  * fingerprint hears each label's words, and drops those of a label that
  * sounds like the speaker, as its echo.
+ *
+ * Nothing the person said is lost to the connection: what is sent is kept
+ * until Scribe ended the segment it is in, and a connection lost, or one
+ * that went silent, is opened again, with what was kept sent again first.
+ * Only ElevenLabs refusing the key, or speech detection failing, stops
+ * hearing.
  */
 export class Scribe implements Hearer {
-	/** Samples sent since the last commit: Scribe refuses a commit of under 0.3 s, and closes. */
+	/** Samples queued since the last commit: Scribe refuses a commit of under 0.3 s, and closes. */
 	private uncommitted = 0;
 	/** How long the segment Scribe ended last is, in samples. */
 	private length = 0;
-	/** The words of segments Scribe ended on its own, for their length, which
-	 * go on into the next. */
+	/** Samples written to the socket since the last commit written. */
+	private written = 0;
+	/** The words of segments ended for their length, which go on into the next. */
 	private held: Said[] = [];
 	/** Which label each merged label became. */
-	private readonly merged = new Map<string, string>();
+	private merged = new Map<string, string>();
 	/** How sure Scribe is that the turn is done. */
 	private probability = 0;
-	/** Why the segment in progress is being ended, once a commit is sent. */
+	/** Why the segment in progress is being ended, once a commit is queued. */
 	private asked: string | null = null;
 	/** Where its words last changed, in seconds of what was sent. */
 	private changed = 0;
 	/** The words of the segment in progress, as letters, to tell a change. */
 	private letters = "";
-	/** Where what Scribe was sent lies in the stream. */
-	private readonly offsets = new Offsets();
+	/** Where what Scribe was sent lies in the stream, for the session open
+	 * now, and up to which sample of the stream it was sent. */
+	private offsets = new Offsets();
+	private cursor = 0;
+	/** What is still to go to Scribe, in order, and what went to the session
+	 * open now and is kept until Scribe ends its segment. */
+	private readonly queue: Out[] = [];
+	private readonly unconfirmed: Out[] = [];
+	/** When the session open now opened, by `performance.now()`, and how much
+	 * audio it was written since, in samples, for catching up no faster than
+	 * `CATCH_UP`. */
+	private since = 0;
+	private sentSince = 0;
+	/** When Scribe last answered, and samples written since. */
+	private answered = 0;
+	private unanswered = 0;
+	private pumping: ReturnType<typeof setTimeout> | undefined;
 	/** Samples kept from Scribe since the last sent. */
 	private quiet = 0;
 	/** Whether the gate is open, whether speech detection hears speech, and
@@ -208,10 +265,12 @@ export class Scribe implements Hearer {
 	private open = false;
 	private voiced = false;
 	private silent = 0;
-	/** Why speech detection failed, which stops hearing: an open gate would
-	 * send all the person's audio, which the page says it doesn't. */
+	/** Why speech detection failed, or the key was refused, which stops
+	 * hearing: an open gate would send all the person's audio, which the page
+	 * says it doesn't. */
 	private broken: Error | null = null;
 	private stopped = false;
+	private closing = false;
 	/** The chunks speech detection has not heard yet, in order. */
 	private readonly unheard: Int16Array[] = [];
 	/** Seconds of the stream speech detection heard. */
@@ -221,23 +280,25 @@ export class Scribe implements Hearer {
 	private kept: { pcm: Int16Array; at: number }[] = [];
 	/** Whether each voice, by its number, is the speaker's echo, as the
 	 * fingerprint last heard it; and the voice told last. */
-	private readonly echoes = new Map<number, boolean>();
+	private echoes = new Map<number, boolean>();
 	private told: string | null = null;
 	/** Where the fingerprint was last asked about the voice heard now. */
 	private probed: { voice: number; at: number } | null = null;
 	/** The segments being fingerprinted, told in order. */
 	private telling: Promise<void> = Promise.resolve();
-	private readonly socket: WebSocket;
+	/** The session open now, null while one opens. */
+	private socket: WebSocket | null = null;
+	private readonly connect: () => Promise<WebSocket>;
 	private readonly heard: Perception;
 	private readonly speech: Port<ToTurns, FromTurns>;
 	private readonly fingerprints: Fingerprints;
 
 	private constructor(
-		socket: WebSocket,
+		connect: () => Promise<WebSocket>,
 		heard: Perception,
 		{ speech, fingerprints, store }: Surroundings,
 	) {
-		this.socket = socket;
+		this.connect = connect;
 		this.heard = heard;
 		this.speech = speech;
 		this.fingerprints = new Fingerprints(fingerprints, store);
@@ -256,37 +317,120 @@ export class Scribe implements Hearer {
 		languages: readonly string[],
 		surroundings: Surroundings,
 	): Promise<Scribe> {
-		const query = new URLSearchParams({
-			model_id: "scribe_v3_live",
-			token: await token(key, "realtime_scribe"),
-			audio_format: `pcm_${LISTEN_RATE}`,
-			commit_strategy: "manual",
-			diarize: "true",
-			// A partial at least every second, so that a silence is judged in time.
-			keepalive_interval_ms: "1000",
-		});
 		const codes = languages.map(
 			(tag) => tag.split("-")[0]?.toLowerCase() ?? "",
 		);
 		const [first, ...rest] = [...new Set(codes)].filter((code) => code !== "");
-		if (first !== undefined) query.set("language_code", first);
-		for (const code of rest) query.append("secondary_languages", code);
-		if (rest.length > 0) query.set("multilang_mode", "true");
-		const socket = new WebSocket(`${SOCKETS}/speech-to-text/realtime?${query}`);
-		const scribe = new Scribe(socket, heard, surroundings);
-		socket.addEventListener("message", ({ data }) =>
-			scribe.receive(JSON.parse(String(data))),
-		);
-		socket.addEventListener("close", (event) => {
-			if (event.code !== 1000) heard.failed(closed(event));
-		});
-		try {
+		const connect = async () => {
+			const query = new URLSearchParams({
+				model_id: "scribe_v3_live",
+				token: await token(key, "realtime_scribe"),
+				audio_format: `pcm_${LISTEN_RATE}`,
+				commit_strategy: "manual",
+				diarize: "true",
+				// A partial at least every second, so that a silence is judged in time.
+				keepalive_interval_ms: "1000",
+			});
+			if (first !== undefined) query.set("language_code", first);
+			for (const code of rest) query.append("secondary_languages", code);
+			if (rest.length > 0) query.set("multilang_mode", "true");
+			const socket = new WebSocket(
+				`${SOCKETS}/speech-to-text/realtime?${query}`,
+			);
 			await opened(socket);
+			return socket;
+		};
+		const scribe = new Scribe(connect, heard, surroundings);
+		try {
+			scribe.attach(await connect());
 		} catch (error) {
 			scribe.close();
 			throw error;
 		}
 		return scribe;
+	}
+
+	/** Takes `socket` as the session, and sends it what is queued. */
+	private attach(socket: WebSocket): void {
+		this.socket = socket;
+		this.since = performance.now();
+		this.sentSince = 0;
+		this.answered = this.since;
+		this.unanswered = 0;
+		socket.addEventListener("message", ({ data }) => {
+			if (socket !== this.socket) return;
+			this.answered = performance.now();
+			this.unanswered = 0;
+			this.receive(JSON.parse(String(data)));
+		});
+		socket.addEventListener("close", (event) => {
+			if (socket !== this.socket || this.closing) return;
+			this.lost(closed(event).message);
+		});
+		this.pump();
+	}
+
+	/** The session was lost: what it was sent and Scribe didn't end yet goes
+	 * again, ahead of what is queued, to a new session, which numbers its
+	 * voices anew. */
+	private lost(why: string): void {
+		const socket = this.socket;
+		if (socket === null || this.closing || this.broken) return;
+		this.socket = null;
+		clearTimeout(this.pumping);
+		socket.close();
+		this.heard.trace("scribe.lost", {
+			why,
+			again: this.unconfirmed.length,
+			queued: this.queue.length,
+		});
+		this.queue.unshift(...this.unconfirmed.splice(0));
+		this.offsets = new Offsets();
+		this.cursor = 0;
+		this.written = 0;
+		this.letters = "";
+		this.probability = 0;
+		this.merged = new Map();
+		this.echoes = new Map();
+		this.told = null;
+		this.probed = null;
+		// The partials start over with what is sent again.
+		this.heard.partial(this.held);
+		void this.reconnect();
+	}
+
+	private async reconnect(): Promise<void> {
+		for (let attempt = 0; !this.closing && !this.broken; attempt++) {
+			const pause = RECONNECT[Math.min(attempt, RECONNECT.length - 1)] ?? 0;
+			await new Promise<void>((r) => setTimeout(r, pause * 1000));
+			if (this.closing || this.broken) return;
+			try {
+				const socket = await this.connect();
+				if (this.closing || this.broken) {
+					socket.close(1000);
+					return;
+				}
+				this.heard.trace("scribe.connected", { attempt });
+				this.attach(socket);
+				return;
+			} catch (error) {
+				if (error instanceof KeyRefused) {
+					this.refuse(error);
+					return;
+				}
+				this.heard.trace("scribe.connecting", {
+					attempt,
+					error: (error as Error).message,
+				});
+			}
+		}
+	}
+
+	/** ElevenLabs refused the key, which no new session fixes. */
+	private refuse(error: Error): void {
+		if (this.broken) return;
+		this.broken = error;
+		this.heard.failed(error);
 	}
 
 	private receive(message: Record<string, unknown>): void {
@@ -301,44 +445,36 @@ export class Scribe implements Hearer {
 			}
 			// A segment ends with its labels, which come right after.
 			case "committed_transcript":
-				this.length = this.uncommitted;
-				this.uncommitted = 0;
+				if (this.unconfirmed.some((out) => "commit" in out)) this.length = 0;
+				else {
+					this.length = this.written;
+					this.written = 0;
+				}
 				return;
 			case "diarized_transcript": {
 				const words = this.after(this.said(message));
-				const asked = this.asked;
-				this.asked = null;
-				this.letters = "";
-				if (asked === null && this.length >= LONGEST * LISTEN_RATE) {
-					this.heard.trace("cut", { probability: this.probability });
+				// What was sent up to the commit is heard; without a commit of
+				// ours, Scribe ended the segment on its own, with all sent so far.
+				const at = this.unconfirmed.findIndex((out) => "commit" in out);
+				const out = this.unconfirmed.splice(
+					0,
+					at < 0 ? this.unconfirmed.length : at + 1,
+				);
+				const asked = at < 0 ? null : (out.at(-1) as { commit: string }).commit;
+				if (![...this.unconfirmed, ...this.queue].some((o) => "commit" in o))
+					this.asked = null;
+				if (
+					asked === "long" ||
+					(asked === null && this.length >= LONGEST * LISTEN_RATE)
+				) {
+					this.heard.trace("cut", { probability: this.probability, asked });
 					this.held = words;
+					// The words go on, so their silence does too.
+					this.letters = lettersOf(words.map((word) => word.text).join(""));
 					return;
 				}
-				this.heard.trace("turn.end", {
-					reason: asked ?? "silence",
-					probability: this.probability,
-				});
-				this.held = [];
-				this.told = null;
-				this.probed = null;
-				this.probability = 0;
-				// Without the speaker, there is no echo to wait for, and the
-				// fingerprint only learns the voices.
-				const timed = runs(words);
-				const echoes = this.echo(words);
-				const sounded = this.fingerprints.sounding(
-					timed[0]?.from ?? 0,
-					timed.at(-1)?.to ?? 0,
-				);
-				this.telling = this.telling.then(async () => {
-					const played = sounded ? await echoes : new Set<number>();
-					this.heard.segment(
-						words.map((word) => ({
-							...word,
-							played: word.voice !== null && played.has(word.voice),
-						})),
-					);
-				});
+				this.letters = "";
+				this.end(words, asked ?? "silence");
 				return;
 			}
 			case "speakers_merged": {
@@ -350,12 +486,50 @@ export class Scribe implements Hearer {
 			}
 			default:
 				if (message.error) {
-					this.heard.failed(
-						refusal(String(message.message_type), String(message.error)),
+					const error = refusal(
+						String(message.message_type),
+						String(message.error),
 					);
-					this.socket.close();
+					if (error instanceof KeyRefused) {
+						this.refuse(error);
+						this.socket?.close();
+					} else this.lost(error.message);
 				}
 		}
+	}
+
+	/** The segment in progress ended, for `reason`, with `words`: they go on
+	 * once the fingerprint told which voices are the speaker's echo. */
+	private end(words: Said[], reason: string): void {
+		this.heard.trace("turn.end", { reason, probability: this.probability });
+		this.held = [];
+		this.told = null;
+		this.probed = null;
+		this.probability = 0;
+		// Without the speaker, there is no echo to wait for, and the
+		// fingerprint only learns the voices.
+		const timed = runs(words);
+		const echoes = this.echo(words);
+		const sounded = this.fingerprints.sounding(
+			timed[0]?.from ?? 0,
+			timed.at(-1)?.to ?? 0,
+		);
+		this.telling = this.telling.then(async () => {
+			const played = sounded
+				? await Promise.race([
+						echoes,
+						new Promise<Set<number>>((r) =>
+							setTimeout(() => r(new Set()), ECHO_WAIT * 1000),
+						),
+					])
+				: new Set<number>();
+			this.heard.segment(
+				words.map((word) => ({
+					...word,
+					played: word.voice !== null && played.has(word.voice),
+				})),
+			);
+		});
 	}
 
 	/** The voices of a segment that are the speaker's echo: each by the
@@ -368,12 +542,13 @@ export class Scribe implements Hearer {
 				longest.set(run.voice, run);
 		}
 		const played = new Set<number>();
+		const echoes = this.echoes;
 		await Promise.all(
 			[...longest].map(async ([voice, { from, to }]) => {
 				const echo = await this.fingerprints.echo(from, to);
 				this.heard.trace("voice", { voice, from, to, played: echo });
 				if (echo === null) return;
-				this.echoes.set(voice, echo);
+				echoes.set(voice, echo);
 				if (echo) played.add(voice);
 			}),
 		);
@@ -395,10 +570,11 @@ export class Scribe implements Hearer {
 			return;
 		this.probed = { voice: run.voice, at: run.to };
 		const from = Math.max(run.from, run.to - PROBE.longest);
+		const echoes = this.echoes;
 		void this.fingerprints.probe(from, run.to).then((echo) => {
-			if (echo === null) return;
+			if (echo === null || echoes !== this.echoes) return;
 			this.heard.trace("voice.now", { voice: run.voice, played: echo });
-			this.echoes.set(run.voice, echo);
+			echoes.set(run.voice, echo);
 			this.tell(run.voice, echo);
 		});
 	}
@@ -481,7 +657,7 @@ export class Scribe implements Hearer {
 					this.heard.trace("gate", { open: true, at: data.at });
 					for (const { pcm, at } of this.kept.splice(0))
 						if (at + pcm.length / LISTEN_RATE > data.at - GATE.preroll)
-							this.send(pcm);
+							this.send(pcm, at);
 						else this.skip(pcm.length);
 				}
 				return;
@@ -521,7 +697,7 @@ export class Scribe implements Hearer {
 		if (this.open && !this.voiced) {
 			const after = this.passed - this.silent;
 			const over =
-				this.asked !== null ||
+				(this.asked !== null && this.asked !== "long") ||
 				(this.letters === "" && after >= GATE.after) ||
 				after >= END.longest + GATE.after;
 			if (over) {
@@ -530,7 +706,14 @@ export class Scribe implements Hearer {
 			}
 		}
 		if (this.open) {
-			this.send(pcm);
+			this.send(pcm, at);
+			// A long segment ends before Scribe ends it, at a pause if it can.
+			if (
+				this.asked === null &&
+				(this.uncommitted >= LONGEST * LISTEN_RATE ||
+					(this.uncommitted >= LONG * LISTEN_RATE && !this.voiced))
+			)
+				this.commit("long");
 			return;
 		}
 		this.kept.push({ pcm, at });
@@ -538,35 +721,74 @@ export class Scribe implements Hearer {
 			this.skip(this.kept.shift()?.pcm.length ?? 0);
 	}
 
+	/** Samples of the stream not sent: Scribe is sent a little silence now
+	 * and then, so that it keeps the session open. */
 	private skip(samples: number): void {
-		this.offsets.skip(samples);
 		this.quiet += samples;
 		if (this.quiet < KEEPALIVE) return;
 		this.quiet = 0;
-		if (this.write(ALIVE)) this.offsets.pad(ALIVE.length);
+		// Only while nothing waits: Scribe hears silence between the two anyway.
+		if (this.socket?.readyState !== WebSocket.OPEN || this.queue.length > 0)
+			return;
+		this.socket.send(chunk(ALIVE));
+		this.offsets.pad(ALIVE.length);
+		this.written += ALIVE.length;
 	}
 
-	private send(pcm: Int16Array): void {
+	/** Queues the chunk from `at` seconds of the stream, for Scribe. */
+	private send(pcm: Int16Array, at: number): void {
 		this.quiet = 0;
-		if (this.write(pcm)) this.offsets.hear(pcm.length);
-		else this.offsets.skip(pcm.length);
+		this.uncommitted += pcm.length;
+		this.queue.push({ pcm, at: Math.round(at * LISTEN_RATE) });
+		this.pump();
 	}
 
-	/** Whether it was sent. */
-	private write(pcm: Int16Array): boolean {
-		if (this.socket.readyState !== WebSocket.OPEN) return false;
-		this.uncommitted += pcm.length;
-		this.socket.send(
-			JSON.stringify({
-				message_type: "input_audio_chunk",
-				audio_base_64: base64(
-					new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength),
-				),
-				commit: false,
-				sample_rate: LISTEN_RATE,
-			}),
-		);
-		return true;
+	/** Writes what is queued to the session, no faster than `CATCH_UP`
+	 * times real time, and keeps it until Scribe ends its segment. */
+	private pump(): void {
+		clearTimeout(this.pumping);
+		const socket = this.socket;
+		if (socket === null || socket.readyState !== WebSocket.OPEN) return;
+		const now = performance.now();
+		if (
+			this.unanswered >= DEAF * LISTEN_RATE &&
+			now - this.answered > DEAF * 1000
+		) {
+			this.lost("ElevenLabs stopped answering.");
+			return;
+		}
+		while (this.queue.length > 0) {
+			const ahead =
+				this.sentSince / LISTEN_RATE - (CATCH_UP * (now - this.since)) / 1000;
+			if (ahead > 1) {
+				this.pumping = setTimeout(() => this.pump(), ahead * 500);
+				return;
+			}
+			const out = this.queue.shift() as Out;
+			this.unconfirmed.push(out);
+			if ("commit" in out) {
+				this.written = 0;
+				socket.send(
+					JSON.stringify({
+						message_type: "input_audio_chunk",
+						audio_base_64: "",
+						commit: true,
+						sample_rate: LISTEN_RATE,
+					}),
+				);
+				continue;
+			}
+			if (out.at > this.cursor) this.offsets.skip(out.at - this.cursor);
+			this.offsets.hear(out.pcm.length);
+			this.cursor = out.at + out.pcm.length;
+			this.written += out.pcm.length;
+			this.sentSince += out.pcm.length;
+			this.unanswered += out.pcm.length;
+			socket.send(chunk(out.pcm));
+		}
+		// Checks again that Scribe answers, while audio waits for it.
+		if (this.unanswered > 0)
+			this.pumping = setTimeout(() => this.pump(), DEAF * 1000);
 	}
 
 	/** Seconds of audio sent. */
@@ -577,12 +799,17 @@ export class Scribe implements Hearer {
 	/** Ends the segment in progress where Scribe's turn prediction and the
 	 * silence since its words last changed say the person is done. */
 	private judge(text: string): void {
-		const letters = text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+		// Words held from a long segment are the segment's too.
+		// Words held from a long segment are the segment's too.
+		const letters = lettersOf(
+			[...this.held.map((word) => word.text), text].join(" "),
+		);
 		if (letters !== this.letters) {
 			this.letters = letters;
 			this.changed = this.sent;
 		}
-		if (letters === "" || this.asked !== null) return;
+		if (letters === "" || (this.asked !== null && this.asked !== "long"))
+			return;
 		const silence = this.sent - this.changed;
 		const p = this.probability;
 		if (p >= END.sure) this.commit("turn");
@@ -590,31 +817,44 @@ export class Scribe implements Hearer {
 		else if (silence >= END.longest) this.commit("silence");
 	}
 
-	/** Ends the segment in progress now, if it holds enough audio to; whether it will. */
+	/** Ends the segment in progress now, if it holds enough audio to, or
+	 * what is held of it; whether its end is still to come. */
 	finish(): boolean {
-		return this.commit("by hand");
+		if (this.commit("by hand")) return true;
+		if (this.held.length === 0) return false;
+		const words = this.held;
+		this.unconfirmed.length = 0;
+		this.end(words, "by hand");
+		return true;
 	}
 
-	/** Ends the segment in progress for `why`, if it holds enough audio to; whether it will. */
+	/** Ends the segment in progress for `why`, if it holds enough audio to;
+	 * whether it will, once Scribe heard what was queued before. */
 	private commit(why: string): boolean {
-		if (this.asked !== null) return true;
+		if (this.asked !== null && this.asked !== "long") return true;
+		if (this.asked === "long") {
+			// The long one queued last ends the turn instead, as asked now.
+			const last = [...this.unconfirmed, ...this.queue].findLast(
+				(o) => "commit" in o,
+			) as { commit: string } | undefined;
+			if (last && this.uncommitted < (2 * LISTEN_RATE) / 5) {
+				last.commit = why;
+				this.asked = why;
+				return true;
+			}
+		}
 		if (this.uncommitted < (2 * LISTEN_RATE) / 5) return false;
-		if (this.socket.readyState !== WebSocket.OPEN) return false;
 		this.uncommitted = 0;
 		this.asked = why;
-		this.socket.send(
-			JSON.stringify({
-				message_type: "input_audio_chunk",
-				audio_base_64: "",
-				commit: true,
-				sample_rate: LISTEN_RATE,
-			}),
-		);
+		this.queue.push({ commit: why });
+		this.pump();
 		return true;
 	}
 
 	close(): void {
-		this.socket.close(1000);
+		this.closing = true;
+		clearTimeout(this.pumping);
+		this.socket?.close(1000);
 		this.speech.close();
 		this.fingerprints.close();
 	}
@@ -641,6 +881,11 @@ function runs(words: Said[]): { voice: number; from: number; to: number }[] {
 		from: Math.max(0, run.from - AROUND),
 		to: run.to + AROUND,
 	}));
+}
+
+/** The letters and digits of a text, lower case, to tell a change. */
+function lettersOf(text: string): string {
+	return text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
 }
 
 /** Text with the Chinese marks Scribe puts after Latin letters made Latin,

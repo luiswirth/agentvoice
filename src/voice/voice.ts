@@ -102,8 +102,19 @@ export class Voice {
 	private armed = false;
 	/** The last entry before the speaker came on. */
 	private started = 0;
-	/** The log's order is the order things were said, so sends go one after another. */
-	private sent: Promise<unknown> = Promise.resolve();
+	/** The person's turns not yet delivered, oldest first, kept for the tab
+	 * so that a reload keeps them: each goes until the server took it, one
+	 * after another, since the log's order is the order things were said. */
+	private readonly unsentKey = `voice-unsent ${location.href}`;
+	private readonly unsent: string[] = JSON.parse(
+		sessionStorage.getItem(this.unsentKey) ?? "[]",
+	);
+	private delivering = false;
+	private closed = false;
+	/** Where the tab keeps the draft, with what was being heard, so that a
+	 * reload keeps it, and what it kept last. */
+	private readonly draftKey = `voice-draft ${location.href}`;
+	private keptDraft = "";
 	private readonly watchers = new Set<() => void>();
 	private readonly trace = new Trace();
 	/** Where the tab keeps the modes, so that a reload keeps them. */
@@ -167,10 +178,14 @@ export class Voice {
 			speaker,
 			autoEnd,
 			sounds: localStorage.getItem(SOUNDS) !== "off",
+			draft: sessionStorage.getItem(this.draftKey) ?? "",
 		});
 		this.state = this.merged();
 		if (speaker) this.sound();
-		this.core.on("state", () => this.set({}));
+		this.core.on("state", () => {
+			this.keepDraft();
+			this.set({});
+		});
 		this.core.on("trace", (event, data) => this.trace.event(event, data));
 		this.core.on("audio", (pcm) => this.trace.hear(pcm));
 		this.core.on("error", (error) =>
@@ -205,6 +220,16 @@ export class Voice {
 			},
 		});
 		this.modes();
+		void this.deliver();
+	}
+
+	/** Keeps the draft for the tab, with what is being heard, as it changes. */
+	private keepDraft(): void {
+		const { draft, hearing } = this.core.state;
+		const text = [draft, hearing].filter(Boolean).join(" ");
+		if (text === this.keptDraft) return;
+		this.keptDraft = text;
+		sessionStorage.setItem(this.draftKey, text);
 	}
 
 	/** The core's state with the page's own. */
@@ -435,7 +460,46 @@ export class Voice {
 			const spot = words.length > CUT_WORDS ? `…${tail}` : tail;
 			return `[cut in after "${spot}"]`;
 		});
-		this.queue(() => this.session.send([...marks, text].join(" ")));
+		this.unsent.push([...marks, text].join(" "));
+		this.keepUnsent();
+		void this.deliver();
+	}
+
+	private keepUnsent(): void {
+		sessionStorage.setItem(this.unsentKey, JSON.stringify(this.unsent));
+	}
+
+	/** Delivers the turns not yet delivered, in order, each again and again
+	 * until the server took it into the agent's inbox, while the page lasts. */
+	private async deliver(): Promise<void> {
+		if (this.delivering) return;
+		this.delivering = true;
+		let failures = 0;
+		while (!this.closed && this.unsent.length > 0) {
+			try {
+				await this.session.send(this.unsent[0] ?? "");
+				this.unsent.shift();
+				this.keepUnsent();
+				if (failures > 0) {
+					this.trace.event("delivered", { after: failures });
+					this.set({ error: null, refused: false });
+				}
+				failures = 0;
+			} catch (error) {
+				failures += 1;
+				const message = (error as Error).message;
+				this.trace.event("undelivered", { error: message, failures });
+				if (failures === 1) this.core.notice("problem");
+				this.set({
+					error: `Not delivered yet, trying again: ${message}`,
+					refused: false,
+				});
+				await new Promise((r) =>
+					setTimeout(r, Math.min(30_000, 1000 * 2 ** (failures - 1))),
+				);
+			}
+		}
+		this.delivering = false;
 	}
 
 	/** What the page kept of its trace and of the audio it heard, as a
@@ -484,6 +548,7 @@ export class Voice {
 
 	/** Stops, as when the person hangs up or the page closes. */
 	close(): void {
+		this.closed = true;
 		this.unsubscribe();
 		this.unwatchAudio();
 		this.activity.close();
@@ -520,21 +585,6 @@ export class Voice {
 		sessionStorage.setItem(
 			this.modesKey,
 			JSON.stringify({ listener: listener || this.wanted, speaker }),
-		);
-	}
-
-	private queue(send: () => Promise<unknown>): Promise<void> {
-		const sent = this.sent.then(send);
-		this.sent = sent.catch(() => {});
-		return sent.then(
-			() => {},
-			(error: Error) => {
-				this.core.notice("problem");
-				this.set({
-					error: error.message,
-					refused: error instanceof KeyRefused,
-				});
-			},
 		);
 	}
 
