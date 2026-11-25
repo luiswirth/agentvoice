@@ -9,8 +9,15 @@
 // cuts the mouth off. The log of a call is the items themselves, so the server
 // keeps no state of its own beyond who has the page open.
 //
+// An agent without MindIO takes part over plain HTTP instead, as
+// public/agents.md tells it: it joins with `PUT /api/agents/<id>`, hears with
+// `GET .../hear`, which waits, and speaks with `POST .../say`. Its IO is then
+// the server's own, a directory of the same shape in `--own`, the events
+// there as JSON with their fields, since no MindIO keeps them.
+//
 //   node server/main.ts [--port 8790] [--page dist] [--agents <dir>]
-//                       [--mindio <command>] [--allow-host <name>]...
+//                       [--own <dir>] [--mindio <command>]
+//                       [--allow-host <name>]...
 //
 // It listens on 127.0.0.1 alone, and answers only requests whose Host is
 // localhost or a name given with --allow-host, such as the machine's on the
@@ -19,7 +26,16 @@
 
 import { spawn } from "node:child_process";
 import { watch } from "node:fs";
-import { lstat, mkdir, readdir, readFile, rename } from "node:fs/promises";
+import {
+	lstat,
+	mkdir,
+	open,
+	readdir,
+	readFile,
+	rename,
+	unlink,
+	writeFile,
+} from "node:fs/promises";
 import {
 	createServer,
 	type IncomingMessage,
@@ -41,6 +57,10 @@ const { values: args } = parseArgs({
 			type: "string",
 			default: join(homedir(), ".agents/mindio"),
 		},
+		own: {
+			type: "string",
+			default: join(homedir(), ".local/state/voiceio/agents"),
+		},
 		mindio: { type: "string", default: "mindio" },
 		"allow-host": { type: "string", multiple: true, default: [] },
 	},
@@ -49,6 +69,8 @@ const { values: args } = parseArgs({
 const page = resolve(args.page);
 /** The agents' IO, each `<dir>/<agent>`. */
 const dir = resolve(args.agents);
+/** The IO of the agents that take part over HTTP, each `<own>/<agent>`. */
+const own = resolve(args.own);
 const hosts = new Set([
 	"localhost",
 	"127.0.0.1",
@@ -88,6 +110,8 @@ type Agent = {
 	id: string;
 	name: string;
 	io: string;
+	/** Whether it takes part over HTTP, its IO the server's own. */
+	own: boolean;
 	/** Who the voices are, by their numbers. */
 	voices: Record<string, string>;
 };
@@ -95,10 +119,24 @@ type Agent = {
 /** An agent's id, its IO's directory name, as a path names it. */
 const valid = (id: string) => /^[^/\\]+$/.test(id) && id !== "." && id !== "..";
 
+const exists = (path: string) =>
+	lstat(path).then(
+		() => true,
+		() => false,
+	);
+
+/** Where the agent `id`'s IO is: MindIO's, else the server's own. */
+async function where(id: string): Promise<{ io: string; own: boolean }> {
+	const mindio = join(dir, id);
+	return (await exists(mindio)) || !(await exists(join(own, id)))
+		? { io: mindio, own: false }
+		: { io: join(own, id), own: true };
+}
+
 /** The agent `id`, while it takes part: while its IO holds `voice`. */
 async function agent(id: string): Promise<Agent | null> {
 	if (!valid(id)) return null;
-	const io = join(dir, id);
+	const { io, own } = await where(id);
 	const file = await readFile(join(io, "voice"), "utf8").catch(() => null);
 	if (file === null) return null;
 	let voice: { name?: unknown; voices?: unknown } = {};
@@ -113,11 +151,16 @@ async function agent(id: string): Promise<Agent | null> {
 		for (const [n, who] of Object.entries(voice.voices))
 			if (/^\d+$/.test(n) && typeof who === "string" && who.trim())
 				voices[n] = who.trim();
-	return { id, name, io, voices };
+	return { id, name, io, own, voices };
 }
 
 async function agents(): Promise<Agent[]> {
-	const ids = await readdir(dir).catch(() => []);
+	const ids = [
+		...new Set([
+			...(await readdir(dir).catch(() => [])),
+			...(await readdir(own).catch(() => [])),
+		]),
+	];
 	const found = await Promise.all(ids.sort().map(agent));
 	return found.filter((a) => a !== null);
 }
@@ -182,16 +225,122 @@ function follow(item: Item): Text {
 	return text;
 }
 
-/** The text of an item the server wrote itself, whole at once. */
+/** The text of an item the server wrote itself, whole at once, or as far
+ * as it got where it wrote it as it came: an event, or what an agent over
+ * HTTP said. An event in the server's own IO is JSON, with its text. */
 async function written(item: Item): Promise<Text> {
 	const known = texts.get(item.file);
 	if (known) return known;
+	const content = await readFile(item.path, "utf8").catch(() => "");
 	const text = {
-		text: await readFile(item.path, "utf8").catch(() => ""),
+		text: item.ext === "json" ? stored(content).text : content,
 		whole: true,
 	};
 	texts.set(item.file, text);
 	return text;
+}
+
+// The server's own IO, for the agents over HTTP: the same shape as MindIO's,
+// written by the server alone.
+
+let last = 0;
+
+/** A new item's time, as items name it, to the microsecond, and never the
+ * same twice. */
+function stamp(): string {
+	const now = Math.max(Date.now() * 1000, last + 1);
+	last = now;
+	const date = new Date(Math.floor(now / 1000)).toISOString();
+	const micro = String(now % 1_000_000).padStart(6, "0");
+	return `${date.slice(0, 19).replace(/[-:]/g, "")}.${micro}Z`;
+}
+
+/** An event as the server's own IO keeps it. */
+type Stored = { text: string; fields: Record<string, string | string[]> };
+
+function stored(content: string): Stored {
+	try {
+		const { text, fields } = JSON.parse(content) as Partial<Stored>;
+		return { text: text ?? "", fields: fields ?? {} };
+	} catch {
+		return { text: "", fields: {} };
+	}
+}
+
+/** Fields as `name=value`, as an object, a value repeated as a list. */
+function object(fields: string[]): Stored["fields"] {
+	const all: Stored["fields"] = {};
+	for (const field of fields) {
+		const at = field.indexOf("=");
+		const [key, value] = [field.slice(0, at), field.slice(at + 1)];
+		const known = all[key];
+		all[key] =
+			known === undefined
+				? value
+				: [...(Array.isArray(known) ? known : [known]), value];
+	}
+	return all;
+}
+
+/** Writes an item into a box of the server's own IO, through `tmp/`. */
+async function store(box: string, ext: string, content: string): Promise<void> {
+	const file = `${stamp()}.${VOICE}.${ext}`;
+	await mkdir(join(box, "tmp"), { recursive: true, mode: 0o700 });
+	await mkdir(join(box, "new"), { recursive: true, mode: 0o700 });
+	await writeFile(join(box, "tmp", file), content, { mode: 0o600 });
+	await rename(join(box, "tmp", file), join(box, "new", file));
+	changed();
+}
+
+/** Takes the events an agent over HTTP has not heard yet, into `cur/`. */
+async function hear(a: Agent): Promise<object[]> {
+	const inbox = join(a.io, "inbox");
+	const fresh = (await items(join(inbox, "new"), VOICE)).sort((x, y) =>
+		x.file < y.file ? -1 : 1,
+	);
+	await mkdir(join(inbox, "cur"), { recursive: true, mode: 0o700 });
+	const heard = [];
+	for (const item of fresh) {
+		const path = join(inbox, "cur", item.file);
+		if (
+			!(await rename(item.path, path).then(
+				() => true,
+				() => false,
+			))
+		)
+			continue;
+		const { text, fields } = stored(await readFile(path, "utf8"));
+		heard.push({ id: item.file, time: time(item.stamp), ...fields, text });
+	}
+	changed();
+	return heard;
+}
+
+/** Writes what an agent over HTTP says into its outbox as it comes, so that
+ * the mouth speaks it as it grows, as it does a streaming item of MindIO's. */
+async function say(a: Agent, body: IncomingMessage): Promise<string> {
+	const file = `${stamp()}.${VOICE}.txt`;
+	const cur = join(a.io, "outbox", "cur");
+	await mkdir(cur, { recursive: true, mode: 0o700 });
+	const text: Text = { text: "", whole: false };
+	texts.set(file, text);
+	const handle = await open(join(cur, file), "wx", 0o600);
+	const decoder = new TextDecoder();
+	try {
+		for await (const chunk of body) {
+			const part = decoder.decode(chunk as Buffer, { stream: true });
+			if (text.text.length + part.length > 64_000) break;
+			text.text += part;
+			await handle.write(part);
+			changed();
+		}
+	} finally {
+		text.text += decoder.decode();
+		text.whole = true;
+		await handle.close();
+		changed();
+	}
+	return file;
 }
 
 /** Carries the agent's new items for the mouth: takes them into `cur/`,
@@ -254,9 +403,10 @@ type Log = {
 
 async function log(id: string): Promise<Log> {
 	const a = await agent(id);
-	const inbox = join(dir, id, "inbox");
-	const outbox = join(dir, id, "outbox");
-	if (a) await carry(a);
+	const { io, own } = await where(id);
+	const inbox = join(io, "inbox");
+	const outbox = join(io, "outbox");
+	if (a && !own) await carry(a);
 	const [fresh, taken, said] = await Promise.all([
 		items(join(inbox, "new"), VOICE),
 		items(join(inbox, "cur"), VOICE),
@@ -274,7 +424,7 @@ async function log(id: string): Promise<Log> {
 	const entries = await Promise.all(
 		all.map(async ({ item, out, taken }, i): Promise<Entry> => {
 			const base = { n: i + 1, id: item.file, time: time(item.stamp) };
-			const type = TEXT[item.ext];
+			const type = item.ext === "json" && !out ? TEXT.txt : TEXT[item.ext];
 			if (type === undefined)
 				return {
 					...base,
@@ -284,7 +434,7 @@ async function log(id: string): Promise<Log> {
 					whole: true,
 					filename: item.file,
 				};
-			const { text, whole } = out ? follow(item) : await written(item);
+			const { text, whole } = out && !own ? follow(item) : await written(item);
 			const kind: Kind = out ? "message" : heard(text) ? "heard" : "note";
 			if (kind === "heard" && taken) read = i + 1;
 			return { ...base, from: out ? name : VOICE, kind, type, text, whole };
@@ -348,6 +498,12 @@ async function until<T extends { revision: string }>(
 // that the agent's waking rules decide whether each wakes it, by its fields.
 
 function deliver(a: Agent, text: string, fields: string[]): Promise<void> {
+	if (a.own)
+		return store(
+			join(a.io, "inbox"),
+			"json",
+			JSON.stringify({ text, fields: object(fields) }),
+		);
 	return new Promise((done, failed) => {
 		const child = spawn(
 			args.mindio,
@@ -560,7 +716,7 @@ async function api(
 	const revision = url.searchParams.get("revision");
 	if (url.pathname === "/api/agents" && req.method === "GET") {
 		const seen = await until(
-			[dir],
+			[dir, own],
 			async () => {
 				const all = (await agents()).map(({ id, name }) => ({ id, name }));
 				return { revision: JSON.stringify(all), agents: all };
@@ -571,16 +727,50 @@ async function api(
 		return json(res, 200, seen);
 	}
 	const [, id, what] =
-		url.pathname.match(/^\/api\/agents\/([^/]+)\/(log|events)$/) ?? [];
+		url.pathname.match(
+			/^\/api\/agents\/([^/]+)(?:\/(log|events|hear|say))?$/,
+		) ?? [];
 	if (!id || !valid(decodeURIComponent(id)))
 		return json(res, 404, { error: "not found" });
 	const name = decodeURIComponent(id);
+	const { io } = await where(name);
+	if (what === undefined) return await join_(req, res, name);
+	if (what === "hear" || what === "say") {
+		const a = await agent(name);
+		if (a === null || !a.own)
+			return json(res, 409, {
+				error: `${name} has not joined over HTTP: PUT /api/agents/${id} first.`,
+			});
+		if (what === "say" && req.method === "POST") {
+			const type = req.headers["content-type"] ?? "";
+			if (!type.startsWith("text/plain"))
+				return json(res, 415, { error: "send text/plain" });
+			return json(res, 201, { id: await say(a, req) });
+		}
+		if (what === "hear" && req.method === "GET") {
+			// It waits until there is something, unless `wait=0`.
+			const wait = url.searchParams.get("wait") !== "0";
+			while (!closed.signal.aborted) {
+				const events = await hear(a);
+				if (events.length > 0 || !wait) return json(res, 200, { events });
+				await until(
+					[join(io, "inbox")],
+					async () => ({
+						revision: String(
+							(await items(join(io, "inbox", "new"), VOICE)).length,
+						),
+					}),
+					"0",
+					closed.signal,
+				);
+			}
+			return;
+		}
+		return json(res, 405, { error: "not allowed" });
+	}
 	if (what === "log" && req.method === "GET") {
 		const a = await agent(name);
-		if (
-			a === null &&
-			(await readdir(join(dir, name)).catch(() => null)) === null
-		)
+		if (a === null && (await readdir(io).catch(() => null)) === null)
 			return json(res, 404, { error: `There is no agent ${name}.` });
 		// Entries after `after` are sent, and every one from the first that
 		// may still grow.
@@ -589,12 +779,7 @@ async function api(
 		p.looking += 1;
 		void tell(name);
 		try {
-			const seen = await until(
-				[join(dir, name)],
-				() => log(name),
-				revision,
-				closed.signal,
-			);
+			const seen = await until([io], () => log(name), revision, closed.signal);
 			return json(res, 200, {
 				...seen,
 				entries: seen.entries.filter((e) => e.n > after),
@@ -629,6 +814,40 @@ async function api(
 	return json(res, 405, { error: "not allowed" });
 }
 
+/** An agent over HTTP joins with PUT, its name and voices as the file
+ * `voice` has them, and leaves with DELETE. */
+async function join_(
+	req: IncomingMessage,
+	res: ServerResponse,
+	id: string,
+): Promise<void> {
+	const io = join(own, id);
+	if (await exists(join(dir, id)))
+		return json(res, 409, {
+			error: `${id} is an agent of MindIO here: take part through its IO.`,
+		});
+	if (req.method === "PUT") {
+		if (!req.headers["content-type"]?.startsWith("application/json"))
+			return json(res, 415, { error: "send JSON" });
+		const body = (await text(req)).trim() || "{}";
+		if (typeof JSON.parse(body) !== "object")
+			return json(res, 400, { error: "send a JSON object" });
+		for (const box of ["inbox/new", "inbox/cur", "outbox/cur"])
+			await mkdir(join(io, box), { recursive: true, mode: 0o700 });
+		await writeFile(join(io, "voice"), body, { mode: 0o600 });
+		changed();
+		return json(res, 200, {
+			page: `/#agent=${encodeURIComponent(id)}`,
+		});
+	}
+	if (req.method === "DELETE") {
+		await unlink(join(io, "voice")).catch(() => {});
+		changed();
+		return json(res, 200, {});
+	}
+	return json(res, 405, { error: "not allowed" });
+}
+
 const server = createServer(async (req, res) => {
 	try {
 		const host = req.headers.host ?? "";
@@ -648,6 +867,8 @@ const server = createServer(async (req, res) => {
 		else res.end();
 	}
 });
+
+await mkdir(own, { recursive: true, mode: 0o700 });
 
 server.listen(Number(args.port), "127.0.0.1", () => {
 	const address = server.address();

@@ -1,5 +1,5 @@
 ---
-description: "VoiceIO: an agent's ear and mouth, a microphone and a speaker through a page served on the agent's machine, on top of the agent's IO, MindIO. Use when working on VoiceIO."
+description: "VoiceIO: an agent's ear and mouth, a microphone and a speaker through a page served on the agent's machine, reached through the agent's IO, MindIO, or plain HTTP. Use when working on VoiceIO."
 ---
 
 # VoiceIO
@@ -7,7 +7,10 @@ description: "VoiceIO: an agent's ear and mouth, a microphone and a speaker thro
 - VoiceIO is built on MindIO (`~/dev/agentics/mindio`), Luis's decision (2026-11-25): "Wir haben einen Grundbaustein, MindIO, und VoiceIO ist obendrauf."
   So it is named VoiceIO, and its repository, package and command `voiceio`.
 - VoiceIO is Luis's own tool, built for his needs, not a product (2026-11-21), independent of Vibe Together: "focus on what my own needs".
-  Its transport is the agent's IO, MindIO, through a server on the agent's machine; a hosted relay may come later and forward the same API.
+  Its transport is a server on the agent's machine; a hosted relay may come later and forward the same API.
+- An agent takes part through its IO, MindIO, or over plain HTTP with nothing to set up, Luis (2026-11-25), so that VoiceIO doesn't need MindIO.
+  MindIO stays the way Luis's agents use it; HTTP is for any agent whose harness wakes it when a background command ends, such as a waiting `curl`.
+  No protocol is shared with MindIO or Vibe Together: a common shape is pulled out only once two real clients need one, so as not to build agentwire again.
 - Voice gives one agent an ear and a mouth, a microphone and a speaker, Luis's decision (2026-11-25): "Es ist genau für einen Agent und ein Mikrofon/Speaker. Oder wir geben dem einen Agent einfach ein Gehör und ein Maul. Das ist alles."
   A conversation is one use, a meeting the agent listens to and cuts in on another; nothing is built for meetings.
   There is no person to address: what the ear hears and what the mouth did reach the agent as events from `voice`, and what the agent writes for `voice` the mouth speaks.
@@ -20,8 +23,10 @@ description: "VoiceIO: an agent's ear and mouth, a microphone and a speaker thro
 - The mouth speaks an outbox item as it grows, where the agent's harness streams it (MindIO's streaming items, followed with `mindio follow`).
   The ear delivers each segment whole, since its fields, such as its voices, are known only at its end.
 - An agent takes part while its IO holds the file `voice`, a JSON object with its name, and who the voices are by number, both optional.
+  An agent over HTTP gets an IO of the same shape from the server, in `--own`, which it joins with `PUT /api/agents/<id>`, hears from with `GET .../hear`, which waits and takes each event once, and speaks into with `POST .../say`, streamed.
+  Its events are stored as JSON with their fields, since no MindIO keeps them.
   The log of a call is the items themselves; the server keeps only who has the page open, to tell the agent its ear and mouth went off with a page that went without saying so.
-- `server/`: the server, `voiceio`, one per machine, as MindIO's other providers: it serves the built page and its API, delivers the page's events with `mindio deliver`, and carries the outbox items for `voice` into `cur/`, following each as it grows.
+- `server/`: the server, `voiceio`, one per machine, as MindIO's other providers: it serves the built page and its API, delivers the page's events with `mindio deliver`, or into its own IO for an agent over HTTP, and carries the outbox items for `voice` into `cur/`, following each as it grows.
   It listens on 127.0.0.1 alone, and answers only a Host of localhost or one given with `--allow-host`, and no other origin, so that no other site's page reaches the agents.
   A relay later would forward the same API.
 - `voice/`: the library `voiceio`, which every audio client builds on.
