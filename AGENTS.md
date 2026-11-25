@@ -1,28 +1,31 @@
 ---
-description: "VoiceIO: a person talks with their agents by voice, through a page served on the agents' machine, carried by the agents' IO, MindIO. Use when working on VoiceIO."
+description: "VoiceIO: an agent's ear and mouth, a microphone and a speaker through a page served on the agent's machine, on top of the agent's IO, MindIO. Use when working on VoiceIO."
 ---
 
 # VoiceIO
 
 - VoiceIO is built on MindIO (`~/dev/agentics/mindio`), Luis's decision (2026-11-25): "Wir haben einen Grundbaustein, MindIO, und VoiceIO ist obendrauf."
   So it is named VoiceIO, and its repository, package and command `voiceio`.
-- VoiceIO becomes independent of Vibe Together, with its own transport, Luis's decision (2026-11-21), which replaces "built on" Vibe Together:
-  It is Luis's own tool, built for his needs, not a product: "focus on what my own needs".
-  The transport runs locally for now, on localhost; a hosted relay on the internet may come later, and then extends it naturally.
-  What the transport is stays an implementation detail.
-- The transport is the agent's inbox and outbox, its MindIO, as messagent's, chosen by an agent at Luis's request (2026-11-21):
-  The person is `voice:<name>`, as the outbox names a person outside Vibe Together: a turn is an event from that name, which the agent's waking rules decide on, and an outbox item for it is read aloud.
-  An agent takes part while its IO holds the file `voice`, which it writes itself, a JSON object with the name the person hears, optional.
-  The log of a call is those items themselves, ordered by their times, so nothing keeps state of its own.
-- Voice gives one agent an ear and a mouth, Luis's decision (2026-11-25): "Es ist genau für einen Agent und ein Mikrofon/Speaker. Oder wir geben dem einen Agent einfach ein Gehör und ein Maul. Das ist alles. Und dann der Rest kommt da raus."
-  A conversation is only one use, a meeting the agent listens to and cuts in on is another: "dass der Agent ausgestattet wird mit der Möglichkeit, Sprache auditiv wahrzunehmen und Sprache auditiv auszugeben".
-  Addressing a person, as `voice:<name>`, is a leftover of Vibe Together, not part of the design.
-  Not built yet: the core design is to be paired.
-- `server/`: the server, `voiceio`, one per machine, as MindIO's other providers: it serves the built page and its API, delivers turns with `mindio deliver`, and carries the outbox items for the person into `cur/`.
+- VoiceIO is Luis's own tool, built for his needs, not a product (2026-11-21), independent of Vibe Together: "focus on what my own needs".
+  Its transport is the agent's IO, MindIO, through a server on the agent's machine; a hosted relay may come later and forward the same API.
+- Voice gives one agent an ear and a mouth, a microphone and a speaker, Luis's decision (2026-11-25): "Es ist genau für einen Agent und ein Mikrofon/Speaker. Oder wir geben dem einen Agent einfach ein Gehör und ein Maul. Das ist alles."
+  A conversation is one use, a meeting the agent listens to and cuts in on another; nothing is built for meetings.
+  There is no person to address: what the ear hears and what the mouth did reach the agent as events from `voice`, and what the agent writes for `voice` the mouth speaks.
+- For the rebuild, Luis (2026-11-25): give the agent all the information, good diarization, the agent can always speak, no babysitting; waking is the agent's own.
+  VoiceIO only delivers events, with fields the agent's waking rules match, and proposes no waking of its own.
+  The events and their fields are documented for agents in `public/agents.md`: `speech` (`voice`, `backchannel`), `said` (`whole`, `why`, `voice`), `state` (`ear`, `mouth`), `problem`.
+- Reflexes are VoiceIO's alone, never MindIO's, Luis (2026-11-25): "behalt die Reflexe in Voice ... lass es nicht unnötig in Mind reinmachen".
+  They are hardcoded short-cuts, like a human's, for what would take too long through the mind. There are two, in `voice/src/conversation.ts`:
+  stop speaking when someone cuts in, and hold what the agent writes until the speaker's segment is over.
+- The mouth speaks an outbox item as it grows, where the agent's harness streams it (MindIO's streaming items, followed with `mindio follow`).
+  The ear delivers each segment whole, since its fields, such as its voices, are known only at its end.
+- An agent takes part while its IO holds the file `voice`, a JSON object with its name, and who the voices are by number, both optional.
+  The log of a call is the items themselves; the server keeps only who has the page open, to tell the agent its ear and mouth went off with a page that went without saying so.
+- `server/`: the server, `voiceio`, one per machine, as MindIO's other providers: it serves the built page and its API, delivers the page's events with `mindio deliver`, and carries the outbox items for `voice` into `cur/`, following each as it grows.
   It listens on 127.0.0.1 alone, and answers only a Host of localhost or one given with `--allow-host`, and no other origin, so that no other site's page reaches the agents.
   A relay later would forward the same API.
 - `voice/`: the library `voiceio`, which every audio client builds on.
-  It is the pipeline: the person's audio to their turns, and the agents' messages to speech, with turn-taking and echo handling, and the ElevenLabs tier.
+  It is the ear and the mouth: the audio to segments tagged by voice, and the agent's messages to speech, with the reflexes and echo handling, and the ElevenLabs tier.
   It has no transport, no UI and no audio device, so it runs in a browser, Node or Bun.
   It stays TypeScript for now; Rust is a future possibility, luiswirth/voiceio#3.
 - `src/`: the page, `voiceio-page`, the first client: the browser's audio, the models in workers, and the UI.

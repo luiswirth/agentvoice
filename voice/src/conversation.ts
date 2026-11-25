@@ -1,32 +1,32 @@
-// A conversation by voice: the listener and the speaker, each on or off on
-// its own, and ending turns automatically as a switch of its own. Both on is
-// a conversation, the speaker alone read aloud, the listener alone
-// dictation. What the person says gathers into a draft, which goes out as
-// one turn: at a segment's end if turns end automatically, else when the
-// person sends it.
-// Words take the floor, pausing the speaker, and a turn they end in drops
-// what was not heard of the agents' messages: any voice's words while no
-// voice is named, only a named voice's once any is. The voice the speaker
-// plays is its own, heard back as echo, which never takes the floor and is
-// never sent. While the speaker plays, words take the floor only once their
-// voice is known, and only a few words or a word to stop, so that the speaker
-// reads on over a "mhm". Few words that only signal listening, a
-// backchannel, are no turn and are not sent; other few words are. Words that
-// didn't count, as its echo, too quiet or such a backchannel while it
-// played, show for a while, to send. The listener only perceives,
-// and this decides. What happens is heard as short cues, so that voice seems
-// responsive while nothing is said.
-// Ending turns only decides whether a turn goes out by itself: the listener
-// only ever listens or stops, and with turns ended by hand what is said
-// gathers in the draft until the person sends it.
-// Its edges are the person's audio in, the audio to play out, the agents'
-// messages in, and the person's turns out: the host carries them, and plugs
-// in the tier, which hears and speaks.
+// A conversation by voice: one ear and one mouth, the listener and the
+// speaker, each on or off on its own. Both on is a conversation, the speaker
+// alone read aloud, the listener alone hearing.
+// Everything heard goes out as it is heard, one segment at a time, tagged by
+// voice, but for the speaker's own echo: whether it is meant for the agent is
+// the agent's to judge. Only two reflexes act on it here, since they would
+// take too long through the agent's mind:
+// - Words cut in: the speaker stops, and drops what was not heard of what it
+//   was given before. The voice the speaker plays is its own, heard back as
+//   echo, which never cuts in. While the speaker plays, words cut in only
+//   once their voice is known, and only a few words or a word to stop, so
+//   that it reads on over a "mhm"; once any voice is named, only a named one.
+// - Someone has the floor: what the speaker is given meanwhile is held until
+//   their segment is over.
+// What happens is heard as short cues, so that voice seems responsive while
+// nothing is said.
+// Its edges are the person's audio in, the audio to play out, the agent's
+// messages in, and what is heard and spoken out: the host carries them, and
+// plugs in the tier, which hears and speaks.
 import { type Cue, Cues } from "./cues.ts";
 import { type Input, Listener, type Segment, tag, text } from "./listener.ts";
 import { Resampler } from "./resampler.ts";
 import { type Heard, type Message, Speaker } from "./speaker.ts";
-import { LISTEN_RATE, type Listen, type Synthesize } from "./tier.ts";
+import {
+	LISTEN_RATE,
+	type Listen,
+	type Said,
+	type Synthesize,
+} from "./tier.ts";
 
 /** Who the voices are, by the number of their tag in the transcript. */
 export type Names = Record<string, string>;
@@ -37,12 +37,10 @@ export type Settings = {
 	listener: boolean;
 	/** Whether the agents' messages are read aloud. */
 	speaker: boolean;
-	/** Whether a turn ends by itself, after a pause. */
-	autoEnd: boolean;
 	/** Whether what happens is heard as cues. */
 	sounds: boolean;
-	/** Who the voices are: a named voice can cut in, and once any is named,
-	 * an unnamed one can't. */
+	/** Who the voices are: once any is named, only a named voice can cut
+	 * in. */
 	names: Names;
 	/** How the tier hears. Listening opens it again for a new one, at once
 	 * while nothing is being heard. */
@@ -56,20 +54,13 @@ export type Options = Partial<Settings> &
 	Pick<Settings, "listen"> & {
 		/** The person's audio, which listening opens and closes. */
 		input?: Input;
-		/** The draft to start with, as one kept from before a reload. */
-		draft?: string;
 	};
 
 export type State = Omit<Settings, "listen" | "synthesize"> & {
-	/** The draft the person last deleted, to bring back, until they send or
-	 * say more. */
-	dropped: string | null;
 	/** Listening while it opens. */
 	switching: "listener" | null;
 	/** What is heard of the segment in progress. */
 	hearing: string;
-	/** What was heard and not yet sent. */
-	draft: string;
 	/** How loud the person's audio is, from 0 to 1. */
 	level: number;
 	/** The message being read aloud, by its id. */
@@ -81,25 +72,32 @@ export type State = Omit<Settings, "listen" | "synthesize"> & {
 	voice?: number | null | undefined;
 	/** Words heard last that didn't count, as the speaker's echo, too quiet,
 	 * or a backchannel while it played, for the person to send if they were
-	 * theirs, or meant as a turn. */
+	 * theirs. */
 	missed: { text: string; why: "echo" | "quiet" | "backchannel" } | null;
 };
 
-/** A turn of the person's, and what was heard of each message it cut in on,
- * empty for one still queued. */
-export type Turn = { text: string; cut: Heard[] };
+/** A segment heard: its words tagged by voice, as `[voice 1] ...`, always
+ * starting with a tag, `[voice ?]` for a voice without a number, the
+ * voices in it, null for one without a number, and whether it only signals
+ * listening, a backchannel, or is words that didn't count, which the person
+ * sent as theirs. */
+export type Utterance = {
+	text: string;
+	voices: (number | null)[];
+	backchannel: boolean;
+	missed: boolean;
+};
 
 /** The person's listener and speaker, as the agents should know them. */
 export type Modes = Pick<Settings, "listener" | "speaker">;
 
 export type Events = {
 	state(state: State): void;
-	/** The person ended a turn, for the agents. */
-	turn(turn: Turn): void;
-	/** The person deleted a draft, which `undo` brings back. */
-	dropped(text: string): void;
-	/** Done with a message: read to its end, or dropped. */
-	heard(heard: Heard): void;
+	/** A segment heard, for the agent. */
+	speech(utterance: Utterance): void;
+	/** Done with a message: read to its end, or dropped; for one cut,
+	 * `by` is the voice that cut in. */
+	heard(heard: Heard & { by?: number | null }): void;
 	/** The modes, as they change, and as they come back on as they were. */
 	modes(modes: Modes): void;
 	/** What failed, to show, or null once it no longer holds. */
@@ -115,9 +113,9 @@ export type Events = {
 };
 
 /** What happens around the conversation, which the host sees and the core
- * makes heard: the person pressed something; their turn reached the agents;
- * an agent read it and works on it; an agent sent a message to read, or
- * anything else; someone joined or left; something failed. */
+ * makes heard: the person pressed something; what was heard reached the
+ * agent; the agent took it in and works on it; the agent sent a message to
+ * read, or anything else; someone joined or left; something failed. */
 export type Fact =
 	| "press"
 	| "sent"
@@ -187,6 +185,12 @@ function wordsOf(text: string): string[] {
 	return text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
 }
 
+/** Text heard with a voice's tag at its start, `[voice ?]` where the voice
+ * of its first words is not known, so that every segment says whose it is. */
+function tagged(text: string): string {
+	return text.startsWith("[voice ") ? text : `[voice ?] ${text}`;
+}
+
 export class Conversation {
 	private readonly input: Input | undefined;
 	private listening: Listen;
@@ -201,19 +205,14 @@ export class Conversation {
 		pcm: Int16Array;
 		filled: number;
 	} | null = null;
-	/** What happens to the draft once the segment in progress ends: the
-	 * person sent or dropped it while still being heard, or stopped listening,
-	 * which keeps it. */
-	private ending: "send" | "drop" | "keep" | null = null;
 	/** Whether listening is off, with the listener still finishing the
-	 * segment in progress, whose words go to the draft. */
+	 * segment in progress, whose words still go out. */
 	private stopping = false;
-	/** Whether the segment in progress has words, and whether they took the floor. */
+	/** Whether the segment in progress has words, whether they took the
+	 * floor, and the voice that took it. */
 	private words = false;
 	private floor = false;
-	/** Whether its words were too few to take the floor while the speaker
-	 * played. */
-	private few = false;
+	private by: number | null = null;
 	/** What was heard so far of the segment in progress, shown as `hearing`
 	 * once it may be the person's. */
 	private heard = "";
@@ -225,8 +224,7 @@ export class Conversation {
 	private restoring = false;
 	private readonly handlers: { [K in keyof Events]: Set<Events[K]> } = {
 		state: new Set(),
-		turn: new Set(),
-		dropped: new Set(),
+		speech: new Set(),
 		heard: new Set(),
 		modes: new Set(),
 		error: new Set(),
@@ -266,13 +264,10 @@ export class Conversation {
 		this.state = {
 			listener: false,
 			speaker: false,
-			autoEnd: options.autoEnd ?? true,
 			sounds: options.sounds ?? true,
 			names: options.names ?? {},
-			dropped: null,
 			switching: null,
 			hearing: "",
-			draft: options.draft ?? "",
 			level: 0,
 			reading: null,
 			held: false,
@@ -311,15 +306,10 @@ export class Conversation {
 	/** Changes what the host sets: only what is in `change`. Listening
 	 * opens or closes as it says, settled once the returned promise is. */
 	async set(change: Partial<Settings>): Promise<void> {
-		const { sounds, autoEnd, names } = change;
+		const { sounds, names } = change;
 		if (sounds !== undefined && sounds !== this.state.sounds) {
 			this.update({ sounds });
 			if (sounds) this.cue("press");
-		}
-		if (autoEnd !== undefined && autoEnd !== this.state.autoEnd) {
-			this.trace("autoEnd", { on: autoEnd });
-			this.cue("press");
-			this.update({ autoEnd });
 		}
 		if (names !== undefined) {
 			this.update({ names });
@@ -522,23 +512,18 @@ export class Conversation {
 	private async listen(on: boolean): Promise<void> {
 		if (on === this.state.listener || this.state.switching) return;
 		if (!on) {
-			// Words in progress still go to the draft, unsent: the person's
-			// audio is heard no more, and the listener closes once they are in.
-			if (this.finishing("keep")) this.stopping = true;
-			else {
-				const { hearing } = this.state;
-				this.closeListener();
-				this.update({ draft: join(this.state.draft, hearing) });
-			}
+			// Words in progress still go out: the person's audio is heard no
+			// more, and the listener closes once they are in.
+			if (this.state.hearing && this.listener?.finish()) this.stopping = true;
+			else this.closeListener();
 			this.update({ listener: false, level: 0 });
 			this.cue("unlisten");
 			this.modes();
 			return;
 		}
 		if (this.stopping) {
-			// Still finishing: it listens on, and the words go in as they would.
+			// Still finishing: it listens on, and the words go out as they would.
 			this.stopping = false;
-			if (this.ending === "keep") this.ending = null;
 			this.update({ listener: true });
 			this.emit("error", null);
 			this.cue("listen");
@@ -548,7 +533,6 @@ export class Conversation {
 		this.update({ switching: "listener" });
 		this.emit("error", null);
 		this.yieldFloor();
-		this.few = false;
 		this.heard = "";
 		this.known = false;
 		this.played = false;
@@ -600,7 +584,7 @@ export class Conversation {
 						});
 						this.failure(error);
 						this.modes();
-						if (hearing) this.segment(hearing);
+						if (hearing) this.segment([{ text: hearing, voice: null }]);
 					},
 				},
 				{
@@ -655,28 +639,24 @@ export class Conversation {
 		this.update({ hearing });
 	}
 
-	/** A segment heard: its words go to the draft, but for the speaker's
-	 * echo, all of them if it never got loud, and all of a backchannel, few
-	 * words while the speaker played that only signal listening, while turns
-	 * end by themselves. Those show for a while, to send if they were the
-	 * person's, or meant as a turn. */
+	/** A segment heard: its words go out, but for the speaker's echo, and
+	 * all of them if it never got loud while the speaker played, which show
+	 * for a while, to send if they were the person's. A backchannel, few
+	 * words while the speaker played that only signal listening, goes out as
+	 * one, and the speaker reads on. */
 	private heardSegment({ words, loud }: Segment): void {
 		const echo = text(words.filter((word) => word.played));
 		const theirs = words.filter((word) => !word.played);
 		const said = text(theirs);
 		if (echo) this.trace("echo", { text: echo });
 		const backchannel =
-			this.few &&
-			!this.floor &&
-			this.state.autoEnd &&
+			wordsOf(said).length > 0 &&
 			wordsOf(said).every((word) => BACKCHANNEL.has(word));
 		const missed: State["missed"] = !loud
 			? { text: text(words), why: "quiet" }
 			: !/\w/.test(said)
 				? { text: echo, why: "echo" }
-				: backchannel
-					? { text: said, why: "backchannel" }
-					: null;
+				: null;
 		if (missed?.text) {
 			this.trace("missed", missed);
 			clearTimeout(this.missedClear);
@@ -686,10 +666,10 @@ export class Conversation {
 				MISSED * 1000,
 			);
 		}
-		const sent = loud && !backchannel ? tag(theirs) : "";
-		this.trace("segment", { text: sent });
-		if (sent) this.update({ missed: null });
-		this.segment(sent);
+		const sent = loud && /\w/.test(said) ? theirs : [];
+		this.trace("segment", { text: text(sent), backchannel });
+		if (sent.length > 0) this.update({ missed: null });
+		this.segment(sent, backchannel);
 	}
 
 	/** Opens listening again, if it is on and nothing is being heard, for
@@ -754,9 +734,13 @@ export class Conversation {
 				this.trace("heard", {
 					id: heard.id,
 					whole: heard.whole,
+					why: heard.why,
 					chars: heard.text.length,
 				});
-				this.emit("heard", heard);
+				this.emit(
+					"heard",
+					heard.why === "cut" ? { ...heard, by: this.by } : heard,
+				);
 			};
 			speaker.player.flush = () => this.flush();
 			speaker.failed = (error) => {
@@ -774,15 +758,6 @@ export class Conversation {
 		this.modes();
 	}
 
-	/** Brings back the draft last deleted, ahead of what was said since. */
-	undo(): void {
-		const dropped = this.state.dropped;
-		if (!dropped) return;
-		this.trace("undo", { text: dropped });
-		this.ring("press");
-		this.update({ dropped: null, draft: join(dropped, this.state.draft) });
-	}
-
 	private closeListener(): void {
 		this.stopping = false;
 		this.listener?.close();
@@ -791,13 +766,13 @@ export class Conversation {
 		this.yieldFloor();
 	}
 
-	/** Ends the floor the person took, as listening closes with no words of
-	 * theirs still to come: the speaker reads on, unless a draft waits. */
+	/** Ends the floor taken, as listening closes with no words still to
+	 * come: the speaker reads on. */
 	private yieldFloor(): void {
 		this.words = false;
 		if (!this.floor) return;
 		this.floor = false;
-		if (!this.state.draft) this.speaker?.resume();
+		this.speaker?.resume();
 	}
 
 	/** Pauses the speaker for the words in progress, once they may take the floor. */
@@ -808,63 +783,30 @@ export class Conversation {
 			return;
 		if (this.speaker?.playing) {
 			const said = wordsOf(this.heard);
-			if (said.length < FLOOR_WORDS && !said.some((word) => STOP.has(word))) {
-				this.few = true;
+			if (said.length < FLOOR_WORDS && !said.some((word) => STOP.has(word)))
 				return;
-			}
 		}
 		this.floor = true;
+		this.by = voice ?? null;
 		this.trace("floor", { voice, reading: this.state.reading });
 		this.speaker?.pause();
 	}
 
-	/** Sends the draft, with what is still being heard once it is, dropping
-	 * what was not heard of the agents' messages unless `interrupt` is off. */
-	send(interrupt = true): void {
-		if (this.finishing("send")) return;
-		const text = join(this.state.draft, this.state.hearing);
-		this.update({ draft: "", hearing: "", dropped: null });
-		if (!text) {
-			this.speaker?.resume();
-			return;
-		}
-		this.ring("sent");
-		this.sentAt = performance.now();
-		const cut = interrupt ? (this.speaker?.interrupt() ?? []) : [];
-		if (!interrupt) this.speaker?.duck(false);
-		this.trace("send", { text, heard: cut });
-		this.emit("turn", { text, cut });
-	}
-
-	/** Sends the words that didn't count, as the person's: with the draft
-	 * when turns end by hand, else at once, and the speaker reads on. */
+	/** Sends the words that didn't count, as the person's. */
 	sendMissed(): void {
 		const missed = this.state.missed;
 		if (!missed) return;
 		clearTimeout(this.missedClear);
 		this.trace("send missed", missed);
-		this.update({ missed: null, draft: join(this.state.draft, missed.text) });
-		if (this.state.autoEnd && !this.state.hearing) this.send(false);
-	}
-
-	/** Drops the draft, with what is still being heard once it is, and the
-	 * speaker reads on. */
-	clear(): void {
-		if (this.finishing("drop")) return;
-		const text = join(this.state.draft, this.state.hearing);
-		this.trace("drop", { text });
-		if (text) {
-			this.update({ dropped: text });
-			this.ring("dropped");
-			this.emit("dropped", text);
-		}
-		this.update({ draft: "", hearing: "" });
-		this.speaker?.resume();
-	}
-
-	/** The person's edit of the draft. */
-	edit(draft: string): void {
-		this.update({ draft });
+		this.update({ missed: null });
+		this.ring("sent");
+		this.sentAt = performance.now();
+		this.emit("speech", {
+			text: tagged(missed.text),
+			voices: [],
+			backchannel: false,
+			missed: true,
+		});
 	}
 
 	/** Pauses or resumes reading aloud. */
@@ -882,15 +824,6 @@ export class Conversation {
 		this.speaker?.skip();
 	}
 
-	/** Ends the segment in progress, if one is, and leaves `ending` for when
-	 * it has. */
-	private finishing(ending: "send" | "drop" | "keep"): boolean {
-		if (!this.state.hearing || !this.listener?.finish()) return false;
-		// Sending or dropping, once asked for, is not undone by stopping.
-		if (ending !== "keep" || !this.ending) this.ending = ending;
-		return true;
-	}
-
 	close(): void {
 		clearTimeout(this.working);
 		clearTimeout(this.readCue);
@@ -900,28 +833,30 @@ export class Conversation {
 		this.speaker?.close();
 	}
 
-	private segment(text: string): void {
-		const ending = this.ending;
+	/** A segment over: its words go out, and if they took the floor, the
+	 * speaker stops what it was saying; else it reads on. */
+	private segment(words: Said[], backchannel = false): void {
 		const floor = this.floor;
-		this.ending = null;
 		this.words = false;
 		this.floor = false;
-		this.few = false;
 		this.heard = "";
 		this.known = false;
 		this.played = false;
-		this.update({
-			hearing: "",
-			draft: join(this.state.draft, text),
-			voice: undefined,
-			...(text && { dropped: null }),
-		});
+		this.update({ hearing: "", voice: undefined });
 		if (this.stopping) this.closeListener();
-		if (ending === "drop") this.clear();
-		else if (ending === "send") this.send();
-		else if (ending === null && this.state.autoEnd) this.send(floor);
-		else if (!this.state.draft) this.speaker?.resume();
-		else if (!floor) this.speaker?.duck(false);
+		const cut = floor ? (this.speaker?.interrupt() ?? []) : [];
+		if (!floor) this.speaker?.resume();
+		if (words.length === 0) return;
+		this.trace("send", { text: text(words), heard: cut, backchannel });
+		this.ring("sent");
+		this.sentAt = performance.now();
+		const voices = [...new Set(words.map((word) => word.voice))];
+		this.emit("speech", {
+			text: tagged(tag(words)),
+			voices,
+			backchannel,
+			missed: false,
+		});
 	}
 
 	private modes(): void {
@@ -933,8 +868,4 @@ export class Conversation {
 		this.state = { ...this.state, ...change };
 		this.emit("state", this.state);
 	}
-}
-
-function join(a: string, b: string): string {
-	return [a, b].filter(Boolean).join(" ").trim();
 }

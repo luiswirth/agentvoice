@@ -1,12 +1,11 @@
-// Voice in the page: the core's conversation, carried over a call with an
-// agent, with the browser's microphone and speaker. The page reads the
-// agents' messages from the log into it, and sends the person's turns into
-// the log as their messages. Transcription and speech synthesis run on
+// Voice in the page: the core's ear and mouth for one agent, with the
+// browser's microphone and speaker. The page reads the agent's messages from
+// the log into it as they grow, and tells the agent what the ear heard and
+// what the mouth did, as events. Transcription and speech synthesis run on
 // ElevenLabs, with the person's own key.
 import {
 	Conversation,
 	type Fact,
-	type Heard,
 	type Hearer,
 	KeyRefused,
 	type Perception,
@@ -28,6 +27,7 @@ import { holdMedia } from "./media.ts";
 import {
 	agent,
 	type Entry,
+	type Event,
 	type Session,
 	speakers,
 	spoken,
@@ -58,15 +58,11 @@ export type VoiceState = Omit<State, "reading"> & {
 };
 
 const LANGUAGES = "voice-languages";
-const AUTO_END = "voice-auto-end";
 const SOUNDS = "voice-sounds";
 
 /** How long before the speaker started a message may have arrived and
  * still be read, in seconds: one that came during a reload. */
 const RECENT = 10;
-
-/** How many of the last words heard mark where the person cut in. */
-const CUT_WORDS = 5;
 
 /** What the core keeps, in this browser, for the page's link, so that a
  * reload keeps it and another session never gets it. */
@@ -96,25 +92,24 @@ export class Voice {
 	private standing = true;
 	/** Whether the person wants to listen, while listening waits. */
 	private wanted = false;
-	/** Whether the person holds push to talk. */
-	private pushed = false;
 	/** Whether the core has the key to speak with, for the speaker on now. */
 	private armed = false;
 	/** The last entry before the speaker came on. */
 	private started = 0;
-	/** The person's turns not yet delivered, oldest first, kept for the tab
-	 * so that a reload keeps them: each goes until the server took it, one
-	 * after another, since the log's order is the order things were said. */
+	/** The events not yet told, oldest first, kept for the tab so that a
+	 * reload keeps them: each goes until the server took it, one after
+	 * another, since the log's order is the order things happened. */
 	private readonly unsentKey = `voice-unsent ${location.href}`;
-	private readonly unsent: string[] = JSON.parse(
+	private readonly unsent: Event[] = JSON.parse(
 		sessionStorage.getItem(this.unsentKey) ?? "[]",
 	);
 	private delivering = false;
 	private closed = false;
-	/** Where the tab keeps the draft, with what was being heard, so that a
-	 * reload keeps it, and what it kept last. */
-	private readonly draftKey = `voice-draft ${location.href}`;
-	private keptDraft = "";
+	/** The entries given to the core to read, which it is given again as
+	 * they grow. */
+	private readonly given = new Set<number>();
+	/** The problem last told, so that one that repeats is told once. */
+	private told: string | null = null;
 	private readonly watchers = new Set<() => void>();
 	private readonly trace = new Trace();
 	/** Where the tab keeps the modes, so that a reload keeps them. */
@@ -156,9 +151,7 @@ export class Voice {
 		const modes: { listener?: boolean; speaker?: boolean } = JSON.parse(
 			sessionStorage.getItem(this.modesKey) ?? "{}",
 		);
-		const autoEnd = localStorage.getItem(AUTO_END) !== "false";
-		// Hands-free listens from the start; push to talk only while held.
-		this.wanted = modes.listener ?? autoEnd;
+		this.wanted = modes.listener ?? true;
 		const speaker = modes.speaker ?? true;
 		this.core = new Conversation({
 			listen: (heard) => this.listen(heard),
@@ -176,33 +169,55 @@ export class Voice {
 				},
 			},
 			speaker,
-			autoEnd,
 			sounds: localStorage.getItem(SOUNDS) !== "off",
-			draft: sessionStorage.getItem(this.draftKey) ?? "",
 		});
 		this.state = this.merged();
 		if (speaker) this.sound();
-		this.core.on("state", () => {
-			this.keepDraft();
-			this.set({});
-		});
+		this.core.on("state", () => this.set({}));
 		this.core.on("trace", (event, data) => this.trace.event(event, data));
 		this.core.on("audio", (pcm) => this.trace.hear(pcm));
-		this.core.on("error", (error) =>
+		this.core.on("error", (error) => {
 			this.set(
 				error === null
 					? { error: null, refused: false }
 					: { error: error.message, refused: error instanceof KeyRefused },
-			),
-		);
+			);
+			if (error !== null && error.message !== this.told)
+				this.tell({ event: "problem", text: error.message });
+			this.told = error?.message ?? null;
+		});
 		this.core.on("modes", () => this.modes());
-		this.core.on("heard", ({ id }) => this.done(Number(id)));
-		this.core.on("turn", ({ text, cut }) => this.turn(text, cut));
+		this.core.on("heard", (heard) => {
+			const n = Number(heard.id);
+			this.done(n);
+			this.given.delete(n);
+			const entry = this.session.log[n - 1];
+			if (entry === undefined) return;
+			this.tell({
+				event: "said",
+				message: entry.id,
+				heard: heard.text,
+				whole: heard.whole,
+				why: heard.why,
+				unheard: heard.unheard,
+				by: heard.by,
+			});
+		});
+		this.core.on("speech", ({ text, voices, backchannel }) =>
+			this.tell({ event: "speech", text, voices, backchannel }),
+		);
 		if (speaker) this.started = session.log.at(-1)?.n ?? 0;
 		this.arm();
 		this.unsubscribe = session.subscribe({
-			entry: (entry) => {
-				if (entry.n > this.started && this.armed && this.wantedEntry(entry))
+			entry: (entry, fresh) => {
+				if (!fresh) {
+					if (this.given.has(entry.n) && this.wantedEntry(entry))
+						this.read(entry);
+				} else if (
+					entry.n > this.started &&
+					this.armed &&
+					this.wantedEntry(entry)
+				)
 					this.read(entry);
 			},
 		});
@@ -221,15 +236,6 @@ export class Voice {
 		});
 		this.modes();
 		void this.deliver();
-	}
-
-	/** Keeps the draft for the tab, with what is being heard, as it changes. */
-	private keepDraft(): void {
-		const { draft, hearing } = this.core.state;
-		const text = [draft, hearing].filter(Boolean).join(" ");
-		if (text === this.keptDraft) return;
-		this.keptDraft = text;
-		sessionStorage.setItem(this.draftKey, text);
 	}
 
 	/** The core's state with the page's own. */
@@ -274,10 +280,12 @@ export class Voice {
 	private read(entry: Entry & { text: string }): void {
 		const agents = speakers(this.session.log).filter((a) => a !== this.name);
 		const n = agents.indexOf(entry.from);
+		this.given.add(entry.n);
 		this.core.speak({
 			id: String(entry.n),
 			text: entry.text,
 			voice: n < 0 ? agents.length : n,
+			whole: entry.whole,
 		});
 	}
 
@@ -285,6 +293,13 @@ export class Voice {
 	private done(n: number): void {
 		if (n > Number(sessionStorage.getItem(this.readKey) ?? 0))
 			sessionStorage.setItem(this.readKey, String(n));
+	}
+
+	/** Who the voices are, by their numbers, as the agent named them: once
+	 * any is, only a named one cuts the speaker off. */
+	setNames(names: Record<string, string>): void {
+		if (JSON.stringify(names) === JSON.stringify(this.core.state.names)) return;
+		void this.core.set({ names });
 	}
 
 	/** Turns the cues on or off. */
@@ -319,7 +334,7 @@ export class Voice {
 	}
 
 	/** Has listening wait, or ends the wait: waiting closes the microphone,
-	 * keeping the words in progress in the draft, and the end of the wait
+	 * the words in progress still going out, and the end of the wait
 	 * opens it again if the person wants it on. */
 	async standby(on: boolean): Promise<void> {
 		if (on === this.standing) return;
@@ -410,57 +425,14 @@ export class Voice {
 		if (on && this.armed) this.backlog(0);
 	}
 
-	/** Hands-free, where turns end by themselves as the person pauses and
-	 * listening stays on, or push to talk, where listening runs only while the
-	 * person holds the button. A draft already there waits to be sent. */
-	async setAutoEnd(autoEnd: boolean): Promise<void> {
-		localStorage.setItem(AUTO_END, String(autoEnd));
-		await this.core.set({ autoEnd });
-		const { draft, hearing } = this.state;
-		if (autoEnd) await this.setListener(true);
-		else if (!draft && !hearing) await this.setListener(false);
+	/** Sends the words that didn't count, as the person's. */
+	sendMissed(): void {
+		this.core.sendMissed();
 	}
 
-	/** Push to talk: listens while the person holds the button, and sends
-	 * once they let go, with what is still being heard. A release while the
-	 * microphone still opens closes it once it is open. */
-	async press(): Promise<void> {
-		this.pushed = true;
-		await this.setListener(true);
-		if (!this.pushed) this.release();
-	}
-
-	release(): void {
-		this.pushed = false;
-		this.send();
-		void this.setListener(false);
-	}
-
-	/** Sends the draft, with what is still being heard once it is, dropping
-	 * what was not heard of the agent's messages unless `interrupt` is off. */
-	send(interrupt = true): void {
-		this.core.send(interrupt);
-	}
-
-	/** A turn the person ended: where they cut in on the agent's messages
-	 * goes ahead of what they said, so that the agent has the turn as one
-	 * entry. The spot is the last few words they heard, enough to find it in
-	 * the message without repeating it, and a message they heard none of is
-	 * named by its first few words. */
-	private turn(text: string, cut: Heard[]): void {
-		const marks = cut.map(({ id, text }) => {
-			const words = text.trim().split(/\s+/).filter(Boolean);
-			if (words.length === 0) {
-				const message = this.session.log.find((e) => String(e.n) === id);
-				const start = (message?.text ?? "").trim().split(/\s+/);
-				const head = start.slice(0, CUT_WORDS).join(" ");
-				return `[cut in before "${start.length > CUT_WORDS ? `${head}…` : head}"]`;
-			}
-			const tail = words.slice(-CUT_WORDS).join(" ");
-			const spot = words.length > CUT_WORDS ? `…${tail}` : tail;
-			return `[cut in after "${spot}"]`;
-		});
-		this.unsent.push([...marks, text].join(" "));
+	/** Tells the agent what happened, in order, and again until told. */
+	private tell(event: Event): void {
+		this.unsent.push(event);
 		this.keepUnsent();
 		void this.deliver();
 	}
@@ -477,7 +449,8 @@ export class Voice {
 		let failures = 0;
 		while (!this.closed && this.unsent.length > 0) {
 			try {
-				await this.session.send(this.unsent[0] ?? "");
+				const event = this.unsent[0];
+				if (event !== undefined) await this.session.send(event);
 				this.unsent.shift();
 				this.keepUnsent();
 				if (failures > 0) {
@@ -549,6 +522,9 @@ export class Voice {
 	/** Stops, as when the person hangs up or the page closes. */
 	close(): void {
 		this.closed = true;
+		void this.session
+			.send({ event: "state", ear: false, mouth: false })
+			.catch(() => {});
 		this.unsubscribe();
 		this.unwatchAudio();
 		this.activity.close();
@@ -558,15 +534,9 @@ export class Voice {
 	}
 
 	/** Play and pause from the system's media controls, as a headphone tap
-	 * on a call: sends the words waiting, else mutes or unmutes; with push to
-	 * talk, which a tap can't hold, one tap starts and the next sends. */
+	 * on a call: mutes or unmutes. */
 	mediaToggle = (): void => {
-		const { draft, hearing, listener, autoEnd } = this.state;
-		if (!autoEnd) {
-			if (listener || this.pushed) this.release();
-			else void this.press();
-		} else if (draft || hearing) this.send();
-		else void this.setListener(!(listener || this.wanted));
+		void this.setListener(!(this.state.listener || this.wanted));
 	};
 
 	/** Holds the system's audio and media controls while voice is in use. */
@@ -576,6 +546,7 @@ export class Voice {
 		holdMedia(listener || speaker, { toggle: this.mediaToggle });
 		this.keepModes();
 		this.trace.event("modes", { listener, speaker });
+		this.tell({ event: "state", ear: listener, mouth: speaker });
 	}
 
 	/** Keeps the modes for the tab, listening as the person wants it, so

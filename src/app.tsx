@@ -244,6 +244,17 @@ function Talk({
 	useEffect(() => {
 		void voice?.setKey(elevenlabs);
 	}, [voice, elevenlabs]);
+	const names = JSON.stringify(seat?.agent?.voices ?? {});
+	useEffect(() => {
+		voice?.setNames(JSON.parse(names));
+	}, [voice, names]);
+	// A page that goes tells the agent its ear and mouth are off.
+	useEffect(() => {
+		if (!seat) return;
+		const gone = () => seat.gone();
+		addEventListener("pagehide", gone);
+		return () => removeEventListener("pagehide", gone);
+	}, [seat]);
 	const state = useVoiceState(voice);
 	const name = seat?.name ?? "";
 	const people: Present[] = Object.keys(participants)

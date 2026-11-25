@@ -1,6 +1,6 @@
-// What the others in the call do, as far as the page can tell from the log
-// and who is in it: who joins and leaves, whether they have taken in the
-// person's last message, and whether they answered it. From taking it in
+// What the agent does, as far as the page can tell from the log and whether
+// it is in voice mode: whether it comes or goes, whether it has taken in
+// what was heard last, and whether it answered it. From taking it in
 // until answering, an agent is taken to be working on it.
 import type { Participant, Session } from "./protocol.ts";
 import { spoken } from "./protocol.ts";
@@ -36,7 +36,8 @@ export class Activity {
 		this.name = name;
 		this.events = events;
 		this.close = session.subscribe({
-			entry: (entry) => {
+			entry: (entry, fresh) => {
+				if (!fresh) return;
 				if (entry.from === this.name) {
 					if (!spoken(entry)) return;
 					this.waiting = entry.n;

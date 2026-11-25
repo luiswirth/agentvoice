@@ -1,9 +1,9 @@
 /** The page's transport: its own server, on the agents' machine
- * (server/main.ts), which delivers the person's turns into an agent's inbox
- * and gives back what the agent sends them, with the call's log. */
+ * (server/main.ts), which delivers what the page tells into an agent's inbox
+ * and gives back what the agent says, with the call's log. */
 
 import { useEffect, useState } from "react";
-import type { Entry, Participant, Session } from "./voice/protocol.ts";
+import type { Entry, Event, Participant, Session } from "./voice/protocol.ts";
 
 export type Participants = Record<string, Participant>;
 
@@ -51,13 +51,13 @@ export async function watchAgents(
 }
 
 type Subscriber = {
-	entry?: (entry: Entry) => void;
+	entry?: (entry: Entry, fresh: boolean) => void;
 	participants?: (participants: Participants) => void;
 };
 
 type Log = {
 	revision: string;
-	agent: Agent | null;
+	agent: (Agent & { voices: Record<string, string> }) | null;
 	person: string;
 	entries: Entry[];
 	participants: Participants;
@@ -69,7 +69,7 @@ export class Seat implements Session {
 	readonly id: string;
 	/** The person's name, as the agent has it, once the log is in. */
 	name = "";
-	agent: Agent | null = null;
+	agent: (Agent & { voices: Record<string, string> }) | null = null;
 	log: Entry[] = [];
 	participants: Participants = {};
 	private readonly subscribers = new Set<Subscriber>();
@@ -83,12 +83,22 @@ export class Seat implements Session {
 		return `api/agents/${encodeURIComponent(this.id)}/${what}`;
 	}
 
-	async send(text: string): Promise<void> {
-		await call(this.path("turns"), {
+	async send(event: Event): Promise<void> {
+		await call(this.path("events"), {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ text }),
+			body: JSON.stringify(event),
 		});
+	}
+
+	/** Tells, as the page goes, that it is gone, where a request can't. */
+	gone(): void {
+		navigator.sendBeacon(
+			this.path("events"),
+			new Blob([JSON.stringify({ event: "state", ear: false, mouth: false })], {
+				type: "application/json",
+			}),
+		);
 	}
 
 	subscribe(subscriber: Subscriber): () => void {
@@ -103,7 +113,9 @@ export class Seat implements Session {
 		let failures = 0;
 		const { signal } = this.stop;
 		while (!signal.aborted) {
-			const after = this.log.at(-1)?.n ?? 0;
+			// Every entry from the first that may still grow comes again.
+			const growing = this.log.find((entry) => !entry.whole);
+			const after = growing ? growing.n - 1 : (this.log.at(-1)?.n ?? 0);
 			try {
 				const query = new URLSearchParams({
 					after: String(after),
@@ -116,11 +128,21 @@ export class Seat implements Session {
 				revision = log.revision;
 				this.name = log.person;
 				this.agent = log.agent;
-				const fresh = log.entries.filter((entry) => entry.n > after);
-				this.log = [...this.log, ...fresh];
+				const last = this.log.at(-1)?.n ?? 0;
+				const changed = log.entries.filter((entry) => {
+					const known = this.log[entry.n - 1];
+					return (
+						known === undefined ||
+						known.text !== entry.text ||
+						known.whole !== entry.whole
+					);
+				});
+				const next = [...this.log];
+				for (const entry of changed) next[entry.n - 1] = entry;
+				this.log = next;
 				this.participants = log.participants;
-				for (const entry of fresh)
-					for (const s of this.subscribers) s.entry?.(entry);
+				for (const entry of changed)
+					for (const s of this.subscribers) s.entry?.(entry, entry.n > last);
 				for (const s of this.subscribers) s.participants?.(log.participants);
 			} catch (error) {
 				if (signal.aborted) return;

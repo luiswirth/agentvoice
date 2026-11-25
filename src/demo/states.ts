@@ -4,11 +4,8 @@ import type { VoiceState } from "../voice/voice.ts";
 export const base: VoiceState = {
 	listener: false,
 	speaker: false,
-	autoEnd: true,
-	dropped: null,
 	switching: null,
 	hearing: "",
-	draft: "",
 	level: 0,
 	reading: null,
 	held: false,
@@ -57,11 +54,8 @@ export const states: Record<string, Partial<VoiceState>> = {
 	"you-speaking": {
 		listener: true,
 		speaker: true,
-		draft: "I think we should look at the turn detection first.",
 		hearing: "And then deploy it",
 	},
-	"push-to-talk": { speaker: true, autoEnd: false },
-	"push-to-talk-held": { listener: true, speaker: true, autoEnd: false },
 
 	"agent-sent": { listener: true, speaker: true, progress: "sent" },
 	settings: {

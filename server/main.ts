@@ -1,14 +1,16 @@
-// VoiceIO's server, on the agents' machine: serves the page, and carries the
-// person's turns into an agent's inbox and the agent's outbox items for them
-// back to the page, through the agent's IO, MindIO (~/dev/agentics/mindio).
-// The person is `voice:<person>`: a turn is an event from that name, and an
-// outbox item for it is what the agent says, read aloud. An agent takes part
-// while its IO holds the file `voice`, a JSON object with the name the person
-// hears and sees, `name`, optional. The log of a call is the items
-// themselves, so the server keeps no state of its own.
+// VoiceIO's server, on the agents' machine: serves the page, which is an
+// agent's ear and mouth, and carries between it and the agent's IO, MindIO
+// (~/dev/agentics/mindio). What the ear hears and what the mouth did reach
+// the agent as events from `voice`, and what the agent writes for `voice`
+// the mouth speaks, as it grows. An agent takes part while its IO holds the
+// file `voice`, a JSON object with the name the person hears and sees,
+// `name`, and who the voices are by their numbers, `voices`, such as
+// `{"1": "Luis"}`, both optional: once any voice is named, only a named one
+// cuts the mouth off. The log of a call is the items themselves, so the server
+// keeps no state of its own beyond who has the page open.
 //
 //   node server/main.ts [--port 8790] [--page dist] [--agents <dir>]
-//                       [--allow-host <name>]...
+//                       [--mindio <command>] [--allow-host <name>]...
 //
 // It listens on 127.0.0.1 alone, and answers only requests whose Host is
 // localhost or a name given with --allow-host, such as the machine's on the
@@ -23,7 +25,7 @@ import {
 	type IncomingMessage,
 	type ServerResponse,
 } from "node:http";
-import { homedir, userInfo } from "node:os";
+import { homedir } from "node:os";
 import { extname, join, resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
 import { headers } from "./policy.ts";
@@ -39,7 +41,7 @@ const { values: args } = parseArgs({
 			type: "string",
 			default: join(homedir(), ".agents/mindio"),
 		},
-		person: { type: "string", default: userInfo().username },
+		mindio: { type: "string", default: "mindio" },
 		"allow-host": { type: "string", multiple: true, default: [] },
 	},
 });
@@ -47,8 +49,6 @@ const { values: args } = parseArgs({
 const page = resolve(args.page);
 /** The agents' IO, each `<dir>/<agent>`. */
 const dir = resolve(args.agents);
-/** The person's name, as the inbox has it. */
-const person = `voice:${args.person}`;
 const hosts = new Set([
 	"localhost",
 	"127.0.0.1",
@@ -56,25 +56,18 @@ const hosts = new Set([
 	...args["allow-host"],
 ]);
 
+/** The name the ear's events come from, and the mouth's items go to. */
+const VOICE = "voice";
+
 /** How long a read of the log waits for a change before it answers anyway. */
 const WAIT = 25_000;
+/** How long after its last look a page counts as gone, in milliseconds. */
+const GONE = 15_000;
 
-// The inbox's file names: `<time>.<name>.<ext>`, the name encoded one to one.
+// The items' file names: `<time>.<name>.<ext>`, the name encoded one to one;
+// `voice` is the same encoded.
 
 const ITEM = /^(\d{8}T\d{6}\.\d{6}Z)\.([^.]+)\.(.+)$/;
-
-function encode(name: string): string {
-	let out = "";
-	for (const b of new TextEncoder().encode(name)) {
-		const c = String.fromCharCode(b);
-		if (/[A-Za-z0-9-]/.test(c)) out += c;
-		else if (c === "/") out += "_";
-		else out += `%${b.toString(16).toUpperCase().padStart(2, "0")}`;
-	}
-	return out;
-}
-
-const PERSON = encode(person);
 
 /** An item's time, as an ISO 8601 date. */
 function time(stamp: string): string {
@@ -91,7 +84,13 @@ const TEXT: Record<string, string> = {
 
 // The agents.
 
-type Agent = { id: string; name: string; io: string };
+type Agent = {
+	id: string;
+	name: string;
+	io: string;
+	/** Who the voices are, by their numbers. */
+	voices: Record<string, string>;
+};
 
 /** An agent's id, its IO's directory name, as a path names it. */
 const valid = (id: string) => /^[^/\\]+$/.test(id) && id !== "." && id !== "..";
@@ -102,20 +101,19 @@ async function agent(id: string): Promise<Agent | null> {
 	const io = join(dir, id);
 	const file = await readFile(join(io, "voice"), "utf8").catch(() => null);
 	if (file === null) return null;
-	let voice: { name?: unknown } = {};
+	let voice: { name?: unknown; voices?: unknown } = {};
 	try {
 		voice = file.trim() ? JSON.parse(file) : {};
 	} catch {}
-	const name =
-		typeof voice.name === "string" && voice.name.trim()
-			? voice.name.trim()
-			: id;
-	return {
-		id,
-		// A name with a colon would pass for a person, as `voice:luis`.
-		name: name.replaceAll(":", " "),
-		io,
-	};
+	const named = typeof voice.name === "string" ? voice.name.trim() : "";
+	// The agent's name is never the one what is heard comes from.
+	const name = named && named !== VOICE ? named : id;
+	const voices: Record<string, string> = {};
+	if (typeof voice.voices === "object" && voice.voices !== null)
+		for (const [n, who] of Object.entries(voice.voices))
+			if (/^\d+$/.test(n) && typeof who === "string" && who.trim())
+				voices[n] = who.trim();
+	return { id, name, io, voices };
 }
 
 async function agents(): Promise<Agent[]> {
@@ -124,78 +122,133 @@ async function agents(): Promise<Agent[]> {
 	return found.filter((a) => a !== null);
 }
 
-// The log of a call: the person's items in the agent's inbox, and the
-// agent's for them in its outbox, in the order of their times.
+// What changed beyond what a directory's watcher sees: an item that grew or
+// became whole, and a page that came or went.
 
-type Entry = {
-	n: number;
-	from: string;
-	type: string;
-	time: string;
-	text?: string;
-	filename?: string;
-};
+const changes = new EventTarget();
+const changed = () => changes.dispatchEvent(new Event("change"));
 
-/** Items are never changed once written, so their text is kept. */
-const texts = new Map<string, string>();
+// The items.
 
-async function items(
-	dir: string,
-	name: string,
-): Promise<{ path: string; stamp: string; ext: string }[]> {
+type Item = { path: string; file: string; stamp: string; ext: string };
+
+async function items(dir: string, name: string): Promise<Item[]> {
 	const files = await readdir(dir).catch(() => []);
 	return files.flatMap((file) => {
 		const [, stamp, who, ext] = file.match(ITEM) ?? [];
 		return stamp && ext && who === name
-			? [{ path: join(dir, file), stamp, ext }]
+			? [{ path: join(dir, file), file, stamp, ext }]
 			: [];
 	});
 }
 
-/** Carries the agent's new items for the person: takes them into `cur/`,
- * which of several subscribers only one does for each. */
+/** An item's text as far as it is written, and whether it is whole. */
+type Text = { text: string; whole: boolean };
+
+/** The text of each item read, by its file name, which moving it between
+ * `new/` and `cur/` keeps: a whole one's never changes. */
+const texts = new Map<string, Text>();
+
+/** The text of an item the agent may still write, which `mindio follow`
+ * gives as it grows, ending once the item is whole. */
+function follow(item: Item): Text {
+	const known = texts.get(item.file);
+	if (known) return known;
+	const text: Text = { text: "", whole: false };
+	texts.set(item.file, text);
+	const child = spawn(args.mindio, ["follow", item.path], {
+		stdio: ["ignore", "pipe", "pipe"],
+	});
+	const decoder = new TextDecoder();
+	child.stdout.on("data", (chunk: Buffer) => {
+		text.text += decoder.decode(chunk, { stream: true });
+		changed();
+	});
+	let error = "";
+	child.stderr.on("data", (d: Buffer) => {
+		error += d;
+	});
+	const end = async (code: number | null) => {
+		if (code !== 0) {
+			// A `mindio` that can't follow: the item is read as it is.
+			console.error(`voiceio: can't follow ${item.file}: ${error.trim()}`);
+			text.text = await readFile(item.path, "utf8").catch(() => text.text);
+		} else text.text += decoder.decode();
+		text.whole = true;
+		changed();
+	};
+	child.on("error", () => void end(null));
+	child.on("exit", (code) => void end(code));
+	return text;
+}
+
+/** The text of an item the server wrote itself, whole at once. */
+async function written(item: Item): Promise<Text> {
+	const known = texts.get(item.file);
+	if (known) return known;
+	const text = {
+		text: await readFile(item.path, "utf8").catch(() => ""),
+		whole: true,
+	};
+	texts.set(item.file, text);
+	return text;
+}
+
+/** Carries the agent's new items for the mouth: takes them into `cur/`,
+ * which of several subscribers only one does for each, and follows each
+ * there as it grows. */
 async function carry(a: Agent): Promise<void> {
 	const outbox = join(a.io, "outbox");
-	const fresh = await items(join(outbox, "new"), PERSON);
+	const fresh = await items(join(outbox, "new"), VOICE);
 	if (fresh.length === 0) return;
 	await mkdir(join(outbox, "cur"), { recursive: true, mode: 0o700 });
 	for (const item of fresh) {
 		// Only a regular file is an item.
 		if (!(await lstat(item.path).catch(() => null))?.isFile()) continue;
-		await rename(
-			item.path,
-			join(outbox, "cur", item.path.slice(item.path.lastIndexOf(sep) + 1)),
-		).catch(() => {});
+		const path = join(outbox, "cur", item.file);
+		if (
+			await rename(item.path, path).then(
+				() => true,
+				() => false,
+			)
+		)
+			follow({ ...item, path });
 	}
 }
 
-async function entry(
-	item: { path: string; stamp: string; ext: string },
-	from: string,
-): Promise<Omit<Entry, "n">> {
-	const type = TEXT[item.ext];
-	const at = time(item.stamp);
-	if (type === undefined)
-		return {
-			from,
-			type: "application/octet-stream",
-			time: at,
-			filename: item.path.slice(item.path.lastIndexOf(sep) + 1),
-		};
-	let text = texts.get(item.path);
-	if (text === undefined) {
-		text = await readFile(item.path, "utf8").catch(() => "");
-		texts.set(item.path, text);
-	}
-	return { from, type, time: at, text };
-}
+// The log of a call: the ear's and the mouth's events in the agent's inbox,
+// and the agent's items for the mouth in its outbox, in the order of their
+// times.
+
+/** What an entry is: something heard, a note of the ear's or the mouth's,
+ * or the agent's message to speak. */
+type Kind = "heard" | "note" | "message";
+
+type Entry = {
+	n: number;
+	/** The item's file name. */
+	id: string;
+	from: string;
+	kind: Kind;
+	type: string;
+	time: string;
+	text?: string;
+	/** Whether the text is all there is: a message may still grow. */
+	whole: boolean;
+	filename?: string;
+};
+
+/** What the ear heard always starts with a voice's tag, which no note of
+ * the server's does. */
+const heard = (text: string) => text.startsWith("[voice ");
 
 type Log = {
 	revision: string;
-	agent: { id: string; name: string } | null;
+	agent: { id: string; name: string; voices: Record<string, string> } | null;
+	/** The name what is heard comes from. */
 	person: string;
 	entries: Entry[];
-	/** Who else is in the call, with the person's last entry they took in. */
+	/** The agent, while in voice mode, with the last entry heard it took in. */
 	participants: Record<string, { read: number }>;
 };
 
@@ -205,36 +258,54 @@ async function log(id: string): Promise<Log> {
 	const outbox = join(dir, id, "outbox");
 	if (a) await carry(a);
 	const [fresh, taken, said] = await Promise.all([
-		items(join(inbox, "new"), PERSON),
-		items(join(inbox, "cur"), PERSON),
-		items(join(outbox, "cur"), PERSON),
+		items(join(inbox, "new"), VOICE),
+		items(join(inbox, "cur"), VOICE),
+		items(join(outbox, "cur"), VOICE),
 	]);
 	const name = a?.name ?? id;
 	const all = [
-		...fresh.map((item) => ({ item, from: person, taken: false })),
-		...taken.map((item) => ({ item, from: person, taken: true })),
-		...said.map((item) => ({ item, from: name, taken: false })),
+		...fresh.map((item) => ({ item, out: false, taken: false })),
+		...taken.map((item) => ({ item, out: false, taken: true })),
+		...said.map((item) => ({ item, out: true, taken: false })),
 	].sort((x, y) =>
 		x.item.stamp < y.item.stamp ? -1 : x.item.stamp > y.item.stamp ? 1 : 0,
 	);
+	let read = 0;
 	const entries = await Promise.all(
-		all.map(async ({ item, from }, i) => ({
-			n: i + 1,
-			...(await entry(item, from)),
-		})),
+		all.map(async ({ item, out, taken }, i): Promise<Entry> => {
+			const base = { n: i + 1, id: item.file, time: time(item.stamp) };
+			const type = TEXT[item.ext];
+			if (type === undefined)
+				return {
+					...base,
+					from: out ? name : VOICE,
+					kind: out ? "message" : "note",
+					type: "application/octet-stream",
+					whole: true,
+					filename: item.file,
+				};
+			const { text, whole } = out ? follow(item) : await written(item);
+			const kind: Kind = out ? "message" : heard(text) ? "heard" : "note";
+			if (kind === "heard" && taken) read = i + 1;
+			return { ...base, from: out ? name : VOICE, kind, type, text, whole };
+		}),
 	);
-	const read = all.reduce((last, x, i) => (x.taken ? i + 1 : last), 0);
+	const growth = entries.reduce(
+		(sum, e) => sum + (e.whole ? 1 : 0) + (e.text?.length ?? 0),
+		0,
+	);
 	return {
-		revision: `${entries.length}.${read}.${a ? encode(a.name) : ""}`,
-		agent: a && { id: a.id, name: a.name },
-		person,
+		revision: `${entries.length}.${read}.${growth}.${a ? JSON.stringify([a.name, a.voices]) : ""}`,
+		agent: a && { id: a.id, name: a.name, voices: a.voices },
+		person: VOICE,
 		entries,
 		participants: a ? { [a.name]: { read } } : {},
 	};
 }
 
 /** Answers with what `look` sees once it differs from `revision`, as the
- * directories `dirs` change, or as it is after a while. */
+ * directories `dirs` change, or anything else does, or as it is after a
+ * while. */
 async function until<T extends { revision: string }>(
 	dirs: string[],
 	look: () => Promise<T>,
@@ -246,17 +317,19 @@ async function until<T extends { revision: string }>(
 	return new Promise((done) => {
 		const watchers = dirs.flatMap((dir) => {
 			try {
-				return [watch(dir, { recursive: true }, changed)];
+				return [watch(dir, { recursive: true }, change)];
 			} catch {
 				return [];
 			}
 		});
+		changes.addEventListener("change", change);
 		let pending: ReturnType<typeof setTimeout> | undefined;
 		const timer = setTimeout(end, WAIT);
 		closed.addEventListener("abort", end);
-		function changed() {
-			clearTimeout(pending);
+		function change() {
+			if (pending !== undefined) return;
 			pending = setTimeout(async () => {
+				pending = undefined;
 				seen = await look();
 				if (seen.revision !== revision) end();
 			}, 30);
@@ -264,20 +337,30 @@ async function until<T extends { revision: string }>(
 		function end() {
 			clearTimeout(timer);
 			clearTimeout(pending);
+			changes.removeEventListener("change", change);
 			for (const w of watchers) w.close();
 			done(seen);
 		}
 	});
 }
 
-/** Delivers a turn of the person's into the agent's inbox, as an event,
- * through MindIO's own command line, so that the agent's waking rules
- * decide whether it wakes. */
-function deliver(a: Agent, text: string): Promise<void> {
+// The events, into the agent's inbox through MindIO's own command line, so
+// that the agent's waking rules decide whether each wakes it, by its fields.
+
+function deliver(a: Agent, text: string, fields: string[]): Promise<void> {
 	return new Promise((done, failed) => {
 		const child = spawn(
-			"mindio",
-			["--mindio", a.io, "deliver", "--from", person, "--type", "txt"],
+			args.mindio,
+			[
+				"--mindio",
+				a.io,
+				"deliver",
+				"--from",
+				VOICE,
+				"--type",
+				"txt",
+				...fields.flatMap((field) => ["--field", field]),
+			],
 			{ stdio: ["pipe", "ignore", "pipe"] },
 		);
 		let error = "";
@@ -293,6 +376,126 @@ function deliver(a: Agent, text: string): Promise<void> {
 		child.stdin.end(text);
 	});
 }
+
+/** How many words of a message a note quotes. */
+const QUOTE = 12;
+
+/** The first or last words of a text, marked where cut. */
+function quote(text: string, end: "start" | "end"): string {
+	const words = text.trim().split(/\s+/).filter(Boolean);
+	if (words.length <= QUOTE) return `"${words.join(" ")}"`;
+	return end === "start"
+		? `"${words.slice(0, QUOTE).join(" ")}…"`
+		: `"…${words.slice(-QUOTE).join(" ")}"`;
+}
+
+const on = (value: boolean) => (value ? "on" : "off");
+const voiceField = (voice: unknown) =>
+	`voice=${Number.isInteger(voice) ? voice : "unknown"}`;
+
+/** An event of the page's as the item it delivers: its text and fields,
+ * or null for one that isn't valid. */
+function event(body: Record<string, unknown>): [string, string[]] | null {
+	switch (body.event) {
+		case "speech": {
+			const { text, voices, backchannel } = body;
+			if (typeof text !== "string" || !heard(text) || !Array.isArray(voices))
+				return null;
+			const each = voices.length > 0 ? voices : [null];
+			return [
+				text,
+				[
+					"event=speech",
+					...[...new Set(each.map(voiceField))],
+					`backchannel=${backchannel === true ? "yes" : "no"}`,
+				],
+			];
+		}
+		case "said": {
+			const { message, whole, why, heard, unheard, by } = body;
+			if (typeof message !== "string" || typeof heard !== "string") return null;
+			const text = texts.get(message)?.text ?? "";
+			if (whole === true)
+				return [
+					`Said to the end: ${quote(text, "start")}`,
+					["event=said", "whole=yes"],
+				];
+			if (why !== "cut" && why !== "skipped") return null;
+			const rest = typeof unheard === "string" ? unheard : "";
+			const who =
+				why === "cut"
+					? `Cut off by ${voiceField(by).replace("=", " ")}`
+					: "Skipped by the person";
+			const where = heard
+				? `after ${quote(heard, "end")}`
+				: `before a word of ${quote(rest || text, "start")}`;
+			return [
+				`${who} ${where}.${heard && rest ? ` Not said: ${quote(rest, "start")}` : ""}`,
+				[
+					"event=said",
+					"whole=no",
+					`why=${why}`,
+					...(why === "cut" ? [voiceField(by)] : []),
+				],
+			];
+		}
+		case "state": {
+			const { ear, mouth } = body;
+			if (typeof ear !== "boolean" || typeof mouth !== "boolean") return null;
+			return [
+				`Ear ${on(ear)}, mouth ${on(mouth)}.`,
+				["event=state", `ear=${on(ear)}`, `mouth=${on(mouth)}`],
+			];
+		}
+		case "problem": {
+			const { text } = body;
+			if (typeof text !== "string" || !text.trim()) return null;
+			return [`Problem: ${text.trim()}`, ["event=problem"]];
+		}
+		default:
+			return null;
+	}
+}
+
+// Who has the page open, as an agent's ear and mouth: the state each page
+// told, and what the agent was told last, so that a page that goes without
+// saying so is told as both off.
+
+type Senses = { ear: boolean; mouth: boolean };
+type Presence = Senses & { told: Senses; looking: number; seen: number };
+const pages = new Map<string, Presence>();
+
+function presence(id: string): Presence {
+	let p = pages.get(id);
+	if (!p) {
+		p = {
+			ear: false,
+			mouth: false,
+			told: { ear: false, mouth: false },
+			looking: 0,
+			seen: Date.now(),
+		};
+		pages.set(id, p);
+	}
+	return p;
+}
+
+/** Tells the agent its ear and mouth as they are now, if that changed. */
+async function tell(id: string): Promise<void> {
+	const p = presence(id);
+	const here = p.looking > 0 || Date.now() - p.seen < GONE;
+	const now = { ear: here && p.ear, mouth: here && p.mouth };
+	if (now.ear === p.told.ear && now.mouth === p.told.mouth) return;
+	const a = await agent(id);
+	if (a === null) return;
+	p.told = now;
+	const [text, fields] = event({ event: "state", ...now }) ?? ["", []];
+	await deliver(a, text, fields).catch((error) => console.error(error));
+}
+
+setInterval(() => {
+	for (const id of pages.keys()) void tell(id);
+}, GONE / 3).unref();
 
 // HTTP.
 
@@ -320,7 +523,7 @@ function json(res: ServerResponse, status: number, body: unknown): void {
 	res.end(JSON.stringify(body));
 }
 
-async function body(req: IncomingMessage): Promise<string> {
+async function text(req: IncomingMessage): Promise<string> {
 	let text = "";
 	for await (const chunk of req) {
 		text += chunk;
@@ -360,7 +563,7 @@ async function api(
 			[dir],
 			async () => {
 				const all = (await agents()).map(({ id, name }) => ({ id, name }));
-				return { revision: encode(JSON.stringify(all)), person, agents: all };
+				return { revision: JSON.stringify(all), agents: all };
 			},
 			revision,
 			closed.signal,
@@ -368,7 +571,7 @@ async function api(
 		return json(res, 200, seen);
 	}
 	const [, id, what] =
-		url.pathname.match(/^\/api\/agents\/([^/]+)\/(log|turns)$/) ?? [];
+		url.pathname.match(/^\/api\/agents\/([^/]+)\/(log|events)$/) ?? [];
 	if (!id || !valid(decodeURIComponent(id)))
 		return json(res, 404, { error: "not found" });
 	const name = decodeURIComponent(id);
@@ -379,19 +582,29 @@ async function api(
 			(await readdir(join(dir, name)).catch(() => null)) === null
 		)
 			return json(res, 404, { error: `There is no agent ${name}.` });
+		// Entries after `after` are sent, and every one from the first that
+		// may still grow.
 		const after = Number(url.searchParams.get("after") ?? 0);
-		const seen = await until(
-			[join(dir, name)],
-			() => log(name),
-			revision,
-			closed.signal,
-		);
-		return json(res, 200, {
-			...seen,
-			entries: seen.entries.filter((e) => e.n > after),
-		});
+		const p = presence(name);
+		p.looking += 1;
+		void tell(name);
+		try {
+			const seen = await until(
+				[join(dir, name)],
+				() => log(name),
+				revision,
+				closed.signal,
+			);
+			return json(res, 200, {
+				...seen,
+				entries: seen.entries.filter((e) => e.n > after),
+			});
+		} finally {
+			p.looking -= 1;
+			p.seen = Date.now();
+		}
 	}
-	if (what === "turns" && req.method === "POST") {
+	if (what === "events" && req.method === "POST") {
 		// A page of another origin sends no JSON without asking first, which
 		// is never answered.
 		if (!req.headers["content-type"]?.startsWith("application/json"))
@@ -399,10 +612,18 @@ async function api(
 		const a = await agent(name);
 		if (a === null)
 			return json(res, 409, { error: `${name} is not in voice mode.` });
-		const { text } = JSON.parse(await body(req)) as { text?: unknown };
-		if (typeof text !== "string" || !text.trim())
-			return json(res, 400, { error: "say something" });
-		await deliver(a, text);
+		const body = JSON.parse(await text(req)) as Record<string, unknown>;
+		if (body.event === "state") {
+			const p = presence(name);
+			p.ear = body.ear === true;
+			p.mouth = body.mouth === true;
+			p.seen = Date.now();
+			await tell(name);
+			return json(res, 201, {});
+		}
+		const item = event(body);
+		if (item === null) return json(res, 400, { error: "not an event" });
+		await deliver(a, ...item);
 		return json(res, 201, {});
 	}
 	return json(res, 405, { error: "not allowed" });
@@ -432,5 +653,5 @@ server.listen(Number(args.port), "127.0.0.1", () => {
 	const address = server.address();
 	const port =
 		typeof address === "object" && address ? address.port : args.port;
-	console.log(`voiceio: http://localhost:${port}/, for ${person}`);
+	console.log(`voiceio: http://localhost:${port}/`);
 });

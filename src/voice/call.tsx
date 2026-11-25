@@ -5,7 +5,6 @@
 // set once, such as the languages, waits behind more. The system's media controls work it too, as
 // headphones do on a call: a tap mutes, or sends.
 import {
-	AudioLines,
 	Download,
 	Ellipsis,
 	Mic,
@@ -147,7 +146,7 @@ function together(names: string[]): string {
 }
 
 function said(state: VoiceState): string {
-	return [state.draft, state.hearing].filter(Boolean).join(" ");
+	return state.hearing;
 }
 
 /** What is happening on the call, in a few words, where a call shows that it
@@ -166,7 +165,6 @@ function status(
 	if (state.progress === "sent")
 		return agents.length > 1 ? "Sent" : "Sent, not heard yet";
 	if (state.listener) return "Listening";
-	if (!state.autoEnd) return state.speaker ? "Hold to talk" : "Speaker off";
 	return state.speaker ? "Muted" : "Muted, speaker off";
 }
 
@@ -370,25 +368,20 @@ function Buttons({
 	more: () => void;
 	leave: (() => void) | undefined;
 }) {
-	const handsFree = state.autoEnd;
 	return (
 		<nav
 			aria-label="Call"
-			className="grid shrink-0 grid-cols-3 justify-items-center gap-x-8 gap-y-6 pb-2"
+			className="grid shrink-0 grid-cols-4 justify-items-center gap-x-4 gap-y-6 pb-2 sm:gap-x-8"
 		>
-			{handsFree ? (
-				<Round
-					label="mute"
-					title={state.listener ? "Mute (Space)" : "Unmute (Space)"}
-					lit={!state.listener}
-					busy={state.switching === "listener"}
-					onClick={() => void voice.setListener(!state.listener)}
-				>
-					{state.listener ? <Mic /> : <MicOff />}
-				</Round>
-			) : (
-				<PushToTalk voice={voice} state={state} />
-			)}
+			<Round
+				label="mute"
+				title={state.listener ? "Mute (Space)" : "Unmute (Space)"}
+				lit={!state.listener}
+				busy={state.switching === "listener"}
+				onClick={() => void voice.setListener(!state.listener)}
+			>
+				{state.listener ? <Mic /> : <MicOff />}
+			</Round>
 			<Round
 				label="speaker"
 				title={
@@ -401,61 +394,11 @@ function Buttons({
 			>
 				{state.speaker ? <Volume2 /> : <VolumeX />}
 			</Round>
-			<Round
-				label="hands-free"
-				title={
-					handsFree
-						? "Hands-free: your words go out as you pause. Tap for push to talk."
-						: "Push to talk: hold to talk, let go to send. Tap for hands-free."
-				}
-				lit={handsFree}
-				onClick={() => void voice.setAutoEnd(!handsFree)}
-			>
-				<AudioLines />
-			</Round>
 			<Round label="more" title="Settings" lit={false} onClick={more}>
 				<Ellipsis />
 			</Round>
 			{leave && <HangUp leave={leave} />}
 		</nav>
-	);
-}
-
-/** Push to talk: listening while held, by touch, mouse or Space, and sent
- * once let go. */
-function PushToTalk({ voice, state }: { voice: Voice; state: VoiceState }) {
-	const held = state.listener || state.switching === "listener";
-	return (
-		<button
-			type="button"
-			title="Hold to talk, let go to send (hold Space)"
-			aria-label="Hold to talk"
-			aria-pressed={held}
-			className="group flex touch-none flex-col items-center gap-2 text-xs text-foreground/80 select-none [-webkit-touch-callout:none]"
-			onPointerDown={(event) => {
-				event.currentTarget.setPointerCapture(event.pointerId);
-				void voice.press();
-			}}
-			onPointerUp={() => voice.release()}
-			onPointerCancel={() => voice.release()}
-			onContextMenu={(event) => event.preventDefault()}
-		>
-			<span
-				data-meter={held ? "" : undefined}
-				className={`grid size-[4.5rem] place-items-center rounded-full transition-[background-color,transform] duration-150 [&_svg]:size-7 ${held ? "scale-110 bg-you text-black" : "bg-white/[0.12] text-white backdrop-blur-xl group-hover:bg-white/20"}`}
-				style={
-					held
-						? {
-								boxShadow:
-									"0 0 0 calc(var(--you-level, 0) * 12px) color-mix(in oklch, var(--you) 30%, transparent), 0 0 calc(10px + var(--you-level, 0) * 40px) color-mix(in oklch, var(--you) 60%, transparent)",
-							}
-						: undefined
-				}
-			>
-				<Mic />
-			</span>
-			hold to talk
-		</button>
 	);
 }
 
@@ -701,28 +644,18 @@ function Languages({ voice, state }: { voice: Voice; state: VoiceState }) {
 	);
 }
 
-/** Space mutes and unmutes, or with push to talk, talks while held. Not in a
- * field, nor while the settings are open. */
+/** Space mutes and unmutes. Not in a field, nor while the settings are
+ * open. */
 function useShortcuts(voice: Voice, state: VoiceState, settings: boolean) {
-	const handsFree = state.autoEnd;
 	useEffect(() => {
 		if (settings) return;
 		const down = (event: KeyboardEvent) => {
 			if (event.target instanceof HTMLInputElement || event.key !== " ") return;
 			event.preventDefault();
 			if (event.repeat) return;
-			if (handsFree) void voice.setListener(!state.listener);
-			else void voice.press();
-		};
-		const up = (event: KeyboardEvent) => {
-			if (event.target instanceof HTMLInputElement || event.key !== " ") return;
-			if (!handsFree) voice.release();
+			void voice.setListener(!state.listener);
 		};
 		window.addEventListener("keydown", down);
-		window.addEventListener("keyup", up);
-		return () => {
-			window.removeEventListener("keydown", down);
-			window.removeEventListener("keyup", up);
-		};
-	}, [voice, state.listener, handsFree, settings]);
+		return () => window.removeEventListener("keydown", down);
+	}, [voice, state.listener, settings]);
 }

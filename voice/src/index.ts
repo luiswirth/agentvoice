@@ -1,6 +1,5 @@
-// voiceio, the library every audio client of VoiceIO builds on: a conversation by
-// voice and its two special cases, read aloud and dictation, with no
-// transport and no UI. Its edges are audio and text, in and out; the host
+// voiceio, the library every audio client of VoiceIO builds on: an agent's
+// ear and mouth, with their reflexes, and no transport and no UI. Its edges are audio and text, in and out; the host
 // carries them, and plugs in the tier, such as ElevenLabs, which comes with it.
 export {
 	Conversation,
@@ -11,7 +10,7 @@ export {
 	type Options,
 	type Settings,
 	type State,
-	type Turn,
+	type Utterance,
 } from "./conversation.ts";
 export type { Cue } from "./cues.ts";
 export { Cues } from "./cues.ts";

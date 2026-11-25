@@ -1,12 +1,14 @@
 // The bench's side of a call: VoiceIO's server from this checkout, over a
 // scratch folder of agents' IO, or one already running over this machine's,
 // and a scripted agent in voice mode there, as MindIO has an agent's IO.
-import { type ChildProcess, execFile, spawn } from "node:child_process";
+// `VOICEIO_MINDIO` is the `mindio` both use, `mindio` on the PATH by default.
+import { type ChildProcess, spawn } from "node:child_process";
 import { watch } from "node:fs";
 import {
 	mkdir,
 	mkdtemp,
 	readdir,
+	readFile,
 	rename,
 	rm,
 	writeFile,
@@ -14,6 +16,8 @@ import {
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Entry } from "../src/voice/protocol.ts";
+
+const MINDIO = process.env.VOICEIO_MINDIO ?? "mindio";
 
 export type Server = {
 	/** Where the page is served. */
@@ -42,6 +46,8 @@ export async function server(url?: string): Promise<Server> {
 			"0",
 			"--agents",
 			agents,
+			"--mindio",
+			MINDIO,
 		],
 		{ stdio: ["ignore", "pipe", "inherit"] },
 	);
@@ -63,11 +69,14 @@ export async function server(url?: string): Promise<Server> {
 }
 
 /** The scripted agent, `voiceio-bench`, in voice mode while it lives:
- * it takes in each of the person's turns at once, and answers each with
- * `answer`, where there is one. */
+ * it takes in each event of its ear and mouth at once, and answers each
+ * speech but a backchannel with `answer`, where there is one, streamed a
+ * word at a time `stream` seconds apart where that is given, as a model
+ * writes. */
 export async function agent(
 	at: Server,
 	answer: string,
+	stream?: number,
 ): Promise<{ id: string; close(): Promise<void> }> {
 	const id = "voiceio-bench";
 	const io = join(at.agents, id);
@@ -80,9 +89,14 @@ export async function agent(
 	const take = () => {
 		busy = busy.then(async () => {
 			for (const file of (await readdir(fresh)).sort()) {
-				if (!file.includes(".voice%3A")) continue;
-				await rename(join(fresh, file), join(inbox, "cur", file));
-				if (answer) await send(io, file, answer);
+				if (!file.includes(".voice.")) continue;
+				const taken = join(inbox, "cur", file);
+				await rename(join(fresh, file), taken);
+				const text = await readFile(taken, "utf8");
+				const backchannel =
+					/^\[voice [^\]]*\]\s*(mhm|mm|hmm|yeah|okay|ok|ja)\W*$/i;
+				if (answer && text.startsWith("[voice ") && !backchannel.test(text))
+					void send(io, answer, stream);
 			}
 		});
 	};
@@ -98,17 +112,26 @@ export async function agent(
 	};
 }
 
-/** Answers the item `file` with `text`, for whoever it came from. */
-function send(io: string, file: string, text: string): Promise<void> {
-	const sender = decodeURIComponent(file.split(".")[2] ?? "");
-	return new Promise((done, failed) => {
-		const child = execFile(
-			"mindio",
-			["--mindio", io, "send", "--type", "txt", sender],
-			(error) => (error ? failed(error) : done()),
-		);
-		child.stdin?.end(text);
-	});
+/** Says `text` to the mouth, whole, or a word at a time `stream` seconds
+ * apart. */
+async function send(io: string, text: string, stream?: number): Promise<void> {
+	const child = spawn(
+		MINDIO,
+		["--mindio", io, "send", "--type", "txt", "voice"],
+		{
+			stdio: ["pipe", "ignore", "inherit"],
+		},
+	);
+	const ended = new Promise((done) => child.on("exit", done));
+	if (stream === undefined) child.stdin.end(text);
+	else {
+		for (const word of text.match(/\S+\s*/g) ?? []) {
+			child.stdin.write(word);
+			await new Promise((r) => setTimeout(r, stream * 1000));
+		}
+		child.stdin.end();
+	}
+	await ended;
 }
 
 /** The call's log, as the page has it, and the person's name in it. */

@@ -96,7 +96,9 @@ const conversation = new Conversation({
 	listener: true,
 	sounds: false,
 });
-conversation.on("turn", ({ text }) => console.log(`${at()} s: ${text}`));
+conversation.on("speech", ({ text, backchannel }) =>
+	console.log(`${at()} s: ${text}${backchannel ? " (backchannel)" : ""}`),
+);
 conversation.on("error", (error) => error && console.error(error.message));
 await new Promise<void>((resolve) => {
 	const off = conversation.on("state", ({ listener }) => {

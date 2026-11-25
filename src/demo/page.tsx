@@ -25,12 +25,6 @@ const set = (change: Partial<VoiceState>) => {
 	voice.state = state;
 	for (const watcher of watchers) watcher();
 };
-/** The agent's turn after the person's: it thinks, then speaks a while. */
-const answer = () => {
-	set({ progress: "working" });
-	setTimeout(() => set({ progress: null, reading: 4 }), 2500);
-	setTimeout(() => set({ reading: null }), 7500);
-};
 const voice = {
 	state,
 	watch: (changed: () => void) => {
@@ -41,12 +35,6 @@ const voice = {
 		state.reading !== null && !state.hearing && state.speaker ? speech(3) : 0,
 	setListener: async (listener: boolean) => set({ listener }),
 	setSpeaker: async (speaker: boolean) => set({ speaker }),
-	setAutoEnd: async (autoEnd: boolean) => set({ autoEnd, listener: autoEnd }),
-	press: async () => set({ listener: true, reading: null }),
-	release: () => {
-		set({ listener: false });
-		answer();
-	},
 	download: async () => ({ name: "trace.zip", blob: new Blob() }),
 	setLanguages: async (languages: string[]) => set({ languages }),
 	setSounds: (sounds: boolean) => set({ sounds }),

@@ -1,32 +1,52 @@
 # VoiceIO
 
-Your person wants to talk with you by voice.
-They have VoiceIO's page open in their browser, served by VoiceIO's server on your machine, where you read this.
-The page writes down what they say and delivers it into your inbox, and reads aloud what you write to your outbox for them.
+VoiceIO gives you an ear and a mouth: a microphone and a speaker, through a page your person has open in their browser, served by VoiceIO's server on your machine, where you read this.
+What the ear hears and what the mouth does reach your inbox as events from `voice`, and what you write to your outbox for `voice` the mouth speaks.
 Your inbox and outbox are your IO, MindIO's, `https://github.com/luiswirth/mindio`, the directory `$MINDIO`, with its command line, `mindio`.
-So voice is your inbox and outbox, and nothing more: the page and you never talk directly.
-Voice needs a harness where MindIO wakes you between your turns; in a plain chat you can't hear the person, so say so there.
+The page and you never talk directly.
+Voice needs a harness where MindIO wakes you between your turns; in a plain chat you can't hear, so say so there.
 
 ## Starting
 
-- You take part while your IO holds the file `voice`, a JSON object with the name your person sees and hears:
+- You have an ear and a mouth while your IO holds the file `voice`, a JSON object:
   `jq -n '{name: "Claude"}' > "$MINDIO/voice"`
-  Pick a short name of your own; without one, the page shows your IO's directory name.
-- The page opens the call by itself where you are the only agent in voice mode on the machine, else your person picks you there.
+  - `name`: your name, as the person sees and hears it; without one, the page shows your IO's directory name.
+  - `voices`: who the voices are, by their numbers, such as `{"1": "Luis"}`. Once any voice is named, only a named one cuts you off; the others still reach you.
+- The page opens by itself where you are the only agent in voice mode on the machine, else your person picks you there.
   To open you directly, give them the page's address with `#agent=<your IO's directory name>`.
-- A short message once you are in, such as "I'm here.", is the first thing they hear.
 - To end voice mode, remove the file `voice`.
 
-## Talking
+## The events
 
-- Your person's turns reach you as events from `voice:<their name>`, such as `voice:luis`, each waking you, unless your waking rules (`mindio brief`) keep them quiet: keep them waking you during a call.
-  Where your harness doesn't take your inbox in and wake you itself, keep `mindio wait && mindio take` running as a background command, and start it again as soon as it ends.
-- Answer by writing to your outbox for the name the item came from: `mindio send voice:luis`, with the text on stdin.
-- Their turns are speech as transcribed: expect wrong words, missing punctuation, and sentences cut off, and each starts with a tag of the voice, as `[voice 1]`.
-  A turn is whatever the microphone heard, also a video playing or someone else in the room: confirm with your person before you act on something risky.
-- Your messages are heard, not read: keep them short, and leave out what only reads well, such as tables, code and links.
-  A message that starts with `@silent` is not read aloud, nor is a file.
-- When the person cuts in, what they hadn't heard yet is dropped, and their turn starts with where they cut in, as `[cut in after "…the last words they heard"]`, or `[cut in before "the first words…"]` of a message they heard none of.
+Each is an item from `voice`, with the field `event` and the fields below, which your waking rules (`mindio brief`) can match, such as `from=voice event=said whole=yes quiet`.
+By default every event wakes you. What wakes you is yours to decide.
+
+- `event=speech`: someone said something, one stretch of speech as transcribed.
+  - Its text starts with the voice's tag, `[voice 1] ...`, and a new tag where the voice changes; `[voice ?]` where the voice has no number yet.
+    Voices are numbered by how they sound, and keep their numbers across calls.
+  - `voice=<n>` for each voice in it, or `voice=unknown`.
+  - `backchannel=yes` where it is only words that signal listening, such as "mhm" or "okay"; else `no`.
+  - Expect wrong words, missing punctuation and sentences cut off.
+    It is whatever the microphone heard, also a video playing or someone else in the room: confirm before you act on something risky.
+  - Your own voice, heard back through the microphone, is left out.
+- `event=said`: the mouth is done with one of your outbox items.
+  - `whole=yes`: it was said to the end.
+  - `whole=no`, `why=cut`, `voice=<n>`: voice n cut in, and the mouth stopped; the text says after which words, and what was not said.
+  - `whole=no`, `why=skipped`: the person skipped it on the page.
+- `event=state`: the ear or the mouth turned on or off, `ear=on|off mouth=on|off`, such as when the person mutes, or closes the page.
+  While the mouth is off, nothing you write is heard.
+- `event=problem`: something failed on the page, such as the microphone or the speech.
+
+## Speaking
+
+- Write to your outbox for `voice`: `mindio send voice`, with the text on stdin.
+  The mouth speaks it as it grows, so where your harness streams what you write, the person hears you while you still write.
+- Two reflexes act without you, since they would take too long through your mind:
+  - When someone cuts in, the mouth stops, and drops what it had not said of what you wrote before they started; you get `event=said why=cut`.
+    A backchannel, or a few words without a word to stop, don't cut in.
+  - While someone speaks, what you write waits until they are done.
+- What you write is heard, not read: keep it short, and leave out what only reads well, such as tables, code and links.
+  An item that starts with `@silent` is not spoken, nor is a file.
 - Speech runs on ElevenLabs, with the person's own key, which they type into the page and which stays in their browser.
 
 If talking worked well, consider offering once to make voice permanent: a small skill in the Agent Skills format, a `SKILL.md` that keeps what you need of this page and only what is the person's own, such as the page's address and how they like to talk.

@@ -15,11 +15,12 @@
 // the server running there instead, over this machine's agents, such as the
 // one the machine serves. `ANSWER=<text>` has the agent answer with it rather
 // than "Okay." or the scenario's answer, so that a long one is read while the
-// person speaks on. `AGENT=<id>` talks with that agent in voice mode instead,
+// person speaks on, and `STREAM=<seconds>` has it write the answer a word at a
+// time that many seconds apart, as a model streams it. `AGENT=<id>` talks with that agent in voice mode instead,
 // such as a real one, and `HOLD=<seconds>` keeps the page open that long
 // after the speech, for it.
 // A run fails where nothing reached the agent, or none of its answers was read,
-// or a turn said over an answer doesn't start with what of it was heard.
+// or a turn said over an answer didn't cut it off where it was heard to.
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -51,7 +52,8 @@ const server = await serve(process.env.PAGE);
 // The agent, which answers each message of the person's at once, so that the
 // person's turns are measured on their own, or a real one.
 const answer = process.env.ANSWER ?? scenario?.answer ?? "Okay.";
-const bench = process.env.AGENT ? null : await scripted(server, answer);
+const stream = process.env.STREAM ? Number(process.env.STREAM) : undefined;
+const bench = process.env.AGENT ? null : await scripted(server, answer, stream);
 const id = process.env.AGENT ?? bench?.id ?? "";
 // What is said in the call from the run's start on: the log may hold earlier
 // runs.
@@ -184,8 +186,10 @@ try {
 	me = called.person;
 	log = called.entries.filter((entry) => entry.n > before);
 	const reached = log.filter(
-		(entry) => entry.from === me && entry.type.startsWith("text/plain"),
+		(entry) => entry.from === me && entry.kind === "heard",
 	).length;
+	for (const note of log.filter((entry) => entry.kind === "note"))
+		console.log(`note to the agent: ${note.text}`);
 	console.log(`messages that reached the agent's inbox: ${reached}`);
 	const { sends, read } = report(events, opened, timeline, said);
 	if (sends === 0 || reached === 0)
@@ -200,67 +204,37 @@ try {
 
 type Event = { time: string; event: string } & Record<string, unknown>;
 
-/** Checks that the message of each turn said over an answer starts with what
- * of the answer was heard: a start of it, cut before its end, and no more than
- * could be read from when its reading began to when the person took the
- * floor. */
+/** Checks that each turn said over an answer cut it off: the agent was told
+ * where, after a start of it, and no more of it was heard than could be read
+ * from when its reading began to when the person took the floor. */
 function cutIns(events: Event[], log: Entry[]): void {
 	/** A fast speaker's rate, in characters a second: more of an answer
 	 * can't have been heard in the time it was read. */
 	const FAST = 20;
+	const turns = (scenario?.turns ?? []).filter((turn) => turn.cutIn).length;
+	if (turns === 0) return;
 	const at = (event: string, id: string) =>
 		Date.parse(
 			events.find((e) => e.event === event && String(e.id ?? e.reading) === id)
 				?.time ?? "",
 		) / 1000;
-	const answers = new Set(log.filter((e) => e.from !== me).map((e) => e.n));
-	const letters = (s: string) =>
-		s
-			.toLowerCase()
-			.replace(/[^a-z ]/g, "")
-			.replace(/\s+/g, " ")
-			.trim();
-	const flat = (s: string) => s.replace(/\s+/g, " ").trim();
-	const messages = log
-		.filter((e) => e.from === me && e.type.startsWith("text/plain"))
-		.map((e) => e.text ?? "");
-	for (const [i, turn] of (scenario?.turns ?? []).entries()) {
-		if (!turn.cutIn) continue;
-		// Its message is the one with the turn's last words.
-		const tail = letters(turn.parts.join(" ")).split(" ").slice(-2).join(" ");
-		const message = messages.find((m) => letters(m).includes(tail));
+	const cuts = events.filter((e) => e.event === "heard" && e.why === "cut");
+	const notes = log.filter(
+		(e) => e.kind === "note" && e.text?.startsWith("Cut off"),
+	);
+	console.log(`turns said over an answer: ${turns}, cut off: ${cuts.length}`);
+	if (cuts.length < turns || notes.length < turns)
+		throw new Error("a turn said over an answer didn't cut it off");
+	const length = answer.replace(/\s+/g, " ").trim().length;
+	for (const cut of cuts) {
+		const id = String(cut.id);
+		const chars = Number(cut.chars);
+		const read = at("floor", id) - at("reading", id);
 		console.log(
-			`turn ${i + 1}, said over an answer: "${message ?? "never sent"}"`,
+			`    heard ${chars} of ${length} characters in ${read.toFixed(2)} s read`,
 		);
-		const mark = message?.match(/^\[cut in after "([^"]*)"\]/);
-		// The mark quotes the last words heard; what was heard runs up to them.
-		const spot = flat((mark?.[1] ?? "").replace(/^…/, ""));
-		const at_spot = spot === "" ? -1 : flat(answer).indexOf(spot);
-		const heard =
-			at_spot < 0 ? "" : flat(answer).slice(0, at_spot + spot.length);
-		// The answer it cut in on, as the page's send of the turn has it.
-		const sent = events.find(
-			(e) =>
-				e.event === "send" &&
-				typeof e.text === "string" &&
-				e.text !== "" &&
-				(message ?? "").endsWith(e.text),
-		);
-		const cutOn = String(
-			(sent?.heard as { id?: string }[] | undefined)?.find((h) =>
-				answers.has(Number(h.id)),
-			)?.id ?? "",
-		);
-		if (!mark || !cutOn || heard === "" || heard.length >= flat(answer).length)
-			throw new Error(
-				`turn ${i + 1} doesn't start with what of an answer was heard`,
-			);
-		const read = at("floor", cutOn) - at("reading", cutOn);
-		console.log(
-			`    heard ${heard.split(" ").length} of ${flat(answer).split(" ").length} words, ${heard.length} characters in ${read.toFixed(2)} s read`,
-		);
-		if (!(heard.length <= FAST * read))
-			throw new Error(`turn ${i + 1} heard more of the answer than was read`);
+		if (chars >= length || !(chars <= FAST * read))
+			throw new Error("an answer cut off heard more of it than was read");
 	}
 }
 
