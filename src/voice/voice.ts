@@ -15,7 +15,7 @@ import {
 	type State,
 	type Store,
 	type Synthesizer,
-} from "agentvoice";
+} from "voiceio";
 import { Activity, type Progress } from "./activity.ts";
 import {
 	audioBlocked,

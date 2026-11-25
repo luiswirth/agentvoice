@@ -1,5 +1,5 @@
 // Where the core's reflexes run in the page: each in a worker of its own.
-import type { Port, Reflexes } from "agentvoice";
+import type { Port, Reflexes } from "voiceio";
 import FingerprintsWorker from "./fingerprints-worker.ts?worker";
 import SpeechWorker from "./speech-worker.ts?worker";
 import TurnsWorker from "./turns-worker.ts?worker";

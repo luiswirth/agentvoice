@@ -1,14 +1,14 @@
-// agentvoice's server, on the agents' machine: serves the page, and carries
-// the person's turns into an agent's inbox and the agent's outbox items for
-// them back to the page, as ~/dev/agentics/inbox has the two. The person is
-// `voice:<person>`: a turn is an inbox item from that name, which proposes to
-// ring, and an outbox item for it is what the agent says, read aloud. An
-// agent takes part while its inbox holds the file `voice`, a JSON object with
-// the name the person hears and sees, `name`, and its outbox, `outbox`, both
-// optional. The log of a call is the items themselves, so the server keeps no
-// state of its own.
+// VoiceIO's server, on the agents' machine: serves the page, and carries the
+// person's turns into an agent's inbox and the agent's outbox items for them
+// back to the page, through the agent's IO, MindIO (~/dev/agentics/mindio).
+// The person is `voice:<person>`: a turn is an event from that name, and an
+// outbox item for it is what the agent says, read aloud. An agent takes part
+// while its IO holds the file `voice`, a JSON object with the name the person
+// hears and sees, `name`, optional. The log of a call is the items
+// themselves, so the server keeps no state of its own.
 //
-//   node server/main.ts [--port 8790] [--page dist] [--allow-host <name>]...
+//   node server/main.ts [--port 8790] [--page dist] [--agents <dir>]
+//                       [--allow-host <name>]...
 //
 // It listens on 127.0.0.1 alone, and answers only requests whose Host is
 // localhost or a name given with --allow-host, such as the machine's on the
@@ -35,13 +35,9 @@ const { values: args } = parseArgs({
 			type: "string",
 			default: resolve(import.meta.dirname, "../dist"),
 		},
-		inboxes: {
+		agents: {
 			type: "string",
-			default: join(homedir(), ".agents/inbox"),
-		},
-		outboxes: {
-			type: "string",
-			default: join(homedir(), ".agents/outbox"),
+			default: join(homedir(), ".agents/mindio"),
 		},
 		person: { type: "string", default: userInfo().username },
 		"allow-host": { type: "string", multiple: true, default: [] },
@@ -49,8 +45,8 @@ const { values: args } = parseArgs({
 });
 
 const page = resolve(args.page);
-const inboxes = resolve(args.inboxes);
-const outboxes = resolve(args.outboxes);
+/** The agents' IO, each `<dir>/<agent>`. */
+const dir = resolve(args.agents);
 /** The person's name, as the inbox has it. */
 const person = `voice:${args.person}`;
 const hosts = new Set([
@@ -95,18 +91,18 @@ const TEXT: Record<string, string> = {
 
 // The agents.
 
-type Agent = { id: string; name: string; inbox: string; outbox: string };
+type Agent = { id: string; name: string; io: string };
 
-/** An agent's id, its inbox's name, as a path names it. */
+/** An agent's id, its IO's directory name, as a path names it. */
 const valid = (id: string) => /^[^/\\]+$/.test(id) && id !== "." && id !== "..";
 
-/** The agent `id`, while it takes part: while its inbox holds `voice`. */
+/** The agent `id`, while it takes part: while its IO holds `voice`. */
 async function agent(id: string): Promise<Agent | null> {
 	if (!valid(id)) return null;
-	const inbox = join(inboxes, id);
-	const file = await readFile(join(inbox, "voice"), "utf8").catch(() => null);
+	const io = join(dir, id);
+	const file = await readFile(join(io, "voice"), "utf8").catch(() => null);
 	if (file === null) return null;
-	let voice: { name?: unknown; outbox?: unknown } = {};
+	let voice: { name?: unknown } = {};
 	try {
 		voice = file.trim() ? JSON.parse(file) : {};
 	} catch {}
@@ -118,16 +114,12 @@ async function agent(id: string): Promise<Agent | null> {
 		id,
 		// A name with a colon would pass for a person, as `voice:luis`.
 		name: name.replaceAll(":", " "),
-		inbox,
-		outbox:
-			typeof voice.outbox === "string" && voice.outbox.trim()
-				? resolve(voice.outbox.trim())
-				: join(outboxes, id),
+		io,
 	};
 }
 
 async function agents(): Promise<Agent[]> {
-	const ids = await readdir(inboxes).catch(() => []);
+	const ids = await readdir(dir).catch(() => []);
 	const found = await Promise.all(ids.sort().map(agent));
 	return found.filter((a) => a !== null);
 }
@@ -163,15 +155,16 @@ async function items(
 /** Carries the agent's new items for the person: takes them into `cur/`,
  * which of several subscribers only one does for each. */
 async function carry(a: Agent): Promise<void> {
-	const fresh = await items(join(a.outbox, "new"), PERSON);
+	const outbox = join(a.io, "outbox");
+	const fresh = await items(join(outbox, "new"), PERSON);
 	if (fresh.length === 0) return;
-	await mkdir(join(a.outbox, "cur"), { recursive: true, mode: 0o700 });
+	await mkdir(join(outbox, "cur"), { recursive: true, mode: 0o700 });
 	for (const item of fresh) {
 		// Only a regular file is an item.
 		if (!(await lstat(item.path).catch(() => null))?.isFile()) continue;
 		await rename(
 			item.path,
-			join(a.outbox, "cur", item.path.slice(item.path.lastIndexOf(sep) + 1)),
+			join(outbox, "cur", item.path.slice(item.path.lastIndexOf(sep) + 1)),
 		).catch(() => {});
 	}
 }
@@ -208,8 +201,8 @@ type Log = {
 
 async function log(id: string): Promise<Log> {
 	const a = await agent(id);
-	const inbox = join(inboxes, id);
-	const outbox = a?.outbox ?? join(outboxes, id);
+	const inbox = join(dir, id, "inbox");
+	const outbox = join(dir, id, "outbox");
 	if (a) await carry(a);
 	const [fresh, taken, said] = await Promise.all([
 		items(join(inbox, "new"), PERSON),
@@ -277,23 +270,14 @@ async function until<T extends { revision: string }>(
 	});
 }
 
-/** Delivers a turn of the person's into the agent's inbox, proposing to
- * ring, through the inbox's own command line, so that the agent's
- * do-not-disturb settings dispose. */
+/** Delivers a turn of the person's into the agent's inbox, as an event,
+ * through MindIO's own command line, so that the agent's waking rules
+ * decide whether it wakes. */
 function deliver(a: Agent, text: string): Promise<void> {
 	return new Promise((done, failed) => {
 		const child = spawn(
-			"agentinbox",
-			[
-				"deliver",
-				"--inbox",
-				a.inbox,
-				"--from",
-				person,
-				"--type",
-				"txt",
-				"--wake",
-			],
+			"mindio",
+			["--mindio", a.io, "deliver", "--from", person, "--type", "txt"],
 			{ stdio: ["pipe", "ignore", "pipe"] },
 		);
 		let error = "";
@@ -304,7 +288,7 @@ function deliver(a: Agent, text: string): Promise<void> {
 		child.on("exit", (code) =>
 			code === 0
 				? done()
-				: failed(new Error(error.trim() || `agentinbox exited ${code}`)),
+				: failed(new Error(error.trim() || `mindio exited ${code}`)),
 		);
 		child.stdin.end(text);
 	});
@@ -352,7 +336,7 @@ async function file(res: ServerResponse, pathname: string): Promise<void> {
 		path = join(path, "index.html");
 	const content = await readFile(path).catch(() => null);
 	if (content === null) {
-		console.error(`agentvoice: no ${pathname}`);
+		console.error(`voiceio: no ${pathname}`);
 		return json(res, 404, { error: "not found" });
 	}
 	res.writeHead(200, {
@@ -373,7 +357,7 @@ async function api(
 	const revision = url.searchParams.get("revision");
 	if (url.pathname === "/api/agents" && req.method === "GET") {
 		const seen = await until(
-			[inboxes],
+			[dir],
 			async () => {
 				const all = (await agents()).map(({ id, name }) => ({ id, name }));
 				return { revision: encode(JSON.stringify(all)), person, agents: all };
@@ -392,12 +376,12 @@ async function api(
 		const a = await agent(name);
 		if (
 			a === null &&
-			(await readdir(join(inboxes, name)).catch(() => null)) === null
+			(await readdir(join(dir, name)).catch(() => null)) === null
 		)
 			return json(res, 404, { error: `There is no agent ${name}.` });
 		const after = Number(url.searchParams.get("after") ?? 0);
 		const seen = await until(
-			[join(inboxes, name), a?.outbox ?? join(outboxes, name)],
+			[join(dir, name)],
 			() => log(name),
 			revision,
 			closed.signal,
@@ -448,5 +432,5 @@ server.listen(Number(args.port), "127.0.0.1", () => {
 	const address = server.address();
 	const port =
 		typeof address === "object" && address ? address.port : args.port;
-	console.log(`agentvoice: http://localhost:${port}/, for ${person}`);
+	console.log(`voiceio: http://localhost:${port}/, for ${person}`);
 });

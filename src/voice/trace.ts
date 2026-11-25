@@ -3,7 +3,7 @@
 // across reloads of its tab too, for the person to download as a file and
 // hand on themselves.
 
-import { LISTEN_RATE } from "agentvoice";
+import { LISTEN_RATE } from "voiceio";
 
 export type TraceEvent = { time: string; event: string } & Record<
 	string,

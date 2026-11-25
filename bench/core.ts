@@ -9,6 +9,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import * as ort from "onnxruntime-web/wasm";
 import {
 	Conversation,
 	type Model,
@@ -19,8 +20,7 @@ import {
 	SILERO,
 	serveFingerprints,
 	serveTurns,
-} from "agentvoice";
-import * as ort from "onnxruntime-web/wasm";
+} from "voiceio";
 import { scenarios } from "./scenarios.ts";
 import { RATE, speech } from "./speech.ts";
 

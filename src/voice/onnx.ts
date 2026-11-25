@@ -2,10 +2,10 @@
 // each model fetched once, checked against its hash, and kept in the
 // browser's cache.
 
-import type { Model, Port } from "agentvoice";
 import mjs from "onnxruntime-web/ort-wasm-simd-threaded.mjs?url";
 import wasm from "onnxruntime-web/ort-wasm-simd-threaded.wasm?url";
 import * as ort from "onnxruntime-web/wasm";
+import type { Model, Port } from "voiceio";
 
 /**
  * Sets up ONNX Runtime in a worker, before its first session. ONNX Runtime

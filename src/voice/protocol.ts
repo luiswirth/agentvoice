@@ -1,6 +1,6 @@
 // What voice reads of a call: its log, the person's turns and the agents'
-// messages, as the page's server has them from the agents' inboxes and
-// outboxes (server/main.ts), and nothing of its own.
+// messages, as the page's server has them from the agents' IO, their inboxes
+// and outboxes (server/main.ts), and nothing of its own.
 
 /** An entry of the log, the person's or an agent's. */
 export type Entry = {

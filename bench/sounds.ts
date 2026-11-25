@@ -7,7 +7,7 @@
 // It renders them with the core, as any host plays them.
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { type Cue, Cues } from "agentvoice";
+import { type Cue, Cues } from "voiceio";
 
 /** A conversation: the person turns listening on, speaks, sends; the agent
  * reads it, works, sends a file, works on, and answers in two messages,

@@ -5,14 +5,14 @@
 //
 //   just bench [scenario]
 //
-// It runs agentvoice's server from this checkout, over a scratch folder of
-// inboxes and outboxes, and uses the ElevenLabs key in
-// ~/secrets/elevenlabs-api-key.txt. The agent is `agentvoice-bench`, in voice
-// mode in its scratch inbox.
+// It runs VoiceIO's server from this checkout, over a scratch folder of
+// agents' IO, and uses the ElevenLabs key in
+// ~/secrets/elevenlabs-api-key.txt. The agent is `voiceio-bench`, in voice
+// mode in its scratch IO.
 // `SHOTS=<seconds>` takes a screenshot of the page that often, into
 // bench/.cache/shots, at `VIEWPORT=<width>x<height>`. `THROTTLE=<rate>` slows
 // the page's CPU down that many times, as a phone's. `PAGE=<url>` plays into
-// the server running there instead, over this machine's inboxes, such as the
+// the server running there instead, over this machine's agents, such as the
 // one the machine serves. `ANSWER=<text>` has the agent answer with it rather
 // than "Okay." or the scenario's answer, so that a long one is read while the
 // person speaks on. `AGENT=<id>` talks with that agent in voice mode instead,

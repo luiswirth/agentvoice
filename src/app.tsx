@@ -1,4 +1,4 @@
-// A page to talk with an agent by voice, served by agentvoice's server on the
+// A page to talk with an agent by voice, served by VoiceIO's server on the
 // agent's machine (server/main.ts). The person gives their agent one line,
 // which has it read public/agents.md and go into voice mode; the page opens
 // the call once it is the only agent in voice mode, and lists them where
@@ -6,13 +6,13 @@
 // agent sends them is read aloud. Speech runs on ElevenLabs, with the
 // person's own key, which stays in this browser.
 
-import { checkKey, KeyRefused } from "agentvoice";
 import {
 	type ReactNode,
 	useEffect,
 	useState,
 	useSyncExternalStore,
 } from "react";
+import { checkKey, KeyRefused } from "voiceio";
 import { Button } from "@/components/ui/button";
 import { type Agent, useCall, watchAgents } from "./agents.ts";
 import { Frame } from "./frame.tsx";
@@ -21,7 +21,7 @@ import { agent as isAgent, speakers, spoken } from "./voice/protocol.ts";
 import { Voice, type VoiceState } from "./voice/voice.ts";
 
 const KEY = "elevenlabs-key";
-const SERVICE = "agentvoice";
+const SERVICE = "VoiceIO";
 
 /** The line the person gives their agent, which reads it on its machine,
  * where this page is served. */

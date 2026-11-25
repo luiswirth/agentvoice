@@ -1,4 +1,4 @@
-// agentvoice, the library every audio client builds on: a conversation by
+// voiceio, the library every audio client of VoiceIO builds on: a conversation by
 // voice and its two special cases, read aloud and dictation, with no
 // transport and no UI. Its edges are audio and text, in and out; the host
 // carries them, and plugs in the tier, such as ElevenLabs, which comes with it.

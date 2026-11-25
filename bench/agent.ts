@@ -1,7 +1,6 @@
-// The bench's side of a call: agentvoice's server from this checkout, over a
-// scratch folder of inboxes and outboxes, or one already running over this
-// machine's, and a scripted agent in voice mode there, as an agent's inbox and
-// outbox have it.
+// The bench's side of a call: VoiceIO's server from this checkout, over a
+// scratch folder of agents' IO, or one already running over this machine's,
+// and a scripted agent in voice mode there, as MindIO has an agent's IO.
 import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { watch } from "node:fs";
 import {
@@ -19,34 +18,30 @@ import type { Entry } from "../src/voice/protocol.ts";
 export type Server = {
 	/** Where the page is served. */
 	url: string;
-	inboxes: string;
-	outboxes: string;
+	/** The agents' IO, each `<agents>/<agent>`. */
+	agents: string;
 	close(): Promise<void>;
 };
 
 /** The server from this checkout over a scratch folder, serving dist/, or
- * the one at `url`, over this machine's inboxes and outboxes. */
+ * the one at `url`, over this machine's agents. */
 export async function server(url?: string): Promise<Server> {
 	if (url)
 		return {
 			url,
-			inboxes: join(homedir(), ".agents/inbox"),
-			outboxes: join(homedir(), ".agents/outbox"),
+			agents: join(homedir(), ".agents/mindio"),
 			close: async () => {},
 		};
-	const root = await mkdtemp(join(tmpdir(), "agentvoice-bench-"));
-	const inboxes = join(root, "inbox");
-	const outboxes = join(root, "outbox");
+	const root = await mkdtemp(join(tmpdir(), "voiceio-bench-"));
+	const agents = join(root, "mindio");
 	const child: ChildProcess = spawn(
 		process.execPath,
 		[
 			join(import.meta.dirname, "../server/main.ts"),
 			"--port",
 			"0",
-			"--inboxes",
-			inboxes,
-			"--outboxes",
-			outboxes,
+			"--agents",
+			agents,
 		],
 		{ stdio: ["ignore", "pipe", "inherit"] },
 	);
@@ -59,8 +54,7 @@ export async function server(url?: string): Promise<Server> {
 	});
 	return {
 		url: served,
-		inboxes,
-		outboxes,
+		agents,
 		close: async () => {
 			child.kill();
 			await rm(root, { recursive: true, force: true });
@@ -68,19 +62,19 @@ export async function server(url?: string): Promise<Server> {
 	};
 }
 
-/** The scripted agent, `agentvoice-bench`, in voice mode while it lives:
+/** The scripted agent, `voiceio-bench`, in voice mode while it lives:
  * it takes in each of the person's turns at once, and answers each with
  * `answer`, where there is one. */
 export async function agent(
 	at: Server,
 	answer: string,
 ): Promise<{ id: string; close(): Promise<void> }> {
-	const id = "agentvoice-bench";
-	const inbox = join(at.inboxes, id);
-	const outbox = join(at.outboxes, id);
+	const id = "voiceio-bench";
+	const io = join(at.agents, id);
+	const inbox = join(io, "inbox");
 	for (const dir of ["new", "cur", "tmp"])
 		await mkdir(join(inbox, dir), { recursive: true, mode: 0o700 });
-	await writeFile(join(inbox, "voice"), JSON.stringify({ name: "bench" }));
+	await writeFile(join(io, "voice"), JSON.stringify({ name: "bench" }));
 	const fresh = join(inbox, "new");
 	let busy = Promise.resolve();
 	const take = () => {
@@ -88,7 +82,7 @@ export async function agent(
 			for (const file of (await readdir(fresh)).sort()) {
 				if (!file.includes(".voice%3A")) continue;
 				await rename(join(fresh, file), join(inbox, "cur", file));
-				if (answer) await send(outbox, file, answer);
+				if (answer) await send(io, file, answer);
 			}
 		});
 	};
@@ -99,19 +93,18 @@ export async function agent(
 		close: async () => {
 			watcher.close();
 			await busy;
-			await rm(inbox, { recursive: true, force: true });
-			await rm(outbox, { recursive: true, force: true });
+			await rm(io, { recursive: true, force: true });
 		},
 	};
 }
 
 /** Answers the item `file` with `text`, for whoever it came from. */
-function send(outbox: string, file: string, text: string): Promise<void> {
+function send(io: string, file: string, text: string): Promise<void> {
 	const sender = decodeURIComponent(file.split(".")[2] ?? "");
 	return new Promise((done, failed) => {
 		const child = execFile(
-			"agentinbox",
-			["send", "--outbox", outbox, "--type", "txt", sender],
+			"mindio",
+			["--mindio", io, "send", "--type", "txt", sender],
 			(error) => (error ? failed(error) : done()),
 		);
 		child.stdin?.end(text);

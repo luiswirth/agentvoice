@@ -1,5 +1,5 @@
 {
-	"name": "agentvoice",
+	"name": "voiceio",
 	"license": "MIT",
 	"private": true,
 	"type": "module",

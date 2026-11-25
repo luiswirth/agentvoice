@@ -21,7 +21,7 @@ export default defineConfig({
 	server: {
 		headers: isolation,
 		proxy: {
-			"/api": `http://localhost:${process.env.AGENTVOICE_PORT ?? 8790}`,
+			"/api": `http://localhost:${process.env.VOICEIO_PORT ?? 8790}`,
 		},
 	},
 	// The built page runs under the policy its server serves it with.

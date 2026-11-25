@@ -18,7 +18,7 @@ build:
 # The page to try voice on, at localhost:5173, live as it is edited, with the
 # agents of the server at localhost:`port`, such as the machine's own.
 dev port="8790":
-    AGENTVOICE_PORT={{ port }} pnpm dev
+    VOICEIO_PORT={{ port }} pnpm dev
 
 # Plays a scenario of bench/scenarios.ts, or a recording's WAV, into the page
 # built from here, in a call with a scripted agent, and measures how its turns

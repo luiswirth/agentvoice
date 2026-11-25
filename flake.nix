@@ -38,12 +38,12 @@
         programs.just.enable = true;
       });
 
-    # agentvoice: the page, built, and its server, which serves it on the
-    # agents' machine, as server/main.ts says. It needs `agentinbox` on its
-    # PATH, the inbox's command line, which delivers the person's turns.
+    # voiceio: the page, built, and its server, which serves it on the
+    # agents' machine, as server/main.ts says. It needs `mindio` on its PATH,
+    # MindIO's command line, which delivers the person's turns.
     packages = forEachSystem (pkgs: {
       default = pkgs.stdenvNoCC.mkDerivation (finalAttrs: {
-        pname = "agentvoice";
+        pname = "voiceio";
         version = "0";
         src = nixpkgs.lib.fileset.toSource {
           root = ./.;
@@ -80,14 +80,14 @@
         '';
         installPhase = ''
           runHook preInstall
-          mkdir -p $out/lib/agentvoice $out/bin
-          cp -r dist $out/lib/agentvoice/dist
-          cp -r server $out/lib/agentvoice/server
-          makeWrapper ${pkgs.lib.getExe pkgs.nodejs} $out/bin/agentvoice \
-            --add-flags $out/lib/agentvoice/server/main.ts
+          mkdir -p $out/lib/voiceio $out/bin
+          cp -r dist $out/lib/voiceio/dist
+          cp -r server $out/lib/voiceio/server
+          makeWrapper ${pkgs.lib.getExe pkgs.nodejs} $out/bin/voiceio \
+            --add-flags $out/lib/voiceio/server/main.ts
           runHook postInstall
         '';
-        meta.mainProgram = "agentvoice";
+        meta.mainProgram = "voiceio";
       });
     });
 
